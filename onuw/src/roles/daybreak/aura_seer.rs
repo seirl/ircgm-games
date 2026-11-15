@@ -65,3 +65,7 @@ impl AuraSeer {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "aura_seer_test.rs"]
+mod test;

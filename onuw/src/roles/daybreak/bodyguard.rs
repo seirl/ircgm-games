@@ -31,3 +31,7 @@ impl Role for Bodyguard {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "bodyguard_test.rs"]
+mod test;

@@ -75,3 +75,7 @@ impl Renfield {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "renfield_test.rs"]
+mod test;

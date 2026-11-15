@@ -367,12 +367,30 @@ fn deal_anarchy_deck(
 
     let mut fallback = Vec::with_capacity(target);
     let mut threats = 0usize;
-    for bundle in &bundles {
+    let pool_has_threats = pool.iter().any(|&r| is_evil_threat_role(r));
+    let mut used_idx = None;
+    if pool_has_threats {
+        if let Some((idx, bundle)) = bundles.iter().enumerate().find(|(_, b)| {
+            let bt = b.iter().filter(|&&r| is_evil_threat_role(r)).count();
+            bt >= 1 && bt <= max_evil_threats && b.len() <= target
+        }) {
+            fallback.extend_from_slice(bundle);
+            threats += bundle.iter().filter(|&&r| is_evil_threat_role(r)).count();
+            used_idx = Some(idx);
+        }
+    }
+    for (idx, bundle) in bundles.iter().enumerate() {
+        if Some(idx) == used_idx {
+            continue;
+        }
         if fallback.len() + bundle.len() <= target {
             let bt = bundle.iter().filter(|&&r| is_evil_threat_role(r)).count();
             if threats + bt <= max_evil_threats {
                 fallback.extend_from_slice(bundle);
                 threats += bt;
+                if fallback.len() == target {
+                    break;
+                }
             }
         }
     }
