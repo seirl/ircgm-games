@@ -279,7 +279,12 @@ impl DeckSpec {
             .collect();
 
         let roster = Roster { seats, deck };
-        let board = BoardCards::new(player_cards, center, self.default_extra_evil_card());
+        let board = BoardCards::with_extra_cards(
+            player_cards,
+            center,
+            Card::new(&WEREWOLF),
+            Card::new(&crate::roles::super_villains::henchman::HENCHMAN),
+        );
         Ok((roster, board))
     }
 }

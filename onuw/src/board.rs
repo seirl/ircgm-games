@@ -21,11 +21,13 @@ pub enum OracleOmen {
 }
 
 /// A physical card on the table: `face` is what is printed on the cardboard when peeked or flipped,
-/// while `became` records any mid-night copy/transformation (`Copycat`, `Doppelgänger`, `Paranormal Investigator`).
+/// `became` records any mid-night copy/transformation (`Copycat`, `Doppelgänger`, `Paranormal Investigator`),
+/// and `face_up` tracks whether the card was flipped face-up (`Revealer`) so face-up state travels with swaps.
 #[derive(Clone, Copy)]
 pub struct Card {
     pub face: &'static dyn Role,
     pub became: Option<&'static dyn Role>,
+    pub face_up: bool,
 }
 
 impl fmt::Debug for Card {
@@ -39,7 +41,11 @@ impl fmt::Debug for Card {
 
 impl Card {
     pub const fn new(face: &'static dyn Role) -> Self {
-        Self { face, became: None }
+        Self {
+            face,
+            became: None,
+            face_up: false,
+        }
     }
 
     pub fn transform(&mut self, became: &'static dyn Role) {
@@ -200,7 +206,7 @@ impl Roster {
         if self
             .deck
             .iter()
-            .any(|r| r.tags().contains(&RoleTag::AlienPack) && r.team() == Team::Werewolf)
+            .any(|r| r.team() == Team::Alien || (r.tags().contains(&RoleTag::AlienPack) && r.team() == Team::Werewolf))
         {
             push_unique("Alien");
         }
@@ -208,7 +214,7 @@ impl Roster {
             || self
                 .deck
                 .iter()
-                .any(|r| r.team() == Team::Werewolf && r.game() == GameSet::SuperVillains)
+                .any(|r| r.team() == Team::SuperVillain || (r.team() == Team::Werewolf && r.game() == GameSet::SuperVillains))
         {
             push_unique("Super Villain");
         }
@@ -342,17 +348,16 @@ pub fn format_role_slice_styled(roles: &[&'static dyn Role]) -> Text {
 pub struct BoardCards {
     pub players: Vec<Card>,
     pub center: [Card; 3],
-    /// Extra center wolf/villain card used by `Alpha Wolf` and `Rapscallion`.
+    /// Extra center Werewolf card used by `Alpha Wolf`.
     pub extra_evil_card: Card,
+    /// Extra perpendicular Villain card (`Henchman`) used by `Temptress` / `Rapscallion`.
+    pub extra_villain_card: Card,
     /// Seats protected by `Sentinel`'s shield token (cannot be viewed, moved, flipped, or artifacted).
     pub shielded: HashSet<usize>,
     /// Per-seat `Mark` tokens (Vampire expansion; initialized to `Mark::Clarity`).
     pub marks: Vec<Mark>,
     /// Per-seat face-down `Artifact` tokens placed during Night (`Curator`).
     pub artifacts: HashMap<usize, Artifact>,
-    /// Cards flipped face-up during Night (`Revealer`) — announced at Daybreak.
-    pub face_up_players: HashSet<usize>,
-    pub face_up_center: HashSet<usize>,
     /// Seats that viewed or moved any card tonight (read by Daybreak's `Aura Seer`).
     pub viewed_or_moved_actors: HashSet<usize>,
     /// Seats absorbed into the `Blob` (Alien expansion).
@@ -363,16 +368,29 @@ pub struct BoardCards {
 
 impl BoardCards {
     pub fn new(players: Vec<Card>, center: [Card; 3], default_evil_card: Card) -> Self {
+        let extra_villain_card = if default_evil_card.face.team() == Team::SuperVillain {
+            default_evil_card
+        } else {
+            Card::new(&crate::roles::super_villains::henchman::HENCHMAN)
+        };
+        Self::with_extra_cards(players, center, default_evil_card, extra_villain_card)
+    }
+
+    pub fn with_extra_cards(
+        players: Vec<Card>,
+        center: [Card; 3],
+        extra_evil_card: Card,
+        extra_villain_card: Card,
+    ) -> Self {
         let n = players.len();
         Self {
             players,
             center,
-            extra_evil_card: default_evil_card,
+            extra_evil_card,
+            extra_villain_card,
             shielded: HashSet::new(),
             marks: vec![Mark::Clarity; n],
             artifacts: HashMap::new(),
-            face_up_players: HashSet::new(),
-            face_up_center: HashSet::new(),
             viewed_or_moved_actors: HashSet::new(),
             blob_seats: HashSet::new(),
             oracle_omen: OracleOmen::Normal,
@@ -383,19 +401,39 @@ impl BoardCards {
         self.shielded.contains(&seat)
     }
 
+    pub fn flip_player_face_up(&mut self, seat: usize) {
+        self.players[seat].face_up = true;
+    }
+
+    pub fn is_player_face_up(&self, seat: usize) -> bool {
+        self.players[seat].face_up
+    }
+
+    pub fn flip_center_face_up(&mut self, c_idx: usize) {
+        self.center[c_idx].face_up = true;
+    }
+
+    pub fn is_center_face_up(&self, c_idx: usize) -> bool {
+        self.center[c_idx].face_up
+    }
+
+    /// True if `seat` holds a role-changing `Artifact` (`Claw`, `Brand`, `Cudgel`), which overrides
+    /// both Dusk `Mark`s and printed/copied Dawn role abilities (`vote_protection`, `on_death`, `special_victory`).
+    pub fn has_role_override_artifact(&self, seat: usize) -> bool {
+        self.artifacts
+            .get(&seat)
+            .and_then(|tok| tok.team_override())
+            .is_some()
+    }
+
     pub fn record_card_interaction(&mut self, actor_seat: usize) {
         self.viewed_or_moved_actors.insert(actor_seat);
     }
 
-    /// Computes a seat's final effective [`Team`] after applying Artifacts and Marks.
+    /// Computes a seat's final effective [`Team`] after applying Dusk `Mark`s first and Night `#11`
+    /// role-changing `Artifact`s second (so `Artifact`s override `Mark`s).
     pub fn effective_team(&self, seat: usize) -> Team {
         let mut team = self.players[seat].effective_role().team();
-
-        if let Some(tok) = self.artifacts.get(&seat) {
-            if let Some(override_team) = tok.team_override() {
-                team = override_team;
-            }
-        }
 
         match self.marks[seat] {
             Mark::Vampire => team = Team::Vampire,
@@ -408,57 +446,81 @@ impl BoardCards {
                     self.artifacts.get(&i).and_then(|t| t.team_override()) == Some(Team::Werewolf)
                         || self.players[i].effective_role().team() == Team::Werewolf
                 });
+                let any_alien = (0..self.players.len())
+                    .any(|i| self.players[i].effective_role().team() == Team::Alien);
+                let any_villain = (0..self.players.len())
+                    .any(|i| self.players[i].effective_role().team() == Team::SuperVillain);
                 team = match team {
                     Team::Village => {
-                        if any_vamp && !any_wolf {
+                        if any_vamp && !any_wolf && !any_alien && !any_villain {
                             Team::Vampire
+                        } else if any_alien && !any_wolf && !any_vamp && !any_villain {
+                            Team::Alien
+                        } else if any_villain && !any_wolf && !any_vamp && !any_alien {
+                            Team::SuperVillain
                         } else {
                             Team::Werewolf
                         }
                     }
-                    Team::Werewolf | Team::Vampire => Team::Village,
+                    Team::Werewolf | Team::Vampire | Team::Alien | Team::SuperVillain => {
+                        Team::Village
+                    }
                     Team::Independent => Team::Independent,
                 };
             }
             _ => {}
         }
 
+        if let Some(tok) = self.artifacts.get(&seat) {
+            if let Some(override_team) = tok.team_override() {
+                team = override_team;
+            }
+        }
+
         team
     }
 
-    /// True if `seat` counts as a primary Werewolf/Alien/Villain threat.
-    pub fn is_wolf_threat(&self, seat: usize) -> bool {
-        if matches!(self.marks[seat], Mark::Vampire | Mark::Traitor) {
-            return false;
-        }
+    /// True if `seat` counts as a primary monster threat for `monster_team`
+    /// (`Werewolf`, `Vampire`, `Alien`, or `SuperVillain`), respecting `Artifact` > `Mark` > `Card` precedence.
+    pub fn is_monster_threat_for(&self, seat: usize, monster_team: Team) -> bool {
         if let Some(tok) = self.artifacts.get(&seat) {
-            if let Some(override_threat) = tok.wolf_threat_override() {
-                return override_threat;
+            if let Some(override_team) = tok.team_override() {
+                return override_team == monster_team;
             }
         }
+        match self.marks[seat] {
+            Mark::Vampire => return monster_team == Team::Vampire,
+            Mark::Traitor => return false,
+            _ => {}
+        }
         let role = self.players[seat].effective_role();
-        role.team() == Team::Werewolf && !role.is_minion()
+        role.team() == monster_team && !role.is_minion()
+    }
+
+    /// True if `seat` counts as a primary Werewolf threat.
+    pub fn is_wolf_threat(&self, seat: usize) -> bool {
+        self.is_monster_threat_for(seat, Team::Werewolf)
     }
 
     /// True if `seat` counts as a primary Vampire threat (`Vampire`, `The Master`, `Count`, or `Mark::Vampire`).
     pub fn is_vampire_threat(&self, seat: usize) -> bool {
-        if self.marks[seat] == Mark::Vampire {
-            return true;
-        }
-        if self.marks[seat] == Mark::Traitor {
-            return false;
-        }
-        if let Some(tok) = self.artifacts.get(&seat) {
-            if let Some(override_threat) = tok.vampire_threat_override() {
-                return override_threat;
-            }
-        }
-        let role = self.players[seat].effective_role();
-        role.team() == Team::Vampire && !role.is_minion()
+        self.is_monster_threat_for(seat, Team::Vampire)
     }
 
-    /// True if `seat` counts as any primary monster threat (`Werewolf` or `Vampire`).
+    /// True if `seat` counts as a primary Alien threat.
+    pub fn is_alien_threat(&self, seat: usize) -> bool {
+        self.is_monster_threat_for(seat, Team::Alien)
+    }
+
+    /// True if `seat` counts as a primary Super Villain threat.
+    pub fn is_villain_threat(&self, seat: usize) -> bool {
+        self.is_monster_threat_for(seat, Team::SuperVillain)
+    }
+
+    /// True if `seat` counts as any primary monster threat (`Werewolf`, `Vampire`, `Alien`, or `SuperVillain`).
     pub fn is_primary_threat(&self, seat: usize) -> bool {
-        self.is_wolf_threat(seat) || self.is_vampire_threat(seat)
+        Team::MONSTER_TEAMS
+            .iter()
+            .any(|&t| self.is_monster_threat_for(seat, t))
     }
 }

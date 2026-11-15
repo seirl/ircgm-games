@@ -23,7 +23,7 @@ impl Role for Copycat {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::copycat(5, &VILLAGER, Self::pick))
+        Some(Wake::copycat_scheduled(8, &VILLAGER, Self::pick))
     }
 }
 
@@ -94,17 +94,13 @@ impl Copycat {
                 copied.styled_name(),
             ),
         );
-        match copied.copy_behavior() {
-            CopyBehavior::ActImmediately => {}
-            CopyBehavior::JoinGroupWake | CopyBehavior::WakeAfterAllMutations => {
-                ctx.dm(
-                    seat,
-                    "🌙 Stand by—your copied role's action will fire on schedule!",
-                );
-            }
-            CopyBehavior::Sleep => {
-                ctx.dm(seat, "🌙 You have no further actions tonight.");
-            }
+        if copied.wake().is_some() || copied.copy_behavior() == CopyBehavior::JoinGroupWake {
+            ctx.dm(
+                seat,
+                "🌙 Stand by—your copied role's action will fire on schedule!",
+            );
+        } else {
+            ctx.dm(seat, "🌙 You have no further actions tonight.");
         }
 
         Some(CopiedRecord {

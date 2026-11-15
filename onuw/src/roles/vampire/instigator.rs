@@ -22,7 +22,7 @@ impl Role for Instigator {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(39, Self::prompt).dusk().mutates())
+        Some(Wake::solo(38, Self::prompt).dusk().mutates())
     }
 }
 

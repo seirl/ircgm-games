@@ -27,7 +27,7 @@ impl Role for Revealer {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(192, Self::prompt).mutates())
+        Some(Wake::solo(192, Self::prompt).mutates().follow_on_copy())
     }
 }
 
@@ -97,7 +97,7 @@ impl Revealer {
                     card.display_for_peek(),
                 ));
             } else {
-                board.face_up_players.insert(target);
+                board.flip_player_face_up(target);
                 ctx.dm(
                     seat,
                     irc_format!(

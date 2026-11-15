@@ -20,14 +20,14 @@ impl Role for Henchman {
             "henchman",
             "Henchman",
             GameSet::SuperVillains,
-            Team::Werewolf,
+            Team::SuperVillain,
             "Wake with the Super Villains; if you are the sole Villain in play, you may peek at 1 center card!",
         )
         .tags(&[RoleTag::VillainPack])
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::pack(121, RoleTag::VillainPack, Self::huddle))
+        Some(Wake::pack(124, RoleTag::VillainPack, Self::huddle))
     }
 }
 

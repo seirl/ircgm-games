@@ -14,7 +14,7 @@ impl Role for DrPeeker {
             "dr_peeker",
             "Dr. Peeker",
             GameSet::SuperVillains,
-            Team::Werewolf,
+            Team::SuperVillain,
             "Wake with the Super Villains, then inspect 1 non-Villain player's card!",
         )
         .aliases(&["peeker", "drpeeker"])
@@ -22,7 +22,7 @@ impl Role for DrPeeker {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(131, Self::prompt))
+        Some(Wake::solo(128, Self::prompt))
     }
 }
 

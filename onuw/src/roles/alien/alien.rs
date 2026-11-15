@@ -21,14 +21,14 @@ impl Role for Alien {
             "alien",
             "Alien",
             GameSet::Alien,
-            Team::Werewolf,
+            Team::Alien,
             "Wake with the Aliens; the commander may scan <nick> a non-Alien's card OR beam <nick1> <nick2> to swap two non-Aliens!",
         )
         .tags(&[RoleTag::AlienPack])
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(124, Self::wake_group).mutates())
+        Some(Wake::group(110, Self::wake_group).mutates())
     }
 }
 
@@ -220,12 +220,12 @@ impl Role for SyntheticAlien {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(125, Self::wake_group))
+        Some(Wake::group(111, Self::wake_group))
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         ctx.is_dead(seat)
-            .then_some(SpecialVictory::independent_blocking(&[Team::Werewolf]))
+            .then_some(SpecialVictory::independent_blocking(Team::MONSTER_TEAMS))
     }
 }
 

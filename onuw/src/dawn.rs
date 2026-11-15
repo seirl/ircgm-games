@@ -55,11 +55,31 @@ pub fn resolve_and_announce_winners(
         votes: &votes,
     };
 
-    // Collect unified vote protections (`Bodyguard`, `Prince`, `The Master`):
+    // Determine active monster factions in front of players (`Epic Battle` when >= 2 monster factions clash):
+    let threats_by_faction: Vec<(Team, Vec<usize>)> = Team::MONSTER_TEAMS
+        .iter()
+        .map(|&team| {
+            let seats: Vec<usize> = (0..n)
+                .filter(|&i| board.is_monster_threat_for(i, team))
+                .collect();
+            (team, seats)
+        })
+        .collect();
+    let present_monster_factions: Vec<Team> = threats_by_faction
+        .iter()
+        .filter(|(_, seats)| !seats.is_empty())
+        .map(|(team, _)| *team)
+        .collect();
+    let is_epic_battle = present_monster_factions.len() >= 2;
+
+    // Collect unified vote protections (`Bodyguard`, `Prince`, `The Master`), suppressed if overridden by a role-changing Artifact:
     let mut vote_immune: HashSet<usize> = HashSet::new();
     let mut hunter_shielded: HashSet<usize> = HashSet::new();
     let mut death_announcements: Vec<Text> = Vec::new();
     for seat in 0..n {
+        if board.has_role_override_artifact(seat) {
+            continue;
+        }
         if let Some(prot) = board.players[seat]
             .effective_role()
             .vote_protection(seat, &death_ctx)
@@ -68,13 +88,17 @@ pub fn resolve_and_announce_winners(
             if prot.blocks_hunter_shot {
                 hunter_shielded.insert(prot.protected_seat);
             }
-            if tally[prot.protected_seat] >= 2 {
+            if tally[prot.protected_seat] >= 2
+                || (is_epic_battle && tally[prot.protected_seat] >= 1)
+            {
                 death_announcements.push(prot.announcement);
             }
         }
     }
 
-    // Highest vote count >= 2 among non-immune seats dies:
+    // Standard ONUW: highest vote count >= 2 among non-immune seats dies.
+    // Epic Battle (>= 2 monster factions in play): BOTH most votes (>= 2) AND 2nd-most votes (>= 1)
+    // die, unless 2+ players tied for most votes (in which case all tied for 1st die).
     let max_killable_votes = tally
         .iter()
         .enumerate()
@@ -85,9 +109,29 @@ pub fn resolve_and_announce_winners(
 
     let mut dead: HashSet<usize> = HashSet::new();
     if max_killable_votes >= 2 {
-        for (idx, &c) in tally.iter().enumerate() {
-            if c == max_killable_votes && !vote_immune.contains(&idx) {
-                dead.insert(idx);
+        let top_tied: Vec<usize> = tally
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, &c)| {
+                (c == max_killable_votes && !vote_immune.contains(&idx)).then_some(idx)
+            })
+            .collect();
+        dead.extend(&top_tied);
+
+        if is_epic_battle && top_tied.len() == 1 {
+            let second_votes = tally
+                .iter()
+                .enumerate()
+                .filter(|(idx, &c)| !vote_immune.contains(idx) && c < max_killable_votes)
+                .map(|(_, &c)| c)
+                .max()
+                .unwrap_or(0);
+            if second_votes >= 1 {
+                for (idx, &c) in tally.iter().enumerate() {
+                    if c == second_votes && !vote_immune.contains(&idx) {
+                        dead.insert(idx);
+                    }
+                }
             }
         }
     }
@@ -101,19 +145,25 @@ pub fn resolve_and_announce_winners(
         let mut newly_killed = Vec::new();
         for d in current_dead {
             if processed_deaths.insert(d) {
-                if let Some(effect) = board.players[d].effective_role().on_death(d, &death_ctx) {
-                    match effect {
-                        DeathEffect::Kill {
-                            seat: kill_seat,
-                            announcement,
-                        } => {
-                            if !dead.contains(&kill_seat) && !hunter_shielded.contains(&kill_seat) {
-                                newly_killed.push(kill_seat);
-                                death_announcements.push(announcement);
+                if !board.has_role_override_artifact(d) {
+                    if let Some(effect) =
+                        board.players[d].effective_role().on_death(d, &death_ctx)
+                    {
+                        match effect {
+                            DeathEffect::Kill {
+                                seat: kill_seat,
+                                announcement,
+                            } => {
+                                if !dead.contains(&kill_seat)
+                                    && !hunter_shielded.contains(&kill_seat)
+                                {
+                                    newly_killed.push(kill_seat);
+                                    death_announcements.push(announcement);
+                                }
                             }
-                        }
-                        DeathEffect::ForfeitWins(seats) => {
-                            death_forfeits.extend(seats);
+                            DeathEffect::ForfeitWins(seats) => {
+                                death_forfeits.extend(seats);
+                            }
                         }
                     }
                 }
@@ -253,7 +303,7 @@ pub fn resolve_and_announce_winners(
     };
 
     // 4a. Special role & artifact victories (`SpecialVictory` + `CudgelOfTheTanner`):
-    let mut forced_team_winner: Option<Team> = None;
+    let mut forced_team_candidate: Option<(Team, Text)> = None;
     let mut blocked_teams: HashSet<Team> = HashSet::new();
     let mut winners: HashMap<usize, &'static str> = HashMap::new();
     for seat in 0..n {
@@ -269,11 +319,10 @@ pub fn resolve_and_announce_winners(
         let role = board.players[seat].effective_role();
         match role.special_victory(seat, &vctx) {
             Some(SpecialVictory::ForceTeam { team, announcement })
-                if forced_team_winner.is_none()
+                if forced_team_candidate.is_none()
                     && board.effective_team(seat) == role.team() =>
             {
-                room.say(announcement)?;
-                forced_team_winner = Some(team);
+                forced_team_candidate = Some((team, announcement));
             }
             Some(SpecialVictory::Independent { blocks })
                 if board.effective_team(seat) == Team::Independent =>
@@ -285,9 +334,22 @@ pub fn resolve_and_announce_winners(
         }
     }
 
-    // 4b. Multi-faction victory evaluation (Village vs Werewolves/Evil vs Vampires):
-    let wolf_threats: Vec<usize> = (0..n).filter(|&i| board.is_wolf_threat(i)).collect();
-    let vamp_threats: Vec<usize> = (0..n).filter(|&i| board.is_vampire_threat(i)).collect();
+    let forced_team_winner = match forced_team_candidate {
+        Some((team, announcement)) if !blocked_teams.contains(&team) => {
+            room.say(announcement)?;
+            Some(team)
+        }
+        _ => None,
+    };
+
+    // 4b. Multi-faction & Epic Battle victory evaluation (`Village` vs `Werewolf` / `Vampire` / `Alien` / `SuperVillain`):
+    let threats_of = |team: Team| -> &[usize] {
+        threats_by_faction
+            .iter()
+            .find(|(t, _)| *t == team)
+            .map(|(_, seats)| seats.as_slice())
+            .unwrap_or(&[])
+    };
     let minions_for = |team: Team| -> Vec<usize> {
         (0..n)
             .filter(|&i| {
@@ -295,55 +357,61 @@ pub fn resolve_and_announce_winners(
             })
             .collect()
     };
-    let wolf_minions = minions_for(Team::Werewolf);
-    let vamp_minions = minions_for(Team::Vampire);
 
-    let (village_wins, werewolf_wins, vampire_wins) = if let Some(forced) = forced_team_winner {
-        (
-            forced == Team::Village,
-            forced == Team::Werewolf,
-            forced == Team::Vampire,
-        )
+    let mut winning_teams: HashSet<Team> = HashSet::new();
+    if let Some(forced) = forced_team_winner {
+        winning_teams.insert(forced);
     } else {
-        let any_monster_threats = !wolf_threats.is_empty() || !vamp_threats.is_empty();
-        let any_monster_killed = wolf_threats.iter().any(|s| dead.contains(s))
-            || vamp_threats.iter().any(|s| dead.contains(s));
-
-        let v_win = if any_monster_threats {
-            !blocked_teams.contains(&Team::Village) && any_monster_killed
+        let village_wins = if !present_monster_factions.is_empty() {
+            !blocked_teams.contains(&Team::Village)
+                && present_monster_factions
+                    .iter()
+                    .all(|&f| threats_of(f).iter().any(|s| dead.contains(s)))
         } else {
             !blocked_teams.contains(&Team::Village) && dead.is_empty()
         };
+        if village_wins {
+            winning_teams.insert(Team::Village);
+        }
 
-        let faction_wins = |team: Team, threats: &[usize], minions: &[usize]| -> bool {
+        for &team in Team::MONSTER_TEAMS {
             if blocked_teams.contains(&team) {
-                return false;
+                continue;
             }
-            if !threats.is_empty() {
-                threats.iter().all(|s| !dead.contains(s))
+            let threats = threats_of(team);
+            let minions = minions_for(team);
+            let won = if !threats.is_empty() {
+                let all_own_survive = threats.iter().all(|s| !dead.contains(s));
+                if is_epic_battle {
+                    let rival_killed = present_monster_factions
+                        .iter()
+                        .any(|&other| other != team && threats_of(other).iter().any(|s| dead.contains(s)));
+                    all_own_survive && rival_killed
+                } else {
+                    all_own_survive
+                }
             } else {
                 !minions.is_empty()
                     && minions.iter().all(|m| !dead.contains(m))
                     && dead.iter().any(|&d| board.effective_team(d) != team)
+            };
+            if won {
+                winning_teams.insert(team);
             }
-        };
+        }
+    }
 
-        (
-            v_win,
-            faction_wins(Team::Werewolf, &wolf_threats, &wolf_minions),
-            faction_wins(Team::Vampire, &vamp_threats, &vamp_minions),
-        )
-    };
-
-    for (team_won, team, label) in [
-        (village_wins, Team::Village, "Village"),
-        (werewolf_wins, Team::Werewolf, "Werewolf Team"),
-        (vampire_wins, Team::Vampire, "Vampire Team"),
+    for &team in &[
+        Team::Village,
+        Team::Werewolf,
+        Team::Vampire,
+        Team::Alien,
+        Team::SuperVillain,
     ] {
-        if team_won {
+        if winning_teams.contains(&team) {
             for seat in 0..n {
                 if board.effective_team(seat) == team {
-                    winners.insert(seat, label);
+                    winners.insert(seat, team.win_label());
                 }
             }
         }

@@ -97,12 +97,13 @@ async fn copycat_runs_before_doppelganger_so_chained_copy_propagates_center_role
     .await;
 
     let night = h.spawn_night();
-    // Copycat (wake_order 5) runs BEFORE Doppelgänger (wake_order 10) even though Alice is seat #1!
+    // Copycat (#-8) runs BEFORE Doppelgänger (#-7) even though Alice is seat #1!
     h.reply_dm("Bob", "1").await;
-    h.reply_dm("Bob", "pass").await;
     // Alice (Doppelgänger) copies Bob (Copycat -> Robber!) and steals Carol's Villager card:
     h.reply_dm("Alice", "Bob").await;
     h.reply_dm("Alice", "Carol").await;
+    // Night: Bob (Copycat-Robber) wakes on Robber's scheduled tier (#6) and passes:
+    h.reply_dm("Bob", "pass").await;
 
     let report = h.finish_night(night).await;
     assert_eq!(report.effective_role_at(&h.roster, "Bob"), "Robber");
@@ -127,19 +128,19 @@ async fn priest_pickpocket_marksman_instigator_cupid_diseased_master_and_assassi
     .await;
 
     let night = h.spawn_night();
-    // Dusk: Assassin marks Dave, Priest passes extra cleanse, Pickpocket swaps Marks with Dave!
-    h.reply_dm("Alice", "Dave").await;
+    // Dusk: Priest (#-2) passes extra cleanse, Assassin (#-1) marks Dave!
     h.reply_dm("Bob", "pass").await;
+    h.reply_dm("Alice", "Dave").await;
+    // Night: Marksman (Dave, #5D) scopes Alice's card and Bob's mark BEFORE Pickpocket (Carol, #6C) steals Mark::Assassin from Dave!
+    h.reply_dm("Dave", "Alice Bob").await;
     h.reply_dm("Carol", "Dave").await;
-    // Night: Marksman (Dave) inspects Alice's card and Carol's mark!
-    h.reply_dm("Dave", "Alice Carol").await;
 
     let report = h.finish_night(night).await;
     assert_eq!(report.mark_at(&h.roster, "Carol"), Mark::Assassin);
     assert_eq!(report.mark_at(&h.roster, "Dave"), Mark::Clarity);
     assert!(report
         .dms_to("Dave")
-        .contains("Alice's card is Assassin, and Carol's mark is Mark of the Assassin!"));
+        .contains("Alice's card is Assassin, and Bob's mark is Mark of Clarity!"));
     assert!(report.has_chronicle_substr(
         "Pickpocket (Carol) stole Mark of the Assassin from Dave (giving Dave Mark of Clarity)."
     ));

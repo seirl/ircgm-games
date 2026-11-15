@@ -68,12 +68,12 @@ async fn rogue_waits_for_robber_and_troublemaker_then_steals_post_swap_card_and_
 }
 
 #[tokio::test(start_paused = true)]
-async fn role_retriever_notifies_victim_and_temptress_triggers_evilometer() {
+async fn role_retriever_notifies_victim_and_evilometer_detects_villain_at_villain_wake() {
     let mut h = OnuwTestHarness::with_extra_evil(
         &[
             ("Alice", &TEMPTRESS),
-            ("Bob", &DR_PEEKER),
-            ("Carol", &ROLE_RETRIEVER),
+            ("Bob", &ROLE_RETRIEVER),
+            ("Carol", &DR_PEEKER),
             ("Dave", &EVILOMETER),
             ("Eve", &ANNOYING_LAD),
         ],
@@ -83,24 +83,23 @@ async fn role_retriever_notifies_victim_and_temptress_triggers_evilometer() {
     .await;
 
     let night = h.spawn_night();
-    // Temptress (Alice, 128) swaps her Temptress card with Eve (seat #5, adjacent to Evilometer Dave #4!):
+    // Evilometer (Dave, 125) runs during the #2 Villain phase before swaps and detects adjacent Carol (Dr. Peeker)!
+    // Temptress (Alice, 126) swaps her Temptress card with Eve (Annoying Lad):
     h.reply_dm("Alice", "Eve").await;
-    // Dr. Peeker (Bob, 131) X-rays Carol (Role Retriever):
-    h.reply_dm("Bob", "Carol").await;
-    // Role Retriever (Carol, 162) swaps with Alice (who now holds Annoying Lad!):
-    h.reply_dm("Carol", "Alice").await;
-    // Eve (started Annoying Lad, pokes left neighbor Dave):
+    // Dr. Peeker (Carol, 128) X-rays Bob (Role Retriever):
+    h.reply_dm("Carol", "Bob").await;
+    // Annoying Lad (Eve, 142 — #4C) pokes left neighbor Dave:
     h.reply_dm("Eve", "left").await;
+    // Role Retriever (Bob, 162 — #6A) swaps with Alice (who now holds Annoying Lad!):
+    h.reply_dm("Bob", "Alice").await;
 
     let report = h.finish_night(night).await;
-    // Alice was notified by Role Retriever that her card is now Role Retriever!
     assert!(report
         .dms_to("Alice")
         .contains("The Role Retriever swapped your card! Your card is now Role Retriever!"));
     assert!(report
-        .dms_to("Carol")
+        .dms_to("Bob")
         .contains("you fetched Annoying Lad!"));
-    // Eve now holds Temptress (adjacent to Dave = Evilometer), so Dave's Evilometer beeps!
     assert!(report.dms_to("Dave").contains("*BEEP! BEEP!*"));
     assert!(report.dms_to("Dave").contains("*POKE!*"));
 }

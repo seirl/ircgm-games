@@ -119,7 +119,7 @@ impl Doppelganger {
         );
         match copied.copy_behavior() {
             CopyBehavior::ActImmediately => {}
-            CopyBehavior::JoinGroupWake | CopyBehavior::WakeAfterAllMutations => {
+            CopyBehavior::JoinGroupWake | CopyBehavior::FollowRoleWake => {
                 ctx.dm(
                     seat,
                     "🌙 Stand by—your copied role's night info will arrive on schedule!",

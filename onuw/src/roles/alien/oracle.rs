@@ -18,7 +18,7 @@ impl Role for Oracle {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(142, Self::prompt).mutates())
+        Some(Wake::solo(1, Self::prompt).before_copycat().mutates())
     }
 }
 

@@ -27,7 +27,7 @@ impl Role for Psychic {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(145, Self::inspect).immediate_on_copy())
+        Some(Wake::passive(159, Self::inspect).immediate_on_copy())
     }
 }
 

@@ -24,7 +24,7 @@ impl Role for Groob {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(126, Self::wake_group))
+        Some(Wake::group(114, Self::wake_group))
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
@@ -81,7 +81,7 @@ impl Role for Zerb {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(127, Self::wake_group))
+        Some(Wake::group(115, Self::wake_group))
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {

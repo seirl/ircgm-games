@@ -14,14 +14,14 @@ impl Role for Rapscallion {
             "rapscallion",
             "Rapscallion",
             GameSet::SuperVillains,
-            Team::Werewolf,
+            Team::SuperVillain,
             "Wake with the Super Villains, then MUST swap the extra Villain/Evil card onto a non-Villain player!",
         )
         .tags(&[RoleTag::VillainPack])
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(129, Self::prompt).mutates())
+        Some(Wake::solo(127, Self::prompt).mutates())
     }
 }
 
@@ -81,8 +81,8 @@ impl Rapscallion {
         if !board.is_shielded(target) {
             board.record_card_interaction(seat);
             let old_card = board.players[target];
-            let planted = board.extra_evil_card;
-            std::mem::swap(&mut board.players[target], &mut board.extra_evil_card);
+            let planted = board.extra_villain_card;
+            std::mem::swap(&mut board.players[target], &mut board.extra_villain_card);
             ctx.record(irc_format!(
                 "🧨 {actor_label} ({}) planted {} onto {} (replacing {}).",
                 ctx.nick(seat).bold(),

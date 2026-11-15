@@ -13,13 +13,13 @@ impl Role for AuraSeer {
             "Aura Seer",
             GameSet::Daybreak,
             Team::Village,
-            "Wake at the end of Night to see every player who viewed or moved a card tonight!",
+            "Wake after Troublemaker & Village Idiot to see every player who viewed or moved a card so far!",
         )
         .aliases(&["aura"])
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(195, Self::inspect))
+        Some(Wake::passive(174, Self::inspect))
     }
 }
 

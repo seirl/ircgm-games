@@ -72,20 +72,45 @@ impl GameSet {
 pub enum Team {
     /// Villagers, Heroes, and village-aligned specialists.
     Village,
-    /// Werewolves, Aliens, Super Villains, and Minion.
+    /// Werewolves and Minion.
     Werewolf,
     /// Vampires (`Vampire`, `The Master`, `Count`), Renfield, and `Mark::Vampire` thralls.
     Vampire,
+    /// Aliens (`Alien`, `Groob`/`Zerb` fallback).
+    Alien,
+    /// Super Villains (`Henchman`, `Temptress`, `Dr. Peeker`, `Rapscallion`).
+    SuperVillain,
     /// Solo / custom win condition (`Tanner`, `Assassin`, `Groob`, `Zerb`, `Blob`, `Mortician`, `Mad Scientist`, `Intern`).
     Independent,
 }
 
 impl Team {
+    /// All four hostile monster factions used for *Epic Battle* detection and Tanner-style team blocks.
+    pub const MONSTER_TEAMS: &'static [Team] = &[
+        Team::Werewolf,
+        Team::Vampire,
+        Team::Alien,
+        Team::SuperVillain,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             Team::Village => "Village",
             Team::Werewolf => "Werewolf",
             Team::Vampire => "Vampire",
+            Team::Alien => "Alien",
+            Team::SuperVillain => "Super Villain",
+            Team::Independent => "Independent",
+        }
+    }
+
+    pub fn win_label(self) -> &'static str {
+        match self {
+            Team::Village => "Village",
+            Team::Werewolf => "Werewolf Team",
+            Team::Vampire => "Vampire Team",
+            Team::Alien => "Alien Team",
+            Team::SuperVillain => "Super Villain Team",
             Team::Independent => "Independent",
         }
     }
@@ -95,6 +120,8 @@ impl Team {
             Team::Village => "Village".bold().cyan(),
             Team::Werewolf => "Werewolf".bold().red(),
             Team::Vampire => "Vampire".bold().magenta(),
+            Team::Alien => "Alien".bold().green(),
+            Team::SuperVillain => "Super Villain".bold().red(),
             Team::Independent => "Independent".bold().orange(),
         }
     }
@@ -174,8 +201,9 @@ impl RoleInfo {
 
     pub fn styled_name(self) -> Text {
         match self.team {
-            Team::Werewolf => self.name.bold().red().into(),
+            Team::Werewolf | Team::SuperVillain => self.name.bold().red().into(),
             Team::Vampire => self.name.bold().magenta().into(),
+            Team::Alien => self.name.bold().green().into(),
             Team::Independent => self.name.bold().orange().into(),
             Team::Village => self.name.bold().cyan().into(),
         }
@@ -191,19 +219,22 @@ pub enum CopyBehavior {
     Sleep,
     ActImmediately,
     JoinGroupWake,
-    WakeAfterAllMutations,
+    /// Wakes in the copied role's own scheduled Dusk/Night tier right after initial holders (`X-A`).
+    FollowRoleWake,
 }
 
-/// Explicit phase in the Dusk/Night schedule.
+/// Explicit phase in the Dusk/Night schedule, matching canonical One Night Wiki wake numbering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum WakePhase {
-    /// Runs before Copycats (`Sentinel`).
-    PreCopycatDusk,
-    /// Copycat / Doppelgänger phase (`Copycat` then `Doppelgänger`).
+    /// `#-9`: Very first wake of the game (`Oracle`), before `Copycat` (`#-8`) and `Doppelgänger`.
+    PreCopycat,
+    /// `#-8` / `#-7` / `#1`: `Copycat` (`#-8`) and `Doppelgänger` (`#-7` in Dusk games, `#1` after `Sentinel` otherwise).
     Copycat,
-    /// Vampire-expansion Dusk phase.
+    /// `#-6` .. `#-1B`: Vampire-expansion Dusk phase (followed at `00` by Mark inspection & `Lovers`).
     Dusk,
-    /// Standard Night phase.
+    /// `#0`: Start of Night (`Sentinel`), after Dusk (`00`) and before Night `#1 Doppelgänger` / `#1A..#13A` roles.
+    NightStart,
+    /// `#1A` .. `#13A`: Standard Night phase.
     Night,
 }
 
@@ -285,9 +316,12 @@ pub enum WakeKind {
         prompt: GroupPromptFn,
     },
     /// Copycat / Doppelgänger card-selection wake, falling back to `fallback` if unawakened.
+    /// When `acts_on_role_schedule` is true (`Copycat`), the copier never uses `CopycatImmediate`
+    /// and instead wakes when the copied role's scheduled Dusk/Night tier runs.
     Copycat {
         fallback: &'static dyn Role,
         pick: CopycatPromptFn,
+        acts_on_role_schedule: bool,
     },
 }
 
@@ -297,7 +331,15 @@ impl fmt::Debug for WakeKind {
             Self::Solo(_) => write!(f, "Solo"),
             Self::Passive(_) => write!(f, "Passive"),
             Self::Group { pack, .. } => write!(f, "Group({pack:?})"),
-            Self::Copycat { fallback, .. } => write!(f, "Copycat({})", fallback.name()),
+            Self::Copycat {
+                fallback,
+                acts_on_role_schedule,
+                ..
+            } => write!(
+                f,
+                "Copycat({}, scheduled={acts_on_role_schedule})",
+                fallback.name()
+            ),
         }
     }
 }
@@ -334,7 +376,7 @@ impl Wake {
             kind: WakeKind::Passive(wake_fn),
             mutates_board: false,
             reads_live_board: false,
-            copy_behavior: CopyBehavior::WakeAfterAllMutations,
+            copy_behavior: CopyBehavior::FollowRoleWake,
         }
     }
 
@@ -371,7 +413,31 @@ impl Wake {
         Self {
             phase: WakePhase::Copycat,
             order,
-            kind: WakeKind::Copycat { fallback, pick },
+            kind: WakeKind::Copycat {
+                fallback,
+                pick,
+                acts_on_role_schedule: false,
+            },
+            mutates_board: true,
+            reads_live_board: true,
+            copy_behavior: CopyBehavior::Sleep,
+        }
+    }
+
+    /// Center-card `Copycat` (`#-8`): picks in `CopycatPick`, then wakes on the copied role's Dusk/Night schedule.
+    pub const fn copycat_scheduled(
+        order: u16,
+        fallback: &'static dyn Role,
+        pick: CopycatPromptFn,
+    ) -> Self {
+        Self {
+            phase: WakePhase::Copycat,
+            order,
+            kind: WakeKind::Copycat {
+                fallback,
+                pick,
+                acts_on_role_schedule: true,
+            },
             mutates_board: true,
             reads_live_board: true,
             copy_behavior: CopyBehavior::Sleep,
@@ -380,11 +446,21 @@ impl Wake {
 
     pub const fn dusk(mut self) -> Self {
         self.phase = WakePhase::Dusk;
+        if matches!(self.copy_behavior, CopyBehavior::ActImmediately) {
+            self.copy_behavior = CopyBehavior::FollowRoleWake;
+        }
         self
     }
 
+    /// Places a role at `#-9` before `Copycat` / `Doppelgänger` (`Oracle`).
     pub const fn before_copycat(mut self) -> Self {
-        self.phase = WakePhase::PreCopycatDusk;
+        self.phase = WakePhase::PreCopycat;
+        self
+    }
+
+    /// Places a role at `#0` (start of Night, after Dusk `00` and before Night `#1 Doppelgänger`, e.g. `Sentinel`).
+    pub const fn night_start(mut self) -> Self {
+        self.phase = WakePhase::NightStart;
         self
     }
 
@@ -400,9 +476,16 @@ impl Wake {
         self
     }
 
-    /// Marks a passive role as acting immediately when copied (`Psychic`).
+    /// Marks a passive role as acting immediately when copied by `Doppelgänger` (`Psychic`).
     pub const fn immediate_on_copy(mut self) -> Self {
         self.copy_behavior = CopyBehavior::ActImmediately;
+        self
+    }
+
+    /// Marks a solo role as waking right after the original role (`X-A`) when copied by `Doppelgänger`
+    /// (`Pickpocket`, `Gremlin`, `Revealer`, `Curator`).
+    pub const fn follow_on_copy(mut self) -> Self {
+        self.copy_behavior = CopyBehavior::FollowRoleWake;
         self
     }
 
@@ -750,9 +833,12 @@ impl dyn Role {
         self.info().styled_name()
     }
 
-    /// True for primary Werewolf/Alien/Villain/Vampire threats (excluding `Minion` and `Renfield`).
+    /// True for primary Werewolf/Vampire/Alien/SuperVillain threats (excluding `Minion` and `Renfield`).
     pub fn is_primary_threat(&self) -> bool {
-        matches!(self.team(), Team::Werewolf | Team::Vampire) && !self.is_minion()
+        matches!(
+            self.team(),
+            Team::Werewolf | Team::Vampire | Team::Alien | Team::SuperVillain
+        ) && !self.is_minion()
     }
 
     pub fn copy_behavior(&self) -> CopyBehavior {
@@ -761,7 +847,7 @@ impl dyn Role {
         } else if self.tags().iter().any(|t| {
             matches!(
                 t,
-                RoleTag::WolfPack | RoleTag::VampirePack | RoleTag::VillainPack
+                RoleTag::WolfPack | RoleTag::VampirePack | RoleTag::AlienPack | RoleTag::VillainPack
             )
         }) {
             CopyBehavior::JoinGroupWake
@@ -774,6 +860,16 @@ impl dyn Role {
         match self.wake()?.kind {
             WakeKind::Copycat { fallback, .. } => Some(fallback),
             _ => None,
+        }
+    }
+
+    pub fn acts_on_role_schedule(&self) -> bool {
+        match self.wake().map(|w| w.kind) {
+            Some(WakeKind::Copycat {
+                acts_on_role_schedule,
+                ..
+            }) => acts_on_role_schedule,
+            _ => false,
         }
     }
 

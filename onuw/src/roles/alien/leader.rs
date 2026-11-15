@@ -33,7 +33,7 @@ impl Role for Leader {
 
         if !alien_threats.is_empty() && alien_threats.iter().all(|&a| ctx.votes[a] == Some(seat)) {
             Some(SpecialVictory::force_team(
-                Team::Werewolf,
+                Team::Alien,
                 format!(
                     "🛸 All Aliens pointed at the Leader ({}) — Aliens abduct the Leader and WIN!",
                     ctx.roster.seats[seat].user.nick()

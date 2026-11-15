@@ -28,7 +28,7 @@ pub enum Artifact {
     VoidOfNothingness,
 }
 
-const TANNER_BLOCKED_TEAMS: &[Team] = &[Team::Werewolf, Team::Vampire];
+const TANNER_BLOCKED_TEAMS: &[Team] = Team::MONSTER_TEAMS;
 
 impl Artifact {
     pub const ALL: &'static [Artifact] = &[

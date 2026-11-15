@@ -26,10 +26,7 @@ impl Role for MadScientist {
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         ctx.is_dead(seat)
-            .then_some(SpecialVictory::independent_blocking(&[
-                Team::Werewolf,
-                Team::Vampire,
-            ]))
+            .then_some(SpecialVictory::independent_blocking(Team::MONSTER_TEAMS))
     }
 }
 
@@ -53,7 +50,7 @@ impl Role for Intern {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(136, Self::wake_group))
+        Some(Wake::group(132, Self::wake_group))
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {

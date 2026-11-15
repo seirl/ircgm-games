@@ -18,7 +18,7 @@ impl Role for AnnoyingLad {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(198, Self::prompt))
+        Some(Wake::solo(142, Self::prompt))
     }
 }
 

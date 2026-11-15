@@ -18,7 +18,7 @@ impl Role for Cow {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(197, Self::inspect))
+        Some(Wake::passive(113, Self::inspect))
     }
 }
 

@@ -14,14 +14,14 @@ impl Role for Temptress {
             "temptress",
             "Temptress",
             GameSet::SuperVillains,
-            Team::Werewolf,
+            Team::SuperVillain,
             "Wake with the Super Villains, then optionally swap YOUR Temptress card with a non-Villain player's card without looking!",
         )
         .tags(&[RoleTag::VillainPack])
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(128, Self::prompt).mutates())
+        Some(Wake::solo(126, Self::prompt).mutates())
     }
 }
 

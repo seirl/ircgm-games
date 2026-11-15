@@ -39,25 +39,25 @@ pub async fn run_day_phase(
         ))?;
     }
 
-    let mut face_up_seats: Vec<usize> = board.face_up_players.iter().copied().collect();
-    face_up_seats.sort_unstable();
-    for seat in face_up_seats {
-        room.say(irc_format!(
-            "{} {}'s card is publicly {}!",
-            "🔦 FACE-UP CARD:".bold().yellow(),
-            roster.seats[seat].user.nick().bold(),
-            board.players[seat].display_for_peek(),
-        ))?;
+    for seat in 0..roster.len() {
+        if board.is_player_face_up(seat) {
+            room.say(irc_format!(
+                "{} {}'s card is publicly {}!",
+                "🔦 FACE-UP CARD:".bold().yellow(),
+                roster.seats[seat].user.nick().bold(),
+                board.players[seat].display_for_peek(),
+            ))?;
+        }
     }
 
-    let mut face_up_c: Vec<usize> = board.face_up_center.iter().copied().collect();
-    face_up_c.sort_unstable();
-    for c_idx in face_up_c {
-        room.say(irc_format!(
-            "🔦 {}: {}",
-            format!("FACE-UP CENTER #{}", c_idx + 1).bold().yellow(),
-            board.center[c_idx].display_for_peek(),
-        ))?;
+    for c_idx in 0..3 {
+        if board.is_center_face_up(c_idx) {
+            room.say(irc_format!(
+                "🔦 {}: {}",
+                format!("FACE-UP CENTER #{}", c_idx + 1).bold().yellow(),
+                board.center[c_idx].display_for_peek(),
+            ))?;
+        }
     }
 
     let deadline = Instant::now() + day_duration;

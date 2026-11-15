@@ -60,11 +60,13 @@ async fn witch_revealer_curator_aura_seer_and_bodyguard_work_end_to_end() {
 
     let report = h.finish_night(night).await;
     assert_eq!(report.effective_role_at(&h.roster, "Carol"), "Werewolf");
-    assert!(report.board.face_up_players.contains(&h.seat_of("Eve")));
-    // Aura Seer (Dave) senses Alice (Witch) and Bob (Revealer)!
+    assert!(report.board.is_player_face_up(h.seat_of("Eve")));
+    // Aura Seer (Dave, #7C) wakes after Witch (Alice, #6B) and BEFORE Revealer (Bob, #10),
+    // so Aura Seer senses Alice (Witch) and does NOT detect Revealer!
     assert!(report
         .dms_to("Dave")
-        .contains("Players who viewed or moved a card tonight: Alice, Bob"));
+        .contains("Players who viewed or moved a card tonight: Alice"));
+    assert!(!report.dms_to("Dave").contains("Alice, Bob"));
 
     // At Dawn: Carol (now Werewolf!) gets 2 votes, Alice gets 3 votes,
     // BUT Eve (Bodyguard) points at Alice! So Alice survives and Carol (runner-up with 2 votes) dies!

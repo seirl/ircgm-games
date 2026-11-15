@@ -23,7 +23,7 @@ impl Role for Diseased {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(38, Self::prompt).dusk().mutates())
+        Some(Wake::solo(34, Self::prompt).dusk().mutates())
     }
 
     fn on_death(&self, dead_seat: usize, ctx: &DeathCtx<'_>) -> Option<DeathEffect> {

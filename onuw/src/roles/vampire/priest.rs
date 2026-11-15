@@ -30,7 +30,7 @@ impl Role for Priest {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(50, Self::prompt).dusk().mutates())
+        Some(Wake::solo(40, Self::prompt).dusk().mutates())
     }
 }
 

@@ -13,13 +13,13 @@ impl Role for Evilometer {
             "Evilometer",
             GameSet::SuperVillains,
             Team::Village,
-            "Wake at the end of Night: your gadget beeps if either immediate neighbor holds a Super Villain or Evil threat card!",
+            "Wake during the Villain phase: your gadget beeps if either immediate neighbor holds a Super Villain or Evil threat card!",
         )
         .aliases(&["meter", "evil_meter"])
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(196, Self::inspect))
+        Some(Wake::passive(125, Self::inspect))
     }
 }
 

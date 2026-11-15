@@ -29,7 +29,7 @@ impl Role for Pickpocket {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(60, Self::prompt).dusk().mutates())
+        Some(Wake::solo(166, Self::prompt).mutates().follow_on_copy())
     }
 }
 

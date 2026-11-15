@@ -26,9 +26,9 @@ async fn oracle_amplified_signals_doubles_psychic_vision_and_cow_feels_alien_tap
     .await;
 
     let night = h.spawn_night();
-    // Alien (Alice) scans Carol; Oracle (Carol) amplifies signals!
-    h.reply_dm("Alice", "scan Carol").await;
+    // Oracle (Carol, #-9) tunes frequencies first, then Alien (Alice, #1A) scans Carol!
     h.reply_dm("Carol", "amplify").await;
+    h.reply_dm("Alice", "scan Carol").await;
 
     let report = h.finish_night(night).await;
     // Psychic (Dave, seat #4) neighbors are Carol (#3, Oracle) and Eve (#5, Synthetic Alien):

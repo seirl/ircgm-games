@@ -21,7 +21,7 @@ impl Role for Curator {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(185, Self::prompt).mutates())
+        Some(Wake::solo(194, Self::prompt).mutates().follow_on_copy())
     }
 }
 

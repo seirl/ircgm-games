@@ -37,7 +37,7 @@ impl Role for Gremlin {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(171, Self::prompt).mutates())
+        Some(Wake::solo(176, Self::prompt).mutates().follow_on_copy())
     }
 }
 

@@ -124,7 +124,8 @@ async fn gremlin_enables_marks_when_mark_placer_in_deck_and_epic_battle_splits_f
         "Gremlin (Carol) swapped Dave's Mark (Mark of the Vampire) and Carol's Mark (Mark of Clarity)."
     ));
 
-    // Epic Battle Dawn: Kill Alice (Vampire) while Bob (Werewolf) survives!
+    // Epic Battle Dawn: Alice (Vampire) and Dave (Seer) tie at 2 votes and both die, while Bob (Werewolf) survives!
+    // Because Bob's Werewolf faction had 0 deaths AND a rival Vampire died, ONLY Werewolves (Bob) win — Village loses because a Werewolf survived!
     let dawn = h
         .resolve_dawn(
             report,
@@ -136,5 +137,5 @@ async fn gremlin_enables_marks_when_mark_placer_in_deck_and_epic_battle_splits_f
             ],
         )
         .await;
-    assert_eq!(dawn.winner_nicks(&h.roster), vec!["Bob", "Dave"]);
+    assert_eq!(dawn.winner_nicks(&h.roster), vec!["Bob"]);
 }

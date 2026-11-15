@@ -382,10 +382,10 @@ pub fn send_single_role_info(reply_to: &ChatMessage, role: &'static dyn Role) ->
     let wake_str = match role.wake() {
         None => "Sleeps".to_owned(),
         Some(w) => match w.phase {
-            WakePhase::PreCopycatDusk | WakePhase::Copycat | WakePhase::Dusk => {
+            WakePhase::PreCopycat | WakePhase::Copycat | WakePhase::Dusk => {
                 format!("Dusk #{}", w.order)
             }
-            WakePhase::Night => format!("Night #{}", w.order),
+            WakePhase::NightStart | WakePhase::Night => format!("Night #{}", w.order),
         },
     };
     let sep = " · ".grey();
