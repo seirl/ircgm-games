@@ -171,7 +171,7 @@ async fn shroud_of_shame_enforces_turning_around_and_no_player_nicks_with_word_b
     assert_eq!(dawn2.winner_nicks(&h2.roster), vec!["Eve"]);
     assert!(dawn2
         .channel_text()
-        .contains("Rob broke the Shroud of Shame (mentioned player `Carol`)"));
+        .contains("Rob broke the Shroud of Shame (mentioned player Carol)"));
 
     // 3. Never turning around at all also forfeits personal win:
     let mut h3 = OnuwTestHarness::new(
@@ -205,7 +205,7 @@ async fn shroud_of_shame_enforces_turning_around_and_no_player_nicks_with_word_b
     assert_eq!(dawn3.winner_nicks(&h3.roster), vec!["Eve"]);
     assert!(dawn3
         .channel_text()
-        .contains("never faced the wall with `/me turns around`"));
+        .contains("never faced the wall with /me turns around"));
 }
 
 #[tokio::test(start_paused = true)]

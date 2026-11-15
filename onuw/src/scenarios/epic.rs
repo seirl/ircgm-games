@@ -71,9 +71,10 @@ static EPIC_BATTLE_ANARCHY_POOL: &[&'static dyn Role] = &[
 pub static SCENARIOS: &[Scenario] = &[
     Scenario {
         id: "eb_first_night",
+        slug: "eb_first_night",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "First Night (Première Nuit)",
+        name: "First Night",
         aliases: &["premiere_nuit"],
         difficulty: Difficulty::Introduction,
         player_range: (3, 5),
@@ -91,9 +92,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_dark_awakening",
+        slug: "eb_dark_awakening",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Dark Awakening (Sombre réveil)",
+        name: "Dark Awakening",
         aliases: &["sombre_reveil"],
         difficulty: Difficulty::Introduction,
         player_range: (3, 6),
@@ -116,10 +118,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_full_moon",
+        slug: "full_moon",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Full Moon (Pleine Lune)",
-        aliases: &["full_moon", "pleine_lune"],
+        name: "Full Moon",
+        aliases: &["pleine_lune"],
         difficulty: Difficulty::Introduction,
         player_range: (3, 6),
         rule: ScenarioRule::DeltaTable {
@@ -141,9 +144,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_lonely_night",
+        slug: "eb_lonely_night",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Lonely Night (Nuit solitaire)",
+        name: "Lonely Night",
         aliases: &["nuit_solitaire"],
         difficulty: Difficulty::Easy,
         player_range: (3, 4),
@@ -161,10 +165,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_confusion",
+        slug: "eb_confusion",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
         name: "Confusion",
-        aliases: &["confusion"],
+        aliases: &[],
         difficulty: Difficulty::Medium,
         player_range: (3, 9),
         rule: ScenarioRule::DeltaTable {
@@ -189,10 +194,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_payback",
+        slug: "benefit",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Payback / Benefit (Bénéfice)",
-        aliases: &["benefit", "benefice"],
+        name: "Benefit",
+        aliases: &["benefice"],
         difficulty: Difficulty::Medium,
         player_range: (4, 7),
         rule: ScenarioRule::DeltaTable {
@@ -215,10 +221,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_uncertainties",
+        slug: "uncertainties",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Uncertainties (Incertitudes)",
-        aliases: &["uncertainties", "incertitudes"],
+        name: "Uncertainties",
+        aliases: &["incertitudes"],
         difficulty: Difficulty::Medium,
         player_range: (4, 10),
         rule: ScenarioRule::DeltaTable {
@@ -244,10 +251,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_night_of_the_werewolf",
+        slug: "eb_werewolf_night",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Night of the Werewolf (La nuit du Loup-Garou)",
-        aliases: &["night_of_the_werewolf", "la_nuit_du_loup_garou"],
+        name: "Night of the Werewolf",
+        aliases: &["la_nuit_du_loup_garou"],
         difficulty: Difficulty::Medium,
         player_range: (5, 10),
         rule: ScenarioRule::DeltaTable {
@@ -284,9 +292,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_the_wise",
+        slug: "eb_the_wise",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "The Wise (Les sages)",
+        name: "The Wise",
         aliases: &["les_sages"],
         difficulty: Difficulty::Medium,
         player_range: (5, 10),
@@ -313,10 +322,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_mysterious_companions",
+        slug: "mysterious_companions",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Mysterious Companions (Mystérieux compagnons)",
-        aliases: &["mysterious_companions", "mysterieux_compagnons"],
+        name: "Mysterious Companions",
+        aliases: &["mysterieux_compagnons"],
         difficulty: Difficulty::Medium,
         player_range: (6, 7),
         rule: ScenarioRule::DeltaTable {
@@ -336,9 +346,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_terrible_enemy",
+        slug: "eb_terrible_enemy",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "A Terrible Enemy (Un terrible ennemi)",
+        name: "A Terrible Enemy",
         aliases: &["un_terrible_ennemi"],
         difficulty: Difficulty::Difficult,
         player_range: (3, 4),
@@ -356,10 +367,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_trust_no_one_variant",
+        slug: "blind_deception",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Trust No One / Blind Deception",
-        aliases: &["blind_deception"],
+        name: "Blind Deception",
+        aliases: &[],
         difficulty: Difficulty::Difficult,
         player_range: (3, 7),
         rule: ScenarioRule::DeltaTable {
@@ -382,10 +394,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_fragile_alliances",
+        slug: "fragile_alliances",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Fragile Alliances (Alliances fragiles)",
-        aliases: &["fragile_alliances", "alliances_fragiles"],
+        name: "Fragile Alliances",
+        aliases: &["alliances_fragiles"],
         difficulty: Difficulty::Difficult,
         player_range: (3, 7),
         rule: ScenarioRule::DeltaTable {
@@ -408,9 +421,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_evil_transformations",
+        slug: "eb_evil_transformations",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Evil Transformations (Métamorphoses maléfiques)",
+        name: "Evil Transformations",
         aliases: &["metamorphoses_malefiques"],
         difficulty: Difficulty::Difficult,
         player_range: (3, 10),
@@ -452,10 +466,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_secret_societies",
+        slug: "secret_societies",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Secret Societies! (Sociétés secrètes !)",
-        aliases: &["secret_societies", "societes_secretes"],
+        name: "Secret Societies!",
+        aliases: &["societes_secretes"],
         difficulty: Difficulty::Difficult,
         player_range: (6, 10),
         rule: ScenarioRule::DeltaTable {
@@ -481,10 +496,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_chaos_pack_7p",
+        slug: "tangled_web",
         pack: ScenarioPack::EpicBattle,
         section: "Werewolves vs. Village",
-        name: "Tangled Web (7–10p Wolf & Mark Mix)",
-        aliases: &["tangled_web", "chaos_pack"],
+        name: "Tangled Web",
+        aliases: &["chaos_pack"],
         difficulty: Difficulty::Difficult,
         player_range: (7, 10),
         rule: ScenarioRule::DeltaTable {
@@ -510,10 +526,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_vampires_night_stalkers",
+        slug: "night_stalkers",
         pack: ScenarioPack::EpicBattle,
         section: "Vampires vs. Village",
-        name: "Night Stalkers (Vampire Intro 4–6p)",
-        aliases: &["night_stalkers"],
+        name: "Night Stalkers",
+        aliases: &[],
         difficulty: Difficulty::Medium,
         player_range: (4, 6),
         rule: ScenarioRule::DeltaTable {
@@ -531,10 +548,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_mark_them",
+        slug: "eb_mark_them",
         pack: ScenarioPack::EpicBattle,
         section: "Vampires vs. Village",
-        name: "Mark Them! (Marquons-les)",
-        aliases: &["mark_them", "marquons_les"],
+        name: "Mark Them!",
+        aliases: &["marquons_les"],
         difficulty: Difficulty::Medium,
         player_range: (6, 10),
         rule: ScenarioRule::DeltaTable {
@@ -560,9 +578,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_for_the_king",
+        slug: "eb_for_the_king",
         pack: ScenarioPack::EpicBattle,
         section: "Vampires vs. Village",
-        name: "For the King! (Pour le Roi !)",
+        name: "For the King!",
         aliases: &["pour_le_roi"],
         difficulty: Difficulty::Difficult,
         player_range: (3, 6),
@@ -585,9 +604,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_monsters_galore",
+        slug: "eb_monsters_galore",
         pack: ScenarioPack::EpicBattle,
         section: "Vampires vs. Village",
-        name: "Monsters Galore (Monstres en pagaille)",
+        name: "Monsters Galore",
         aliases: &["monstres_en_pagaille"],
         difficulty: Difficulty::Difficult,
         player_range: (4, 6),
@@ -606,10 +626,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_alone_against_all",
+        slug: "alone_against_all",
         pack: ScenarioPack::EpicBattle,
         section: "Vampires vs. Village",
-        name: "Alone Against All? (Seul contre tous ?)",
-        aliases: &["alone_against_all", "seul_contre_tous"],
+        name: "Alone Against All?",
+        aliases: &["seul_contre_tous"],
         difficulty: Difficulty::Difficult,
         player_range: (4, 7),
         rule: ScenarioRule::DeltaTable {
@@ -632,10 +653,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_vampire_conspiracy",
+        slug: "blood_pact",
         pack: ScenarioPack::EpicBattle,
         section: "Vampires vs. Village",
-        name: "Blood Pact (6–10p Vampire Marks)",
-        aliases: &["blood_pact", "vampire_conspiracy"],
+        name: "Blood Pact",
+        aliases: &["vampire_conspiracy"],
         difficulty: Difficulty::Difficult,
         player_range: (6, 10),
         rule: ScenarioRule::DeltaTable {
@@ -661,10 +683,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_vampire_revenants",
+        slug: "revenants",
         pack: ScenarioPack::EpicBattle,
         section: "Vampires vs. Village",
-        name: "Revenants (Vampire Edition)",
-        aliases: &["vampire_revenants", "revenants"],
+        name: "Revenants",
+        aliases: &["vampire_revenants"],
         difficulty: Difficulty::Difficult,
         player_range: (8, 10),
         rule: ScenarioRule::DeltaTable {
@@ -686,10 +709,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_epic_clash_4p",
+        slug: "epic_battle_1",
         pack: ScenarioPack::EpicBattle,
-        section: "Epic Battles (Werewolves vs. Vampires vs. Village)",
-        name: "Epic Battle I (4–7p)",
-        aliases: &["epic_clash_1", "epic_battle_1", "epic_battle_i"],
+        section: "Epic Battles",
+        name: "Epic Battle I",
+        aliases: &["epic_clash_1", "epic_battle_i"],
         difficulty: Difficulty::Difficult,
         player_range: (4, 7),
         rule: ScenarioRule::DeltaTable {
@@ -712,10 +736,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_epic_clash_5p",
+        slug: "epic_battle_2",
         pack: ScenarioPack::EpicBattle,
-        section: "Epic Battles (Werewolves vs. Vampires vs. Village)",
-        name: "Epic Battle II (5–8p)",
-        aliases: &["epic_clash_2", "epic_battle_2", "epic_battle_ii"],
+        section: "Epic Battles",
+        name: "Epic Battle II",
+        aliases: &["epic_clash_2", "epic_battle_ii"],
         difficulty: Difficulty::Difficult,
         player_range: (5, 8),
         rule: ScenarioRule::DeltaTable {
@@ -739,10 +764,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_from_dusk_till_dawn",
+        slug: "dusk_till_dawn",
         pack: ScenarioPack::EpicBattle,
-        section: "Epic Battles (Werewolves vs. Vampires vs. Village)",
-        name: "Epic Battle: From Dusk Till Dawn (Du crépuscule jusqu'à l'aube)",
-        aliases: &["from_dusk_till_dawn", "dusk_till_dawn"],
+        section: "Epic Battles",
+        name: "From Dusk Till Dawn",
+        aliases: &["from_dusk_till_dawn", "du_crepuscule_jusqua_laube"],
         difficulty: Difficulty::Extreme,
         player_range: (6, 10),
         rule: ScenarioRule::DeltaTable {
@@ -768,10 +794,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "eb_anarchy",
+        slug: "anarchy",
         pack: ScenarioPack::EpicBattle,
         section: "Any Configuration",
-        name: "Anarchy (Epic Battle)",
-        aliases: &["anarchy", "epic_anarchy", "chaos"],
+        name: "Epic Anarchy",
+        aliases: &["epic_anarchy", "chaos"],
         difficulty: Difficulty::Difficult,
         player_range: (3, 10),
         rule: ScenarioRule::Anarchy {
@@ -780,5 +807,4 @@ pub static SCENARIOS: &[Scenario] = &[
             rule_text: "Shuffle all Epic Battle Character cards, deal N + 3 at random, enforcing a maximum of 3 total Werewolf/Vampire cards.",
         },
     },
-
 ];

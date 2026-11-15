@@ -29,9 +29,11 @@ impl Curator {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "🏺 Curator: Reply `<nick>` to bestow a random Artifact token (including yourself), or `pass`. Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "🏺 Curator: Reply {} to bestow a random Artifact token (including yourself), or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -49,7 +51,7 @@ impl Curator {
                                 roster.seats[idx].user.nick().bold(),
                             ),
                         ),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

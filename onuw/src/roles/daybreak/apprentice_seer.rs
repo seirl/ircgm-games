@@ -30,14 +30,20 @@ impl ApprenticeSeer {
         Box::pin(async move {
             let ans = ctx
                 .ask(
-                    "🔮 Apprentice Seer: Reply `1`, `2`, or `3` to view a center card, or `pass`:",
+                    irc_format!(
+                        "🔮 Apprentice Seer: Reply {}, {}, or {} to view a center card, or {}:",
+                        "1".bold(),
+                        "2".bold(),
+                        "3".bold(),
+                        "pass".bold(),
+                    ),
                     |m| {
                         if Roster::is_pass(&m.text) {
                             return AskMatch::accept(None);
                         }
                         match Roster::parse_center_slot(&m.text) {
                             Some(c_idx) => AskMatch::accept(Some(c_idx)),
-                            None => AskMatch::reject("Reply `1`, `2`, `3`, or `pass`.".yellow()),
+                            None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
                         }
                     },
                 )

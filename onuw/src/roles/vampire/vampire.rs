@@ -65,9 +65,10 @@ impl Vampire {
                 let coven_names = ctx.roster.format_indices(&full_coven);
                 let players_str = ctx.roster.format_players();
                 let prompt = irc_format!(
-                    "{} {} — Whisper here to coordinate, or type `!mark <nick>` to turn a non-Vampire! Players: {players_str}",
+                    "{} {} — Whisper here to coordinate, or type {} to turn a non-Vampire! Players: {players_str}",
                     "🧛 Vampire Coven:".bold().red(),
                     coven_names.as_str().bold(),
+                    "!mark <nick>".bold(),
                 );
 
                 let valid_targets = non_vampires.clone();
@@ -77,7 +78,7 @@ impl Vampire {
                         let arg = if let Some(a) = m.cmd_arg("!mark") {
                             a
                         } else if m.is_cmd("!mark") {
-                            return AskMatch::reject("Usage: `!mark <nick>`.".yellow());
+                            return AskMatch::reject("Usage: !mark <nick>.".yellow());
                         } else if solo_coven {
                             m.text.trim()
                         } else {

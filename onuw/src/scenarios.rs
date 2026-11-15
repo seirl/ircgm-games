@@ -15,7 +15,9 @@ pub mod epic;
 pub mod super_villains;
 pub mod vampire;
 
-use crate::board::{format_role_slice, Card};
+use ircgm::prelude::*;
+
+use crate::board::{format_role_slice_styled, Card};
 use crate::role::Role;
 use crate::roles::{
     base::{villager::VILLAGER, werewolf::WEREWOLF},
@@ -48,17 +50,17 @@ impl ScenarioPack {
             Self::Base => "base",
             Self::Daybreak => "daybreak",
             Self::Vampire => "vampire",
-            Self::EpicBattle => "epic_battle",
+            Self::EpicBattle => "epic",
             Self::Alien => "alien",
-            Self::SuperVillains => "super_villains",
+            Self::SuperVillains => "villains",
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Base => "Base Set",
-            Self::Daybreak => "Daybreak (MorgenGrauen)",
-            Self::Vampire => "Vampire (VampirDämmerung)",
+            Self::Daybreak => "Daybreak",
+            Self::Vampire => "Vampire",
             Self::EpicBattle => "Epic Battle",
             Self::Alien => "Alien",
             Self::SuperVillains => "Super Villains",
@@ -130,6 +132,14 @@ pub enum Difficulty {
 }
 
 impl Difficulty {
+    pub const ALL: [Difficulty; 5] = [
+        Self::Introduction,
+        Self::Easy,
+        Self::Medium,
+        Self::Difficult,
+        Self::Extreme,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Introduction => "Intro",
@@ -137,6 +147,16 @@ impl Difficulty {
             Self::Medium => "Medium",
             Self::Difficult => "Difficult",
             Self::Extreme => "Extreme",
+        }
+    }
+
+    pub fn styled_label(self) -> Text {
+        match self {
+            Self::Introduction => "Intro".bold().light_green(),
+            Self::Easy => "Easy".bold().green(),
+            Self::Medium => "Medium".bold().yellow(),
+            Self::Difficult => "Difficult".bold().orange(),
+            Self::Extreme => "Extreme".bold().red(),
         }
     }
 }
@@ -161,6 +181,7 @@ pub enum ScenarioRule {
 #[derive(Clone, Copy, Debug)]
 pub struct Scenario {
     pub id: &'static str,
+    pub slug: &'static str,
     pub pack: ScenarioPack,
     pub section: &'static str,
     pub name: &'static str,
@@ -201,12 +222,12 @@ impl Scenario {
     pub fn build_for_players(
         &self,
         player_count: usize,
-    ) -> Result<Vec<&'static dyn Role>, String> {
+    ) -> std::result::Result<Vec<&'static dyn Role>, String> {
         let (min_p, max_p) = self.player_range;
         if !(min_p..=max_p).contains(&player_count) {
             return Err(format!(
-                "Scenario `{}` ({}) requires {min_p}–{max_p} players (currently {player_count}).",
-                self.id, self.name
+                "Scenario {} ({}) requires {min_p}–{max_p} players (currently {player_count}).",
+                self.name, self.slug
             ));
         }
 
@@ -220,8 +241,8 @@ impl Scenario {
                 deck.extend_from_slice(delta);
                 if deck.len() != target {
                     return Err(format!(
-                        "Scenario `{}` misconfigured for {player_count}p: expected {target} cards, got {}.",
-                        self.id,
+                        "Scenario {} misconfigured for {player_count}p: expected {target} cards, got {}.",
+                        self.slug,
                         deck.len()
                     ));
                 }
@@ -236,66 +257,112 @@ impl Scenario {
     }
 
     /// Concise one-line preview for `player_count` (clamped into `player_range` for lobby preview).
-    pub fn preview_cards(&self, player_count: usize) -> String {
+    pub fn preview_cards(&self, player_count: usize) -> Text {
         let clamped_n = player_count.clamp(self.player_range.0, self.player_range.1);
         match self.rule {
             ScenarioRule::DeltaTable { .. } => match self.build_for_players(clamped_n) {
-                Ok(cards) => format!(
+                Ok(cards) => irc_format!(
                     "{clamped_n}p ({} cards): {}",
                     cards.len(),
-                    format_role_slice(&cards)
+                    format_role_slice_styled(&cards),
                 ),
-                Err(e) => e,
+                Err(e) => e.into(),
             },
-            ScenarioRule::Anarchy { rule_text, .. } => format!("🎲 {rule_text}"),
+            ScenarioRule::Anarchy { rule_text, .. } => rule_text.into(),
         }
     }
 
     /// Detailed multi-step description for `!scenario <id>`.
-    pub fn describe_lines(&self) -> Vec<String> {
-        let header = format!(
-            "📜 {} (`{}`) — [{} / {} | {} | {}]",
-            self.name,
-            self.id,
+    pub fn describe_lines(&self) -> Vec<Text> {
+        let sep = " · ".grey();
+        let header = irc_format!(
+            "📜 {} {}{}{}{}{}{}{}",
+            self.name.bold(),
+            format!("({})", self.slug).cyan(),
+            sep.clone(),
             self.pack.label(),
-            self.section,
-            self.difficulty.label(),
-            self.range_label(),
+            sep.clone(),
+            self.difficulty.styled_label(),
+            sep.clone(),
+            self.range_label().grey(),
         );
         let mut lines = vec![header];
         match self.rule {
             ScenarioRule::DeltaTable { base, deltas } => {
                 let min_p = self.player_range.0;
-                lines.push(format!(
-                    "  • Base ({min_p}p, {} cards): {}",
-                    base.len(),
-                    format_role_slice(base)
+                lines.push(irc_format!(
+                    "  {} {}",
+                    format!("Base ({min_p}p, {} cards):", base.len()).bold(),
+                    format_role_slice_styled(base),
                 ));
                 if deltas.len() > 1 {
-                    let steps: Vec<String> = deltas
-                        .iter()
+                    let steps: Vec<Text> = deltas
+                        .windows(2)
                         .enumerate()
-                        .skip(1)
-                        .map(|(offset, d)| {
-                            format!("{}p: +[{}]", min_p + offset, format_role_slice(d))
+                        .map(|(idx, pair)| {
+                            let step_p = min_p + idx + 1;
+                            irc_format!(
+                                "{} {}",
+                                format!("{step_p}p").bold(),
+                                format_step_diff_styled(pair[0], pair[1]),
+                            )
                         })
                         .collect();
-                    lines.push(format!("  • Scaling: {}", steps.join(" | ")));
+                    lines.push(irc_format!(
+                        "  {} {}",
+                        "Scaling:".bold(),
+                        Text::join(&steps, " · ".grey()),
+                    ));
                 }
             }
             ScenarioRule::Anarchy {
                 pool, rule_text, ..
             } => {
-                lines.push(format!("  • Rule: {rule_text}"));
-                lines.push(format!(
-                    "  • Pool ({} cards): {}",
-                    pool.len(),
-                    format_role_slice(pool)
+                lines.push(irc_format!("  {} {rule_text}", "Rule:".bold()));
+                lines.push(irc_format!(
+                    "  {} {}",
+                    format!("Pool ({} cards):", pool.len()).bold(),
+                    format_role_slice_styled(pool),
                 ));
             }
         }
         lines
     }
+}
+
+fn format_step_diff_styled(
+    prev: &[&'static dyn Role],
+    curr: &[&'static dyn Role],
+) -> Text {
+    let mut seen: Vec<&'static dyn Role> = Vec::new();
+    for &r in curr.iter().chain(prev.iter()) {
+        if !seen.iter().any(|x| x.id() == r.id()) {
+            seen.push(r);
+        }
+    }
+    let mut additions: Vec<Text> = Vec::new();
+    let mut removals: Vec<Text> = Vec::new();
+    for role in seen {
+        let prev_n = prev.iter().filter(|&&r| r.id() == role.id()).count();
+        let curr_n = curr.iter().filter(|&&r| r.id() == role.id()).count();
+        if curr_n > prev_n {
+            let diff = curr_n - prev_n;
+            if diff > 1 {
+                additions.push(irc_format!("+{diff}x {}", role.styled_name()));
+            } else {
+                additions.push(irc_format!("+{}", role.styled_name()));
+            }
+        } else if prev_n > curr_n {
+            let diff = prev_n - curr_n;
+            if diff > 1 {
+                removals.push(irc_format!("-{diff}x {}", role.styled_name()));
+            } else {
+                removals.push(irc_format!("-{}", role.styled_name()));
+            }
+        }
+    }
+    additions.extend(removals);
+    Text::join(&additions, ", ".grey())
 }
 
 fn is_evil_threat_role(role: &'static dyn Role) -> bool {
@@ -437,7 +504,7 @@ pub fn scenarios_for_player_count(player_count: usize) -> Vec<&'static Scenario>
         .collect()
 }
 
-/// Resolves a scenario by exact ID (`rb_base_payback`), stripped ID (`payback`), alias, or display name.
+/// Resolves a scenario by short slug (`payback`), canonical ID (`rb_base_payback`), alias, or display name.
 pub fn find_scenario(query: &str) -> Option<&'static Scenario> {
     let key = normalize_scenario_key(query);
     if key.is_empty() {
@@ -445,9 +512,15 @@ pub fn find_scenario(query: &str) -> Option<&'static Scenario> {
     }
 
     for s in all_scenarios() {
-        if normalize_scenario_key(s.id) == key
-            || s.aliases.iter().any(|a| normalize_scenario_key(a) == key)
+        if normalize_scenario_key(s.slug) == key
+            || normalize_scenario_key(s.id) == key
         {
+            return Some(s);
+        }
+    }
+
+    for s in all_scenarios() {
+        if s.aliases.iter().any(|a| normalize_scenario_key(a) == key) {
             return Some(s);
         }
     }

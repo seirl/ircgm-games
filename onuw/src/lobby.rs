@@ -1,6 +1,11 @@
 //! Persistent lobby supervisor (`run_lobby_bot`), pre-game recruitment (`recruit_players`),
 //! and `!roles` / `!scenarios` catalog commands.
 
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
 use futures::future::try_join_all;
 use futures::FutureExt as _;
 use ircgm::prelude::*;
@@ -8,14 +13,42 @@ use tokio::time::Instant;
 
 use crate::dawn::GameReveal;
 use crate::day::is_active_in_room;
-use crate::deck::{parse_role_spec_tokens, DeckSpec};
-use crate::game::{run_single_game, GameConfig, PlayOutcome, MAX_PLAYERS, MIN_PLAYERS};
-use crate::role::{Role, GameSet, WakePhase};
+use crate::deck::{parse_role_spec_tokens, DeckBase, DeckSpec};
+use crate::game::{run_single_game_tracked, GameConfig, PlayOutcome, MAX_PLAYERS, MIN_PLAYERS};
+use crate::role::{GameSet, Role, WakePhase};
 use crate::roles::{find_role, roles_in_game, ALL_ROLES};
 use crate::scenarios::{
     all_scenarios, find_scenario, parse_player_count_filter, scenario_count, scenarios_in_pack,
-    Scenario, ScenarioPack,
+    Difficulty, Scenario, ScenarioPack,
 };
+
+/// Shared flag tracking whether an ONUW session is currently in its open pre-game recruitment lobby
+/// (as opposed to DM reachability check, Dusk/Night, Day, or Voting).
+#[derive(Clone, Debug, Default)]
+pub struct LobbyPhaseTracker(Arc<AtomicBool>);
+
+impl LobbyPhaseTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn is_recruiting(&self) -> bool {
+        self.0.load(Ordering::Acquire)
+    }
+
+    pub(crate) fn enter_recruitment(&self) -> RecruitmentGuard<'_> {
+        self.0.store(true, Ordering::Release);
+        RecruitmentGuard(self)
+    }
+}
+
+pub(crate) struct RecruitmentGuard<'a>(&'a LobbyPhaseTracker);
+
+impl Drop for RecruitmentGuard<'_> {
+    fn drop(&mut self) {
+        self.0 .0.store(false, Ordering::Release);
+    }
+}
 
 pub fn is_admin_msg(msg: &ChatMessage, admins: &[String]) -> bool {
     let Some(acct) = msg.account.as_deref() else {
@@ -35,36 +68,107 @@ enum StopReason {
 // ============================================================================
 
 pub fn send_lobby_help(lobby: &Room) -> Result<()> {
+    let sep = " · ".grey();
     lobby.say(irc_format!(
-        "🐺 {} — {} opens a lobby | {} | {} | {} | {} | {} | {} cancels.",
+        "🐺 {} — {}{}{}{}{}{}{}{}{}{}{}",
         "One Night Ultimate Werewolf".bold().yellow(),
         "!onuw [pack|scenario]".bold().green(),
-        "!reveal".bold().yellow(),
+        sep.clone(),
         "!scenarios [pack|Np]".bold().cyan(),
-        "!scenario <id|name>".bold().cyan(),
-        "!roles [game]".bold().cyan(),
+        sep.clone(),
+        "!scenario <name>".bold().cyan(),
+        sep.clone(),
+        "!roles [set]".bold().cyan(),
+        sep.clone(),
         "!role <name>".bold().cyan(),
+        sep,
+        "!reveal".bold().yellow(),
+    ))
+}
+
+pub fn send_open_lobby_help(reply_to: &ChatMessage, host: &User) -> Result<()> {
+    let sep = " · ".grey();
+    reply_to.reply(irc_format!(
+        "🌕 {} — {}{}{}{}{}{}{}{}{}{}{}",
+        "Open Lobby".bold().yellow(),
+        "!join".bold().green(),
+        sep.clone(),
+        "!leave".bold(),
+        sep.clone(),
+        "!players".bold().cyan(),
+        sep.clone(),
+        "!deck".bold().cyan(),
+        sep.clone(),
+        "!scenarios [pack|Np]".bold().cyan(),
+        sep.clone(),
+        "!roles [set]".bold().cyan(),
+    ))?;
+    reply_to.reply(irc_format!(
+        "  {} {}{}{}{}{}{}{}{}{}{}{}",
+        format!("Host ({}):", host.nick()).bold(),
+        "!preset <pack|scenario>".bold().cyan(),
+        sep.clone(),
+        "!add / !remove <role>".bold().cyan(),
+        sep.clone(),
+        "!clear".bold(),
+        sep.clone(),
+        "!reset".bold(),
+        sep.clone(),
+        "!go".bold().green(),
+        sep,
         "!abort".bold().orange(),
     ))
 }
 
-pub fn send_packs_info(room: &Room) -> Result<()> {
-    let packs: Vec<String> = ScenarioPack::ALL
+pub fn send_active_game_help(reply_to: &ChatMessage) -> Result<()> {
+    let sep = " · ".grey();
+    reply_to.reply(irc_format!(
+        "🐺 {} — {}{}{}{}{}{}Day: {} / {}{}Vote: {}{}Cancel: {}",
+        "Active Game".bold().yellow(),
+        "!deck".bold().cyan(),
+        sep.clone(),
+        "!players".bold().cyan(),
+        sep.clone(),
+        "!role <name>".bold().cyan(),
+        sep.clone(),
+        "!ready".bold(),
+        "!time".bold(),
+        sep.clone(),
+        "!vote <nick>".bold().green(),
+        sep,
+        "!abort".bold().orange(),
+    ))
+}
+
+fn format_pack_summary_bar() -> Text {
+    let parts: Vec<Text> = ScenarioPack::ALL
         .iter()
         .map(|&pack| {
-            format!(
-                "`{}` ({}, {} scenarios)",
-                pack.slug(),
-                pack.label(),
-                scenarios_in_pack(pack).len()
+            irc_format!(
+                "{} {}",
+                pack.slug().bold().cyan(),
+                format!("({})", scenarios_in_pack(pack).len()).grey(),
             )
         })
         .collect();
+    Text::join(&parts, " · ".grey())
+}
+
+pub fn send_packs_info(room: &Room) -> Result<()> {
+    let sep = " · ".grey();
     room.say(irc_format!(
-        "📜 {} ({} total): {} — browse with `!scenarios <pack>` / `!scenarios <Np>` or `!scenario <id>`!",
-        "Scenario Packs".bold().cyan(),
+        "📜 {} ({} total): {}",
+        "Preset Scenarios".bold().cyan(),
         scenario_count(),
-        packs.join(" | "),
+        format_pack_summary_bar(),
+    ))?;
+    room.say(irc_format!(
+        "  Browse: {}{}{}{}{}",
+        "!scenarios <pack>".bold().cyan(),
+        sep.clone(),
+        "!scenarios <3p..10p>".bold().cyan(),
+        sep,
+        "!scenario <name>".bold().cyan(),
     ))
 }
 
@@ -78,26 +182,21 @@ pub fn send_single_scenario_info(reply_to: &ChatMessage, scen: &'static Scenario
 pub fn send_scenarios_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) -> Result<()> {
     let filter = raw_filter.map(str::trim).filter(|s| !s.is_empty());
     let Some(q) = filter else {
-        let packs: Vec<String> = ScenarioPack::ALL
-            .iter()
-            .map(|&pack| {
-                format!(
-                    "`{}` ({}: {})",
-                    pack.slug(),
-                    pack.label(),
-                    scenarios_in_pack(pack).len()
-                )
-            })
-            .collect();
+        let sep = " · ".grey();
         reply_to.reply(irc_format!(
-            "📜 {} ({} total, ordered by pack): {}",
+            "📜 {} ({} total): {}",
             "Preset Scenarios".bold().cyan(),
             scenario_count(),
-            packs.join(" | "),
+            format_pack_summary_bar(),
         ))?;
-        return reply_to.reply(
-            "Use `!scenarios <pack>` (e.g. `base`, `daybreak`, `vampire`, `epic_battle`, `alien`, `villains`), `!scenarios <Np>` (e.g. `5p`), or `!scenario <id|name>`!",
-        );
+        return reply_to.reply(irc_format!(
+            "  Browse: {}{}{}{}{}",
+            "!scenarios <pack>".bold().cyan(),
+            sep.clone(),
+            "!scenarios <3p..10p>".bold().cyan(),
+            sep,
+            "!scenario <name>".bold().cyan(),
+        ));
     };
 
     let mut pack_filter: Option<ScenarioPack> = None;
@@ -119,7 +218,7 @@ pub fn send_scenarios_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) 
         }
         return reply_to.reply(
             format_args!(
-                "Unknown pack or scenario `{q}`. Packs: `base`, `daybreak`, `vampire`, `epic_battle`, `alien`, `villains` (or e.g. `!scenarios 6p`)."
+                "Unknown pack or scenario '{q}'. Packs: base, daybreak, vampire, epic, alien, villains (or e.g. !scenarios 6p)."
             )
             .yellow(),
         );
@@ -134,58 +233,110 @@ pub fn send_scenarios_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) 
         return reply_to.reply("No scenarios match that filter.".yellow());
     }
 
-    let mut current_group = String::new();
-    let mut items_in_group: Vec<String> = Vec::new();
-    let flush_group = |group: &str, items: &mut Vec<String>| -> Result<()> {
-        if items.is_empty() {
-            return Ok(());
-        }
-        for chunk in items.chunks(5) {
-            reply_to.reply(irc_format!(
-                "  • {}: {}",
-                group.bold().cyan(),
-                chunk.join(" | "),
-            ))?;
-        }
-        items.clear();
-        Ok(())
-    };
-
-    for scen in matched {
-        let group = if pack_filter.is_some() {
-            scen.section.to_owned()
-        } else {
-            scen.pack.label().to_owned()
+    let sep = " · ".grey();
+    if let Some(pack) = pack_filter {
+        let title = match count_filter {
+            Some(n) => format!("{} Scenarios for {n}p ({})", pack.label(), matched.len()),
+            None => format!("{} Scenarios ({})", pack.label(), matched.len()),
         };
-        if group != current_group {
-            flush_group(&current_group, &mut items_in_group)?;
-            current_group = group;
+        reply_to.reply(irc_format!(
+            "📜 {} — {} for cards{}{} or {} to play:",
+            title.bold().cyan(),
+            "!scenario <name>".bold(),
+            sep,
+            "!onuw <name>".bold().green(),
+            "!preset <name>".bold().cyan(),
+        ))?;
+
+        for diff in Difficulty::ALL {
+            let items: Vec<Text> = matched
+                .iter()
+                .filter(|s| s.difficulty == diff)
+                .map(|s| {
+                    irc_format!(
+                        "{} {}",
+                        s.slug.bold(),
+                        format!("({})", s.range_label()).grey(),
+                    )
+                })
+                .collect();
+            if items.is_empty() {
+                continue;
+            }
+            for (chunk_idx, chunk) in items.chunks(5).enumerate() {
+                if chunk_idx == 0 {
+                    reply_to.reply(irc_format!(
+                        "  {}: {}",
+                        diff.styled_label(),
+                        Text::join(chunk, " · ".grey()),
+                    ))?;
+                } else {
+                    reply_to.reply(irc_format!(
+                        "    {}",
+                        Text::join(chunk, " · ".grey()),
+                    ))?;
+                }
+            }
         }
-        items_in_group.push(format!(
-            "`{}` ({}, {}, {})",
-            scen.id,
-            scen.name,
-            scen.difficulty.label(),
-            scen.range_label()
-        ));
+        Ok(())
+    } else {
+        let n = count_filter.expect("either pack_filter or count_filter is Some");
+        reply_to.reply(irc_format!(
+            "📜 {} — {} for cards{}{} or {} to play:",
+            format!("Scenarios for {n}p ({} total)", matched.len()).bold().cyan(),
+            "!scenario <name>".bold(),
+            sep,
+            "!onuw <name>".bold().green(),
+            "!preset <name>".bold().cyan(),
+        ))?;
+
+        for pack in ScenarioPack::ALL {
+            let items: Vec<Text> = matched
+                .iter()
+                .filter(|s| s.pack == pack)
+                .map(|s| {
+                    irc_format!(
+                        "{} {}",
+                        s.slug.bold(),
+                        format!("({})", s.difficulty.label()).grey(),
+                    )
+                })
+                .collect();
+            if items.is_empty() {
+                continue;
+            }
+            for (chunk_idx, chunk) in items.chunks(6).enumerate() {
+                if chunk_idx == 0 {
+                    reply_to.reply(irc_format!(
+                        "  {}: {}",
+                        pack.label().bold().cyan(),
+                        Text::join(chunk, " · ".grey()),
+                    ))?;
+                } else {
+                    reply_to.reply(irc_format!(
+                        "    {}",
+                        Text::join(chunk, " · ".grey()),
+                    ))?;
+                }
+            }
+        }
+        Ok(())
     }
-    flush_group(&current_group, &mut items_in_group)?;
-    reply_to.reply("Type `!scenario <id>` for full cards or `!onuw <id>` / `!preset <id>` to play!")
 }
 
 pub fn send_roles_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) -> Result<()> {
     let filter = raw_filter.map(str::trim).filter(|s| !s.is_empty());
     if let Some(q) = filter {
         if let Some(gs) = GameSet::parse(q) {
-            let list: Vec<String> = roles_in_game(gs)
-                .into_iter()
-                .map(|r| r.name().to_owned())
-                .collect();
+            let roles = roles_in_game(gs);
+            let styled: Vec<Text> = roles.iter().map(|r| r.styled_name()).collect();
             return reply_to.reply(irc_format!(
-                "🃏 {} ({} roles): {}",
-                gs.label().bold().cyan(),
-                list.len(),
-                list.join(", "),
+                "🃏 {} ({} roles): {} {} {} for details",
+                gs.label().bold(),
+                styled.len(),
+                Text::join(&styled, ", ".grey()),
+                "—".grey(),
+                "!role <name>".bold().cyan(),
             ));
         }
         if let Some(role) = find_role(q) {
@@ -193,24 +344,38 @@ pub fn send_roles_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) -> R
         }
         return reply_to.reply(
             format_args!(
-                "Unknown game or role `{q}`. Games: `base`, `daybreak`, `vampire`, `alien`, `villains`."
+                "Unknown set or role '{q}'. Sets: base, daybreak, vampire, alien, villains."
             )
             .yellow(),
         );
     }
 
+    let sep = " · ".grey();
+    reply_to.reply(irc_format!(
+        "🃏 {} ({} total) — {} for details{}{}{}{}{}{}{}{}:",
+        "Roles".bold().cyan(),
+        ALL_ROLES.len(),
+        "!role <name>".bold(),
+        sep.clone(),
+        "Evil".bold().red(),
+        sep.clone(),
+        "Vampire".bold().magenta(),
+        sep.clone(),
+        "Solo".bold().orange(),
+        sep,
+        "Village".bold().cyan(),
+    ))?;
     for gs in GameSet::ALL {
-        let names: Vec<&'static str> = roles_in_game(gs).into_iter().map(|r| r.name()).collect();
+        let roles = roles_in_game(gs);
+        let styled: Vec<Text> = roles.iter().map(|r| r.styled_name()).collect();
         reply_to.reply(irc_format!(
-            "  • {}: {}",
-            gs.label().bold().cyan(),
-            names.join(", "),
+            "  {} {}: {}",
+            gs.label().bold(),
+            format!("({})", styled.len()).grey(),
+            Text::join(&styled, ", ".grey()),
         ))?;
     }
-    reply_to.reply(format_args!(
-        "Total: {} roles — type `!role <name>` for details!",
-        ALL_ROLES.len()
-    ))
+    Ok(())
 }
 
 pub fn send_single_role_info(reply_to: &ChatMessage, role: &'static dyn Role) -> Result<()> {
@@ -223,12 +388,17 @@ pub fn send_single_role_info(reply_to: &ChatMessage, role: &'static dyn Role) ->
             WakePhase::Night => format!("Night #{}", w.order),
         },
     };
+    let sep = " · ".grey();
     reply_to.reply(irc_format!(
-        "🃏 {} [{} | {} | {}]: {}",
+        "🃏 {}{}{}{}{}{}{} {} {}",
         role.styled_name(),
+        sep.clone(),
         role.game().label(),
-        role.team().label(),
-        wake_str,
+        sep.clone(),
+        role.team().styled_label(),
+        sep,
+        wake_str.grey(),
+        "—".grey(),
         role.night_summary(),
     ))
 }
@@ -256,7 +426,7 @@ pub fn handle_catalog_query(room: &Room, msg: &ChatMessage) -> Result<bool> {
             match find_scenario(q) {
                 Some(scen) => send_single_scenario_info(msg, scen)?,
                 None => {
-                    msg.reply(format_args!("Unknown scenario `{q}` (try `!scenarios`).").yellow())?
+                    msg.reply(format_args!("Unknown scenario '{q}' (try !scenarios).").yellow())?
                 }
             }
         }
@@ -269,11 +439,30 @@ pub fn handle_catalog_query(room: &Room, msg: &ChatMessage) -> Result<bool> {
     if let Some(arg) = msg.cmd_arg("!role").or_else(|| msg.cmd_arg("!info")) {
         match find_role(arg) {
             Some(r) => send_single_role_info(msg, r)?,
-            None => msg.reply(format_args!("Unknown role `{arg}` (try `!roles`).").yellow())?,
+            None => msg.reply(format_args!("Unknown role '{arg}' (try !roles).").yellow())?,
         }
         return Ok(true);
     }
     Ok(false)
+}
+
+fn extract_launch_attempt_arg(msg: &ChatMessage) -> Option<&str> {
+    if let Some(arg) = msg.cmd_args("!onuw").or_else(|| msg.cmd_args("!werewolf")) {
+        return Some(arg.trim());
+    }
+    if let Some(arg) = msg.cmd_args("!play").or_else(|| msg.cmd_args("!start")) {
+        let trimmed = arg.trim();
+        let mut parts = trimmed.splitn(2, char::is_whitespace);
+        let first = parts.next().unwrap_or("");
+        if first.eq_ignore_ascii_case("onuw") || first.eq_ignore_ascii_case("werewolf") {
+            return Some(parts.next().unwrap_or("").trim());
+        }
+        return Some(trimmed);
+    }
+    if msg.is_cmd("!random") {
+        return Some("");
+    }
+    None
 }
 
 // ============================================================================
@@ -283,24 +472,68 @@ pub fn handle_catalog_query(room: &Room, msg: &ChatMessage) -> Result<bool> {
 pub async fn recruit_players(
     room: &Room,
     host: User,
+    deck_spec: DeckSpec,
+    config: &GameConfig,
+) -> Result<Option<(Vec<User>, DeckSpec)>> {
+    recruit_players_tracked(room, host, deck_spec, config, None).await
+}
+
+pub async fn recruit_players_tracked(
+    room: &Room,
+    host: User,
     mut deck_spec: DeckSpec,
     config: &GameConfig,
+    phase_tracker: Option<&LobbyPhaseTracker>,
 ) -> Result<Option<(Vec<User>, DeckSpec)>> {
     let mut inbox = room.inbox();
     let mut players: Vec<User> = vec![host.clone()];
 
+    let sep = " · ".grey();
+    let (init_min, init_max) = deck_spec.player_range();
+    let range_str = format!("{}–{init_max}p", init_min.max(MIN_PLAYERS));
+    let mode_desc: Text = match deck_spec.base {
+        DeckBase::Scenario(scen) => irc_format!(
+            "{} ({}{}{}{}{})",
+            scen.name.bold().cyan(),
+            scen.pack.label(),
+            sep.clone(),
+            scen.difficulty.styled_label(),
+            sep.clone(),
+            scen.range_label().grey(),
+        ),
+        DeckBase::Pack(pack) => irc_format!(
+            "{} {}",
+            pack.label().bold().cyan(),
+            format!("({range_str})").grey(),
+        ),
+        DeckBase::Custom => irc_format!(
+            "{} {}",
+            "Custom Deck".bold().cyan(),
+            format!("({range_str})").grey(),
+        ),
+    };
     room.say(irc_format!(
-        "🌕 {} opened an ONUW [{}] lobby! Type {}, {}, {}, {}, or {} ({}s).",
+        "🌕 {} opened a {} lobby — {mode_desc}! Type {} to play ({}s).",
         host.nick().bold().yellow(),
-        deck_spec.mode_label().as_str().bold().cyan(),
+        "One Night Ultimate Werewolf".bold(),
         "!join".bold().green(),
-        "!preset <pack|scenario>".bold(),
-        "!add <role>".bold(),
-        "!remove <role>".bold(),
-        "!go".bold().cyan(),
         config.lobby_duration.as_secs(),
     ))?;
+    room.say(irc_format!(
+        "  {} {}{}{}{}{}{}{}{}{}",
+        "Host:".bold(),
+        "!preset <pack|scenario>".bold().cyan(),
+        sep.clone(),
+        "!add / !remove <role>".bold().cyan(),
+        sep.clone(),
+        "!deck".bold().cyan(),
+        sep.clone(),
+        "!go".bold().green(),
+        sep,
+        "!abort".bold().orange(),
+    ))?;
 
+    let recruitment_guard = phase_tracker.map(LobbyPhaseTracker::enter_recruitment);
     let deadline = Instant::now() + config.lobby_duration;
     let recruit_loop = async {
         loop {
@@ -317,7 +550,7 @@ pub async fn recruit_players(
                         if players.len() >= cur_max {
                             msg.reply(
                                 format_args!(
-                                    "Lobby is full for `{}` (max {cur_max} players)!",
+                                    "Lobby is full for {} (max {cur_max} players)!",
                                     deck_spec.mode_label()
                                 )
                                 .yellow(),
@@ -349,15 +582,47 @@ pub async fn recruit_players(
                     } else if msg.is_cmd("!players") || msg.is_cmd("!who") {
                         let (_, cur_max) = deck_spec.player_range();
                         let list: Vec<String> = players.iter().map(User::nick).collect();
-                        msg.reply(format!(
-                            "👥 Lobby ({}/{cur_max}): {}",
-                            players.len(),
-                            list.join(", ")
+                        msg.reply(irc_format!(
+                            "👥 {} {}",
+                            format!("Lobby ({}/{cur_max}):", players.len()).bold(),
+                            list.join(", "),
                         ))?;
                     } else if msg.is_cmd("!deck") {
-                        msg.reply(format!("🃏 {}", deck_spec.preview_for_players(players.len())))?;
+                        msg.reply(irc_format!(
+                            "🃏 {}",
+                            deck_spec.preview_for_players(players.len()),
+                        ))?;
+                    } else if msg.is_cmd("!help") {
+                        send_open_lobby_help(&msg, &players[0])?;
                     } else if handle_catalog_query(room, &msg)? {
                         continue;
+                    } else if let Some(launch_arg) = extract_launch_attempt_arg(&msg) {
+                        if is_host {
+                            let preset_cmd =
+                                if !launch_arg.is_empty() && DeckSpec::parse(launch_arg).is_some() {
+                                    format!("!preset {launch_arg}")
+                                } else {
+                                    "!preset <pack|scenario>".to_owned()
+                                };
+                            msg.reply(irc_format!(
+                                "Lobby is already open — use {} to change deck, {} to start now, or {} to cancel.",
+                                preset_cmd.bold().cyan(),
+                                "!go".bold().green(),
+                                "!abort".bold().orange(),
+                            ))?;
+                        } else if players.contains(&msg.sender) {
+                            msg.reply(irc_format!(
+                                "Lobby is already open (hosted by {}) — waiting for more players or {}!",
+                                players[0].nick().bold(),
+                                "!go".bold().green(),
+                            ))?;
+                        } else {
+                            msg.reply(irc_format!(
+                                "Lobby is already open (hosted by {}) — type {} to join!",
+                                players[0].nick().bold(),
+                                "!join".bold().green(),
+                            ))?;
+                        }
                     } else if let Some(arg) =
                         msg.cmd_args("!preset").or_else(|| msg.cmd_args("!setscenario"))
                     {
@@ -373,7 +638,7 @@ pub async fn recruit_players(
                         if let Some(pack) = ScenarioPack::parse(q) {
                             deck_spec.set_pack(pack);
                             room.say(irc_format!(
-                                "📦 Deck pack switched to {}! ({})",
+                                "📜 Deck pack switched to {} — {}",
                                 pack.label().bold().yellow(),
                                 deck_spec.preview_for_players(players.len()),
                             ))?;
@@ -381,8 +646,9 @@ pub async fn recruit_players(
                             if players.len() > scen.max_players() {
                                 msg.reply(
                                     format_args!(
-                                        "Scenario `{}` supports {} players, but {} are already in the lobby!",
-                                        scen.id,
+                                        "Scenario {} ({}) supports {} players, but {} are already in the lobby!",
+                                        scen.name,
+                                        scen.slug,
                                         scen.range_label(),
                                         players.len()
                                     )
@@ -392,15 +658,14 @@ pub async fn recruit_players(
                             }
                             deck_spec.set_scenario(scen);
                             room.say(irc_format!(
-                                "📜 Scenario switched to {} (`{}`)! ({})",
-                                scen.name.bold().yellow(),
-                                scen.id,
+                                "📜 Scenario switched to {} {}",
+                                format!("({}) —", scen.slug).cyan(),
                                 deck_spec.preview_for_players(players.len()),
                             ))?;
                         } else {
                             msg.reply(
                                 format_args!(
-                                    "Unknown pack or scenario `{q}` — try `!scenarios`!"
+                                    "Unknown pack or scenario '{q}' — try !scenarios!"
                                 )
                                 .yellow(),
                             )?;
@@ -416,14 +681,17 @@ pub async fn recruit_players(
                                 for (role, count) in specs {
                                     let added_n = deck_spec.add_role(role, count);
                                     if added_n > 1 {
-                                        summary_parts.push(format!("{added_n}x {}", role.name()));
+                                        summary_parts.push(irc_format!(
+                                            "+{added_n}x {}",
+                                            role.styled_name()
+                                        ));
                                     } else {
-                                        summary_parts.push(role.name().to_owned());
+                                        summary_parts.push(irc_format!("+{}", role.styled_name()));
                                     }
                                 }
                                 room.say(irc_format!(
-                                    "➕ Added {} — {}",
-                                    summary_parts.join(", ").bold().green(),
+                                    "🃏 Added {} — {}",
+                                    Text::join(&summary_parts, ", ".grey()),
                                     deck_spec.preview_for_players(players.len()),
                                 ))?;
                             }
@@ -442,14 +710,17 @@ pub async fn recruit_players(
                                 for (role, count) in specs {
                                     let rem_n = deck_spec.remove_role(role, count);
                                     if rem_n > 1 {
-                                        summary_parts.push(format!("{rem_n}x {}", role.name()));
+                                        summary_parts.push(irc_format!(
+                                            "-{rem_n}x {}",
+                                            role.styled_name()
+                                        ));
                                     } else {
-                                        summary_parts.push(role.name().to_owned());
+                                        summary_parts.push(irc_format!("-{}", role.styled_name()));
                                     }
                                 }
                                 room.say(irc_format!(
-                                    "➖ Removed {} — {}",
-                                    summary_parts.join(", ").bold().orange(),
+                                    "🃏 Removed {} — {}",
+                                    Text::join(&summary_parts, ", ".grey()),
                                     deck_spec.preview_for_players(players.len()),
                                 ))?;
                             }
@@ -461,30 +732,38 @@ pub async fn recruit_players(
                             continue;
                         }
                         deck_spec.clear_to_custom();
-                        room.say(
-                            "🧹 Switched to pure Custom Deck! Add roles with `!add <role>` (unfilled slots default to Villager)."
-                                .cyan(),
-                        )?;
+                        room.say(irc_format!(
+                            "🃏 Switched to pure {}! Add roles with {} (unfilled slots default to {}).",
+                            "Custom Deck".bold().cyan(),
+                            "!add <role>".bold().cyan(),
+                            "Villager".bold().cyan(),
+                        ))?;
                     } else if msg.is_cmd("!reset") {
                         if !is_host {
                             msg.reply("Only the lobby host can customize the deck!".yellow())?;
                             continue;
                         }
                         deck_spec.reset_overrides();
-                        room.say(format!(
-                            "🔄 Reset custom overrides — {}",
-                            deck_spec.preview_for_players(players.len())
+                        room.say(irc_format!(
+                            "🃏 Reset custom overrides — {}",
+                            deck_spec.preview_for_players(players.len()),
                         ))?;
                     } else if msg.is_cmd("!go") || msg.is_cmd("!force") {
                         if !is_host {
-                            msg.reply("Only the lobby host can start early with `!go`!".yellow())?;
+                            msg.reply(
+                                irc_format!(
+                                    "{} {}",
+                                    "Only the lobby host can start early with".yellow(),
+                                    "!go!".bold().yellow(),
+                                ),
+                            )?;
                             continue;
                         }
                         let (min_req, max_req) = deck_spec.player_range();
                         if players.len() < min_req.max(MIN_PLAYERS) {
                             msg.reply(
                                 format_args!(
-                                    "Need at least {} players for `{}` (currently {}).",
+                                    "Need at least {} players for {} (currently {}).",
                                     min_req.max(MIN_PLAYERS),
                                     deck_spec.mode_label(),
                                     players.len()
@@ -496,7 +775,7 @@ pub async fn recruit_players(
                         if players.len() > max_req {
                             msg.reply(
                                 format_args!(
-                                    "`{}` allows at most {max_req} players (currently {}).",
+                                    "{} allows at most {max_req} players (currently {}).",
                                     deck_spec.mode_label(),
                                     players.len()
                                 )
@@ -526,6 +805,7 @@ pub async fn recruit_players(
     };
 
     recruit_loop.run_until_deadline(deadline).await?;
+    drop(recruitment_guard);
 
     players.retain(|u| is_active_in_room(room, u));
     let (min_req, max_req) = deck_spec.player_range();
@@ -534,7 +814,7 @@ pub async fn recruit_players(
         if !players.is_empty() {
             room.say(
                 format_args!(
-                    "Player count ({}) outside required {min_needed}–{max_req} range for `{}` — lobby closed.",
+                    "Player count ({}) outside required {min_needed}–{max_req} range for {} — lobby closed.",
                     players.len(),
                     deck_spec.mode_label()
                 )
@@ -546,9 +826,10 @@ pub async fn recruit_players(
 
     if let Some(dm_dur) = config.dm_check_timeout {
         let check_deadline = Instant::now() + dm_dur;
-        room.say(format_args!(
-            "📩 DM check: reply `ok` in DM within {}s to confirm you can receive secret cards!",
-            dm_dur.as_secs()
+        room.say(irc_format!(
+            "📩 DM check: reply {} in DM within {}s to confirm you can receive secret cards!",
+            "ok".bold().green(),
+            dm_dur.as_secs(),
         ))?;
         let check_cfg = AskConfig::new()
             .reply_deadline(check_deadline)
@@ -557,14 +838,17 @@ pub async fn recruit_players(
             let cfg = &check_cfg;
             async move {
                 let ans = p
-                    .ask("👋 Reply `ok` to confirm DMs for ONUW!", |m| {
-                        let t = m.text.trim();
-                        (t.eq_ignore_ascii_case("ok")
-                            || t.eq_ignore_ascii_case("ready")
-                            || m.is_cmd("!ok"))
-                        .then(|| AskMatch::accept_say((), "✔ Confirmed!".green()))
-                        .unwrap_or_else(AskMatch::ignore)
-                    })
+                    .ask(
+                        irc_format!("👋 Reply {} to confirm DMs for ONUW!", "ok".bold().green()),
+                        |m| {
+                            let t = m.text.trim();
+                            (t.eq_ignore_ascii_case("ok")
+                                || t.eq_ignore_ascii_case("ready")
+                                || m.is_cmd("!ok"))
+                            .then(|| AskMatch::accept_say((), "✔ Confirmed!".green()))
+                            .unwrap_or_else(AskMatch::ignore)
+                        },
+                    )
                     .config(cfg)
                     .await?;
                 Ok::<_, Error>((p.clone(), ans))
@@ -652,6 +936,7 @@ pub async fn run_lobby_bot(
 
                 let Some(raw_args) = idle_msg
                     .cmd_args("!onuw")
+                    .or_else(|| idle_msg.cmd_args("!werewolf"))
                     .or_else(|| idle_msg.cmd_args("!play"))
                     .or_else(|| idle_msg.cmd_args("!start"))
                 else {
@@ -662,7 +947,7 @@ pub async fn run_lobby_bot(
                 let Some(spec) = DeckSpec::parse(trimmed) else {
                     idle_msg.reply(
                         format_args!(
-                            "Unknown pack or scenario `{trimmed}` — try `!scenarios`!"
+                            "Unknown pack or scenario '{trimmed}' — try !scenarios!"
                         )
                         .yellow(),
                     )?;
@@ -701,14 +986,19 @@ pub async fn run_lobby_bot(
             }
         });
 
+        let phase_tracker = LobbyPhaseTracker::new();
+        let phase_for_busy = phase_tracker.clone();
         let starter_for_busy = starter.clone();
         let lobby_for_busy = lobby.clone();
         let busy_responder = lobby.inbox().on_map(move |msg| {
-            if msg.is_cmd("!onuw") || msg.is_cmd("!play") || msg.is_cmd("!start") {
+            if extract_launch_attempt_arg(msg).is_some() {
+                if phase_for_busy.is_recruiting() {
+                    return None;
+                }
                 let abort_hint = if is_active_in_room(&lobby_for_busy, &starter_for_busy) {
-                    format!("{} can type `!abort`", starter_for_busy.nick())
+                    format!("{} can type !abort", starter_for_busy.nick())
                 } else {
-                    "type `!abort`".to_owned()
+                    "type !abort".to_owned()
                 };
                 let _ = lobby_for_busy.say(
                     format_args!("⏳ An ONUW game is already in progress ({abort_hint} to cancel)!")
@@ -716,21 +1006,26 @@ pub async fn run_lobby_bot(
                 );
             } else if msg.is_cmd("!reveal") {
                 let _ = msg.reply(
-                    "⏳ Finish the current game first — `!reveal` is available after voting ends!"
+                    "⏳ Finish the current game first — !reveal is available after voting ends!"
                         .yellow(),
                 );
-            } else if msg.is_cmd("!help") {
-                let _ = send_lobby_help(&lobby_for_busy);
             }
             None::<StopReason>
         });
 
-        let outcome = run_single_game(bot, lobby, starter, initial_spec, config)
-            .until(bot.shutdown_requested().map(|()| StopReason::Shutdown))
-            .or_until(admin_stop)
-            .or_until(abort_stop)
-            .or_until(busy_responder)
-            .await;
+        let outcome = run_single_game_tracked(
+            bot,
+            lobby,
+            starter,
+            initial_spec,
+            config,
+            Some(&phase_tracker),
+        )
+        .until(bot.shutdown_requested().map(|()| StopReason::Shutdown))
+        .or_until(admin_stop)
+        .or_until(abort_stop)
+        .or_until(busy_responder)
+        .await;
 
         match outcome {
             Outcome::Completed(Ok(PlayOutcome::Completed(reveal))) => {

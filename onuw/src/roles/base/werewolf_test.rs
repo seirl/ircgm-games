@@ -18,7 +18,7 @@ async fn lone_wolf_rejects_bad_slot_then_peeks_center_card() {
     h.send_dm("Alice", "2").await;
 
     let report = h.finish_night(night).await;
-    assert!(report.dms_to("Alice").contains("Reply `1`, `2`, `3`, or `pass`."));
+    assert!(report.dms_to("Alice").contains("Reply 1, 2, 3, or pass."));
     assert!(report.dms_to("Alice").contains("Center #2 is: Seer"));
     assert!(report.has_chronicle_substr("Lone Wolf Alice peeked Center #2 (Seer)."));
 }

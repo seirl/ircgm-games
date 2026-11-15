@@ -39,9 +39,11 @@ impl Temptress {
             }
 
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "💋 Temptress: Reply `<nick>` to swap your Temptress card with a non-Villain (without looking at your new card!), or `pass`. Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "💋 Temptress: Reply {} to swap your Temptress card with a non-Villain (without looking at your new card!), or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -60,7 +62,7 @@ impl Temptress {
                             AskMatch::reject("🛡️ That player is shielded!".yellow())
                         }
                         Some(_) => AskMatch::reject("Pick a non-Villain player!".yellow()),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

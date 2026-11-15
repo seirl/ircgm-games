@@ -37,9 +37,13 @@ impl Seer {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "🔮 Seer: Reply `player <nick>` (or `<nick>`) OR `center <1-3> <1-3>`, or `pass`. Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "🔮 Seer: Reply {} (or {}) OR {}, or {}. Players: {}",
+                "player <nick>".bold(),
+                "<nick>".bold(),
+                "center <1-3> <1-3>".bold(),
+                "pass".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -126,13 +130,13 @@ fn parse_seer_choice(
         .is_some_and(|w| w.eq_ignore_ascii_case("center") || w.eq_ignore_ascii_case("c"))
     {
         if parts.len() != 3 {
-            return AskMatch::reject("Usage: `center <1-3> <1-3>`.".yellow());
+            return AskMatch::reject("Usage: center <1-3> <1-3>.".yellow());
         }
         let (Some(a), Some(b)) = (
             Roster::parse_center_slot(parts[1]),
             Roster::parse_center_slot(parts[2]),
         ) else {
-            return AskMatch::reject("Center slots must be `1`, `2`, or `3`.".yellow());
+            return AskMatch::reject("Center slots must be 1, 2, or 3.".yellow());
         };
         if a == b {
             return AskMatch::reject("Pick two DIFFERENT center slots (1..=3).".yellow());
@@ -159,14 +163,14 @@ fn parse_seer_choice(
         .is_some_and(|w| w.eq_ignore_ascii_case("player") || w.eq_ignore_ascii_case("p"))
     {
         if parts.len() != 2 {
-            return AskMatch::reject("Usage: `player <nick>`.".yellow());
+            return AskMatch::reject("Usage: player <nick>.".yellow());
         }
         parts[1]
     } else if parts.len() == 1 {
         parts[0]
     } else {
         return AskMatch::reject(
-            "Reply `player <nick>` (or `<nick>`), `center <1-3> <1-3>`, or `pass`.".yellow(),
+            "Reply player <nick> (or <nick>), center <1-3> <1-3>, or pass.".yellow(),
         );
     };
 

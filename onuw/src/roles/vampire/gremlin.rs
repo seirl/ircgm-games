@@ -22,7 +22,7 @@ impl Role for Gremlin {
             "Gremlin",
             GameSet::Vampire,
             Team::Village,
-            "Wake in Night to swap EITHER two players' cards (`cards <nick1> <nick2>`) OR two players' Marks (`marks <nick1> <nick2>`), including yourself, without looking!",
+            "Wake in Night to swap EITHER two players' cards (cards <nick1> <nick2>) OR two players' Marks (marks <nick1> <nick2>), including yourself, without looking!",
         )
         .aliases(&["kobold"])
     }
@@ -48,12 +48,17 @@ impl Gremlin {
             let has_marks = roster.deck_has_marks();
             let players_str = roster.format_players_marking_shields(shielded);
             let prompt = if has_marks {
-                format!(
-                    "👺 Gremlin: Reply `cards <nick1> <nick2>` OR `marks <nick1> <nick2>` (any two players, including yourself), or `pass`. Players: {players_str}"
+                irc_format!(
+                    "👺 Gremlin: Reply {} OR {} (any two players, including yourself), or {}. Players: {players_str}",
+                    "cards <nick1> <nick2>".bold(),
+                    "marks <nick1> <nick2>".bold(),
+                    "pass".bold(),
                 )
             } else {
-                format!(
-                    "👺 Gremlin: Reply `<nick1> <nick2>` (any two players, including yourself) to swap their cards, or `pass`. Players: {players_str}"
+                irc_format!(
+                    "👺 Gremlin: Reply {} (any two players, including yourself) to swap their cards, or {}. Players: {players_str}",
+                    "<nick1> <nick2>".bold(),
+                    "pass".bold(),
                 )
             };
 
@@ -76,32 +81,32 @@ impl Gremlin {
                             "marks" | "mark" | "m" if has_marks => (false, *a, *b),
                             "marks" | "mark" | "m" => {
                                 return AskMatch::reject(
-                                    "There are no Marks in this game — reply `<nick1> <nick2>` to swap cards, or `pass`."
+                                    "There are no Marks in this game — reply <nick1> <nick2> to swap cards, or pass."
                                         .yellow(),
                                 );
                             }
                             _ if has_marks => {
                                 return AskMatch::reject(
-                                    "Start with `cards` or `marks` (e.g. `cards Alice Bob` or `marks Bob Carol`), or `pass`."
+                                    "Start with cards or marks (e.g. cards Alice Bob or marks Bob Carol), or pass."
                                         .yellow(),
                                 );
                             }
                             _ => {
                                 return AskMatch::reject(
-                                    "Usage: `<nick1> <nick2>` (two players, including yourself) or `pass`."
+                                    "Usage: <nick1> <nick2> (two players, including yourself) or pass."
                                         .yellow(),
                                 );
                             }
                         },
                         _ if has_marks => {
                             return AskMatch::reject(
-                                "Usage: `cards <nick1> <nick2>`, `marks <nick1> <nick2>`, or `pass`."
+                                "Usage: cards <nick1> <nick2>, marks <nick1> <nick2>, or pass."
                                     .yellow(),
                             );
                         }
                         _ => {
                             return AskMatch::reject(
-                                "Usage: `<nick1> <nick2>` (two players, including yourself) or `pass`."
+                                "Usage: <nick1> <nick2> (two players, including yourself) or pass."
                                     .yellow(),
                             );
                         }

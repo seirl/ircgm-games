@@ -40,10 +40,11 @@ static SUPER_VILLAINS_ANARCHY_POOL: &[&'static dyn Role] = &[
 pub static SCENARIOS: &[Scenario] = &[
     Scenario {
         id: "sv_origin_story",
+        slug: "origin_story",
         pack: ScenarioPack::SuperVillains,
-        section: "Super Villains Standalone",
+        section: "Super Villains",
         name: "Origin Story",
-        aliases: &["origin_story"],
+        aliases: &[],
         difficulty: Difficulty::Introduction,
         player_range: (3, 6),
         rule: ScenarioRule::DeltaTable {
@@ -65,10 +66,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "sv_mad_lab",
+        slug: "mad_lab",
         pack: ScenarioPack::SuperVillains,
-        section: "Super Villains Standalone",
+        section: "Super Villains",
         name: "Mad Lab Experiment",
-        aliases: &["mad_lab"],
+        aliases: &[],
         difficulty: Difficulty::Medium,
         player_range: (4, 10),
         rule: ScenarioRule::DeltaTable {
@@ -101,10 +103,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "sv_syndicate_heist",
+        slug: "syndicate_heist",
         pack: ScenarioPack::SuperVillains,
         section: "Super Villains + Daybreak",
         name: "Syndicate Heist",
-        aliases: &["syndicate_heist", "heist"],
+        aliases: &["heist"],
         difficulty: Difficulty::Difficult,
         player_range: (5, 10),
         rule: ScenarioRule::DeltaTable {
@@ -130,10 +133,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "sv_anarchy",
+        slug: "villains_anarchy",
         pack: ScenarioPack::SuperVillains,
-        section: "Super Villains Standalone",
-        name: "Anarchy (Super Villains)",
-        aliases: &["villains_anarchy"],
+        section: "Super Villains",
+        name: "Super Villains Anarchy",
+        aliases: &[],
         difficulty: Difficulty::Difficult,
         player_range: (3, 10),
         rule: ScenarioRule::Anarchy {

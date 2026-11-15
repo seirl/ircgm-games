@@ -101,6 +101,19 @@ impl ScheduledTier {
             TierKind::CopycatImmediate(r) => format!("{} (copied action)", r.name()),
         }
     }
+
+    pub fn styled_callout(&self) -> Text {
+        match &self.kind {
+            TierKind::Roles(roles) => {
+                let parts: Vec<Text> = roles.iter().map(|r| r.styled_name()).collect();
+                Text::join(&parts, ", ".grey())
+            }
+            TierKind::CopycatPick(r) => r.styled_name(),
+            TierKind::CopycatImmediate(r) => {
+                irc_format!("{} {}", r.styled_name(), "(copied action)".grey())
+            }
+        }
+    }
 }
 
 /// Pure function of the public `deck` multiset and `timings` — any permutation of the same
@@ -329,10 +342,9 @@ pub async fn run_night_phase(
         let tier_cfg = timings.make_tier_cfg(tier_deadline);
 
         room.say(irc_format!(
-            "🔔 [Tier {}/{total_tiers} — {}s] Calling: {}",
-            tier_idx + 1,
-            tier.duration.as_secs(),
-            tier.callout_label().as_str().bold(),
+            "  {} Calling: {}",
+            format!("Tier {}/{total_tiers} ({}s) ·", tier_idx + 1, tier.duration.as_secs()).grey(),
+            tier.styled_callout(),
         ))?;
 
         match &tier.kind {

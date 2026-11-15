@@ -29,7 +29,7 @@ impl Role for Rogue {
             "Rogue",
             GameSet::SuperVillains,
             Team::Village,
-            "Wake AFTER Robber & Troublemaker swaps: inspect 1 player's current card, then `steal` it, `ditch` it into Center #1, or `leave` it!",
+            "Wake AFTER Robber & Troublemaker swaps: inspect 1 player's current card, then steal it, ditch it into Center #1, or leave it!",
         )
     }
 
@@ -54,9 +54,11 @@ impl Rogue {
             let (roster, shielded) = (ctx.roster, ctx.shielded);
             let step1 = ctx
                 .ask(
-                    format!(
-                        "🗡️ Rogue: Reply `<nick>` to inspect their post-swap card, or `pass`. Players: {}",
-                        roster.format_players_marking_shields(shielded)
+                    irc_format!(
+                        "🗡️ Rogue: Reply {} to inspect their post-swap card, or {}. Players: {}",
+                        "<nick>".bold(),
+                        "pass".bold(),
+                        roster.format_players_marking_shields(shielded),
                     ),
                     move |m| {
                         if Roster::is_pass(&m.text) {
@@ -70,7 +72,7 @@ impl Rogue {
                                 AskMatch::reject("🛡️ That player is shielded!".yellow())
                             }
                             Some(idx) => AskMatch::accept(Some(idx)),
-                            None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                            None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                         }
                     },
                 )
@@ -85,9 +87,12 @@ impl Rogue {
             let peek_card = ctx.board().players[target];
             let target_nick = ctx.nick(target);
             let prompt2 = irc_format!(
-                "🗡️ Rogue: {} currently holds {}! Reply `steal` (take it for yourself), `ditch` (swap it with Center #1), or `leave`:",
+                "🗡️ Rogue: {} currently holds {}! Reply {} (take it for yourself), {} (swap it with Center #1), or {}:",
                 target_nick.bold(),
                 peek_card.display_for_peek(),
+                "steal".bold(),
+                "ditch".bold(),
+                "leave".bold(),
             );
 
             let step2 = ctx
@@ -111,7 +116,7 @@ impl Rogue {
                         "leave" | "no" | "n" | "pass" | "skip" => {
                             AskMatch::accept(RogueDecision::Leave { target })
                         }
-                        _ => AskMatch::reject("Reply `steal`, `ditch`, or `leave`.".yellow()),
+                        _ => AskMatch::reject("Reply steal, ditch, or leave.".yellow()),
                     },
                 )
                 .await?;

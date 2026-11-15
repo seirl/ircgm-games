@@ -37,10 +37,11 @@ static ALIEN_ANARCHY_POOL: &[&'static dyn Role] = &[
 pub static SCENARIOS: &[Scenario] = &[
     Scenario {
         id: "alien_first_contact",
+        slug: "first_contact",
         pack: ScenarioPack::Alien,
-        section: "Alien Standalone",
+        section: "Alien",
         name: "First Contact",
-        aliases: &["first_contact"],
+        aliases: &[],
         difficulty: Difficulty::Introduction,
         player_range: (3, 6),
         rule: ScenarioRule::DeltaTable {
@@ -55,10 +56,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "alien_invasion",
+        slug: "invasion",
         pack: ScenarioPack::Alien,
         section: "Alien + Base",
         name: "Mothership Invasion",
-        aliases: &["mothership_invasion", "invasion"],
+        aliases: &["mothership_invasion"],
         difficulty: Difficulty::Medium,
         player_range: (4, 10),
         rule: ScenarioRule::DeltaTable {
@@ -84,10 +86,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "alien_rivals",
+        slug: "cosmic_rivals",
         pack: ScenarioPack::Alien,
-        section: "Alien Standalone",
-        name: "Cosmic Rivals: Groob vs. Zerb",
-        aliases: &["cosmic_rivals", "groob_vs_zerb"],
+        section: "Alien",
+        name: "Cosmic Rivals",
+        aliases: &["groob_vs_zerb"],
         difficulty: Difficulty::Difficult,
         player_range: (5, 10),
         rule: ScenarioRule::DeltaTable {
@@ -113,9 +116,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "alien_anarchy",
+        slug: "alien_anarchy",
         pack: ScenarioPack::Alien,
-        section: "Alien Standalone",
-        name: "Anarchy (Alien)",
+        section: "Alien",
+        name: "Alien Anarchy",
         aliases: &[],
         difficulty: Difficulty::Difficult,
         player_range: (3, 10),
@@ -125,5 +129,4 @@ pub static SCENARIOS: &[Scenario] = &[
             rule_text: "Shuffle the Alien pool and deal N + 3 cards at random (max 3 Aliens).",
         },
     },
-
 ];

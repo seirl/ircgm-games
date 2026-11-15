@@ -81,12 +81,24 @@ impl Artifact {
     pub fn recipient_dm(self) -> Text {
         match self {
             Artifact::TokenOfMute => irc_format!(
-                "🏺 You have the {}. If you send any public channel message containing letters/numbers before voting ends, you personally lose (even if your team wins). Allowed in channel: punctuation-only messages (`...`, `!`, `?`), `/me` gestures (`/me nods`, `/me shakes head`, `/me shrugs`, `/me waves`, `/me thumbs up`, `/me thumbs down`, `/me points at <nick>`), `!ready`, and `!vote <nick>`.",
+                "🏺 You have the {}. If you send any public channel message containing letters/numbers before voting ends, you personally lose (even if your team wins). Allowed in channel: punctuation-only messages (..., !, ?), {} gestures ({}, {}, {}, {}, {}, {}, {}), {}, and {}.",
                 self.styled(),
+                "/me".bold(),
+                "/me nods".bold(),
+                "/me shakes head".bold(),
+                "/me shrugs".bold(),
+                "/me waves".bold(),
+                "/me thumbs up".bold(),
+                "/me thumbs down".bold(),
+                "/me points at <nick>".bold(),
+                "!ready".bold().green(),
+                "!vote <nick>".bold().green(),
             ),
             Artifact::ShroudOfShame => irc_format!(
-                "🏺 You have the {} (Facing the Wall). Before speaking (and before voting ends), you MUST send `/me turns around` in channel, and NONE of your public channel messages may contain any player's nickname (except `!vote <nick>`) — otherwise you personally lose (even if your team wins)!",
+                "🏺 You have the {} (Facing the Wall). Before speaking (and before voting ends), you MUST send {} in channel, and NONE of your public channel messages may contain any player's nickname (except {}) — otherwise you personally lose (even if your team wins)!",
                 self.styled(),
+                "/me turns around".bold().cyan(),
+                "!vote <nick>".bold().green(),
             ),
             Artifact::ClawOfTheWerewolf => irc_format!(
                 "🏺 An {} was placed on your card! You secretly hold the {} — you are now a Werewolf!",
@@ -216,7 +228,7 @@ impl DayConductTracker {
         if !is_allowed_mute_channel_msg(msg, roster) {
             self.mute_violations.entry(seat).or_insert_with(|| {
                 if msg.is_action() {
-                    format!("sent disallowed `/me {}`", msg.text.trim())
+                    format!("sent disallowed /me {}", msg.text.trim())
                 } else {
                     "spoke in channel".to_owned()
                 }
@@ -245,20 +257,20 @@ impl DayConductTracker {
 
     pub fn shame_violation(&self, seat: usize) -> Option<String> {
         if let Some(mentioned) = self.named_player_violations.get(&seat) {
-            return Some(format!("mentioned player `{mentioned}`"));
+            return Some(format!("mentioned player {mentioned}"));
         }
         if self.spoke_before_turning.contains(&seat) {
-            return Some("spoke in channel before `/me turns around`".to_owned());
+            return Some("spoke in channel before /me turns around".to_owned());
         }
         if !self.turned_around.contains(&seat) {
-            return Some("never faced the wall with `/me turns around`".to_owned());
+            return Some("never faced the wall with /me turns around".to_owned());
         }
         None
     }
 }
 
 /// True iff `msg` is a public game-control command (`!vote <valid_nick>`, `!ready`, `!time`,
-/// `!players`, `!who`, `!deck`) that is exempt from both `TokenOfMute` and `ShroudOfShame`.
+/// `!players`, `!who`, `!deck`, `!help`, `!role <name>`) that is exempt from both `TokenOfMute` and `ShroudOfShame`.
 pub fn is_exempt_public_command(msg: &ChatMessage, roster: &Roster) -> bool {
     if msg.is_action() {
         return false;
@@ -266,8 +278,11 @@ pub fn is_exempt_public_command(msg: &ChatMessage, roster: &Roster) -> bool {
     let trimmed = msg.text.trim();
     if matches!(
         trimmed.to_ascii_lowercase().as_str(),
-        "!ready" | "!time" | "!players" | "!who" | "!deck"
+        "!ready" | "!time" | "!players" | "!who" | "!deck" | "!help"
     ) {
+        return true;
+    }
+    if msg.cmd_arg("!role").is_some() || msg.cmd_arg("!info").is_some() {
         return true;
     }
     if let Some(arg) = msg.cmd_arg("!vote") {

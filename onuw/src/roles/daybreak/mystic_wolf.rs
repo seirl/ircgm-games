@@ -30,9 +30,11 @@ impl MysticWolf {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "🐺🔮 Mystic Wolf: Reply `<nick>` to inspect another player's card, or `pass`. Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "🐺🔮 Mystic Wolf: Reply {} to inspect another player's card, or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -47,7 +49,7 @@ impl MysticWolf {
                             "🛡️ That player's card is shielded by the Sentinel!".yellow(),
                         ),
                         Some(idx) => AskMatch::accept(Some(idx)),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

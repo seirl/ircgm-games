@@ -30,9 +30,11 @@ impl Cupid {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let roster = ctx.roster;
-            let prompt = format!(
-                "💘 Cupid: Reply with TWO players (`<nick1> <nick2>`) to bestow the Mark of Love, or `pass`. Players: {}",
-                roster.format_players()
+            let prompt = irc_format!(
+                "💘 Cupid: Reply with TWO players ({}) to bestow the Mark of Love, or {}. Players: {}",
+                "<nick1> <nick2>".bold(),
+                "pass".bold(),
+                roster.format_players(),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -41,7 +43,7 @@ impl Cupid {
                     }
                     let parts: Vec<&str> = m.text.split_whitespace().collect();
                     if parts.len() != 2 {
-                        return AskMatch::reject("Usage: `<nick1> <nick2>` or `pass`.".yellow());
+                        return AskMatch::reject("Usage: <nick1> <nick2> or pass.".yellow());
                     }
                     let (Some(a), Some(b)) = (
                         roster.resolve_nick(parts[0]),

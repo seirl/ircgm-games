@@ -145,6 +145,10 @@ impl Roster {
         format_role_slice(&self.deck)
     }
 
+    pub fn format_deck_styled(&self) -> Text {
+        format_role_slice_styled(&self.deck)
+    }
+
     pub fn deck_has_tag(&self, tag: RoleTag) -> bool {
         self.deck.iter().any(|r| r.tags().contains(&tag))
     }
@@ -309,6 +313,28 @@ pub fn format_role_slice(roles: &[&'static dyn Role]) -> String {
         })
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+pub fn format_role_slice_styled(roles: &[&'static dyn Role]) -> Text {
+    let mut counts: Vec<(&'static dyn Role, usize)> = Vec::new();
+    for &r in roles {
+        if let Some(entry) = counts.iter_mut().find(|(role, _)| role.id() == r.id()) {
+            entry.1 += 1;
+        } else {
+            counts.push((r, 1));
+        }
+    }
+    let parts: Vec<Text> = counts
+        .into_iter()
+        .map(|(role, n)| {
+            if n > 1 {
+                irc_format!("{n}x {}", role.styled_name())
+            } else {
+                role.styled_name()
+            }
+        })
+        .collect();
+    Text::join(&parts, ", ".grey())
 }
 
 /// Complete tabletop state across Dusk, Night, Day, and Dawn.

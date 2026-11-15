@@ -29,9 +29,11 @@ impl RoleRetriever {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "🐕 Role Retriever: Reply `<nick>` to swap cards with another player (they will see their new card!), or `pass`. Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "🐕 Role Retriever: Reply {} to swap cards with another player (they will see their new card!), or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -40,13 +42,13 @@ impl RoleRetriever {
                     }
                     match roster.resolve_nick(&m.text) {
                         Some(idx) if idx == seat => {
-                            AskMatch::reject("Pick ANOTHER player (or `pass`)!".yellow())
+                            AskMatch::reject("Pick ANOTHER player (or pass)!".yellow())
                         }
                         Some(idx) if shielded.contains(&idx) => {
                             AskMatch::reject("🛡️ Shielded players cannot be swapped!".yellow())
                         }
                         Some(idx) => AskMatch::accept(Some(idx)),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

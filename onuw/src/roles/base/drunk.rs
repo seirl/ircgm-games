@@ -29,14 +29,19 @@ impl Drunk {
         Box::pin(async move {
             let ans = ctx
                 .ask(
-                    "🍺 Drunk: You MUST swap your card with center `1`, `2`, or `3`!",
+                    irc_format!(
+                        "🍺 Drunk: You MUST swap your card with center {}, {}, or {}!",
+                        "1".bold(),
+                        "2".bold(),
+                        "3".bold(),
+                    ),
                     |m| match Roster::parse_center_slot(&m.text) {
                         Some(c_idx) => AskMatch::accept_say(
                             c_idx,
                             format!("🍺 Locked in face-down swap with Center #{}!", c_idx + 1),
                         ),
                         None => {
-                            AskMatch::reject("Drunk MUST swap! Reply `1`, `2`, or `3`.".yellow())
+                            AskMatch::reject("Drunk MUST swap! Reply 1, 2, or 3.".yellow())
                         }
                     },
                 )

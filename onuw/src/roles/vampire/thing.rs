@@ -15,7 +15,7 @@ impl Role for Thing {
             "Thing",
             GameSet::Vampire,
             Team::Village,
-            "Go bump in the night! Tap either your immediate `left` or `right` neighbor in DM so they know Thing sits beside them.",
+            "Go bump in the night! Tap either your immediate left or right neighbor in DM so they know Thing sits beside them.",
         )
         .aliases(&["the thing"])
     }
@@ -30,10 +30,12 @@ impl Thing {
         Box::pin(async move {
             let roster = ctx.roster;
             let (left, right) = roster.neighbors(seat);
-            let prompt = format!(
-                "👻 Thing: Reply `left` ({}) or `right` ({}) to go bump in the night!",
+            let prompt = irc_format!(
+                "👻 Thing: Reply {} ({}) or {} ({}) to go bump in the night!",
+                "left".bold(),
                 ctx.nick(left),
-                ctx.nick(right)
+                "right".bold(),
+                ctx.nick(right),
             );
             let ans = ctx
                 .ask(
@@ -53,7 +55,7 @@ impl Thing {
                                 format!("👻 Bumped {}!", roster.seats[idx].user.nick()),
                             ),
                             _ => AskMatch::reject(
-                                "Pick `left` or `right` (or your neighbor's nickname)!".yellow(),
+                                "Pick left or right (or your neighbor's nickname)!".yellow(),
                             ),
                         },
                     },

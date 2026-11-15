@@ -45,10 +45,11 @@ static DAYBREAK_ANARCHY_POOL: &[&'static dyn Role] = &[
 pub static SCENARIOS: &[Scenario] = &[
     Scenario {
         id: "mg_dark_awakening",
+        slug: "dark_awakening",
         pack: ScenarioPack::Daybreak,
-        section: "MorgenGrauen Standalone",
-        name: "Dark Awakening (Dunkles Erwachen)",
-        aliases: &["dark_awakening", "dunkles_erwachen"],
+        section: "Daybreak",
+        name: "Dark Awakening",
+        aliases: &["dunkles_erwachen"],
         difficulty: Difficulty::Introduction,
         player_range: (3, 6),
         rule: ScenarioRule::DeltaTable {
@@ -70,9 +71,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "mg_werwolfsnacht",
+        slug: "werewolf_night",
         pack: ScenarioPack::Daybreak,
-        section: "MorgenGrauen Standalone",
-        name: "Night of the Werewolf (Werwolfsnacht)",
+        section: "Daybreak",
+        name: "Night of the Werewolf",
         aliases: &["werwolfsnacht", "daybreak_night_of_the_werewolf"],
         difficulty: Difficulty::Medium,
         player_range: (5, 10),
@@ -110,10 +112,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "mg_terrible_enemy",
+        slug: "terrible_enemy",
         pack: ScenarioPack::Daybreak,
-        section: "MorgenGrauen Standalone",
-        name: "A Terrible Enemy (Ein fürchterlicher Gegner)",
-        aliases: &["terrible_enemy", "ein_furchterlicher_gegner"],
+        section: "Daybreak",
+        name: "A Terrible Enemy",
+        aliases: &["ein_furchterlicher_gegner"],
         difficulty: Difficulty::Difficult,
         player_range: (3, 4),
         rule: ScenarioRule::DeltaTable {
@@ -130,10 +133,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "mg_fragile_artifacts",
+        slug: "artifact_chaos",
         pack: ScenarioPack::Daybreak,
-        section: "MorgenGrauen Standalone",
-        name: "Artifact Chaos (3–7p Alpha & Curator)",
-        aliases: &["fragile_artifacts", "artifact_chaos"],
+        section: "Daybreak",
+        name: "Artifact Chaos",
+        aliases: &["fragile_artifacts"],
         difficulty: Difficulty::Difficult,
         player_range: (3, 7),
         rule: ScenarioRule::DeltaTable {
@@ -156,10 +160,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "mg_anarchy",
+        slug: "daybreak_anarchy",
         pack: ScenarioPack::Daybreak,
-        section: "MorgenGrauen Standalone",
-        name: "Anarchy (Daybreak)",
-        aliases: &["daybreak_anarchy"],
+        section: "Daybreak",
+        name: "Daybreak Anarchy",
+        aliases: &[],
         difficulty: Difficulty::Difficult,
         player_range: (3, 10),
         rule: ScenarioRule::Anarchy {
@@ -171,10 +176,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "mg_combined_the_wise",
+        slug: "the_wise",
         pack: ScenarioPack::Daybreak,
-        section: "MorgenGrauen + Vollmondnacht",
-        name: "The Wise (Die Wissenden)",
-        aliases: &["the_wise", "die_wissenden"],
+        section: "Daybreak + Base",
+        name: "The Wise",
+        aliases: &["die_wissenden"],
         difficulty: Difficulty::Medium,
         player_range: (5, 10),
         rule: ScenarioRule::DeltaTable {
@@ -200,10 +206,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "mg_combined_evil_transformations",
+        slug: "evil_transformations",
         pack: ScenarioPack::Daybreak,
-        section: "MorgenGrauen + Vollmondnacht",
-        name: "Evil Transformations (Böse Verwandlungen)",
-        aliases: &["evil_transformations", "bose_verwandlungen"],
+        section: "Daybreak + Base",
+        name: "Evil Transformations",
+        aliases: &["bose_verwandlungen"],
         difficulty: Difficulty::Difficult,
         player_range: (3, 10),
         rule: ScenarioRule::DeltaTable {
@@ -244,10 +251,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "mg_combined_trust_no_one",
+        slug: "trust_no_one",
         pack: ScenarioPack::Daybreak,
-        section: "MorgenGrauen + Vollmondnacht",
-        name: "Trust No One (Traue niemandem)",
-        aliases: &["trust_no_one", "traue_niemandem"],
+        section: "Daybreak + Base",
+        name: "Trust No One",
+        aliases: &["traue_niemandem"],
         difficulty: Difficulty::Difficult,
         player_range: (3, 7),
         rule: ScenarioRule::DeltaTable {
@@ -268,5 +276,4 @@ pub static SCENARIOS: &[Scenario] = &[
             ],
         },
     },
-
 ];

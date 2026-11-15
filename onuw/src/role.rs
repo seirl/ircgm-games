@@ -38,13 +38,13 @@ impl GameSet {
             GameSet::Daybreak => "daybreak",
             GameSet::Vampire => "vampire",
             GameSet::Alien => "alien",
-            GameSet::SuperVillains => "super_villains",
+            GameSet::SuperVillains => "villains",
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
-            GameSet::Base => "Base ONUW",
+            GameSet::Base => "Base Set",
             GameSet::Daybreak => "Daybreak",
             GameSet::Vampire => "Vampire",
             GameSet::Alien => "Alien",
@@ -87,6 +87,15 @@ impl Team {
             Team::Werewolf => "Werewolf",
             Team::Vampire => "Vampire",
             Team::Independent => "Independent",
+        }
+    }
+
+    pub fn styled_label(self) -> Text {
+        match self {
+            Team::Village => "Village".bold().cyan(),
+            Team::Werewolf => "Werewolf".bold().red(),
+            Team::Vampire => "Vampire".bold().magenta(),
+            Team::Independent => "Independent".bold().orange(),
         }
     }
 }

@@ -38,9 +38,11 @@ impl Priest {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let roster = ctx.roster;
-            let prompt = format!(
-                "✝️ Priest: You cleanse yourself; reply `<nick>` to ALSO cleanse another player with Mark of Clarity, or `pass`. Players: {}",
-                roster.format_players()
+            let prompt = irc_format!(
+                "✝️ Priest: You cleanse yourself; reply {} to ALSO cleanse another player with Mark of Clarity, or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players(),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -49,7 +51,7 @@ impl Priest {
                     }
                     match roster.resolve_nick(&m.text) {
                         Some(idx) if idx == seat => AskMatch::reject(
-                            "You already cleanse yourself automatically! Pick another player or `pass`."
+                            "You already cleanse yourself automatically! Pick another player or pass."
                                 .yellow(),
                         ),
                         Some(idx) => AskMatch::accept_say(
@@ -60,7 +62,7 @@ impl Priest {
                                 Mark::Clarity.styled(),
                             ),
                         ),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

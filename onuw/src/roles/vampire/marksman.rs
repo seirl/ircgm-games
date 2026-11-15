@@ -46,12 +46,16 @@ impl Marksman {
             let has_marks = roster.deck_has_marks();
             let players_str = roster.format_players_marking_shields(shielded);
             let prompt = if has_marks {
-                format!(
-                    "🎯 Marksman: Reply `<card_nick> <mark_nick>` (two DIFFERENT players) or `pass`. Players: {players_str}"
+                irc_format!(
+                    "🎯 Marksman: Reply {} (two DIFFERENT players) or {}. Players: {players_str}",
+                    "<card_nick> <mark_nick>".bold(),
+                    "pass".bold(),
                 )
             } else {
-                format!(
-                    "🎯 Marksman: Reply `<nick>` to view another player's card, or `pass`. Players: {players_str}"
+                irc_format!(
+                    "🎯 Marksman: Reply {} to view another player's card, or {}. Players: {players_str}",
+                    "<nick>".bold(),
+                    "pass".bold(),
                 )
             };
 
@@ -66,12 +70,12 @@ impl Marksman {
                         [card_tok, mark_tok] if has_marks => (*card_tok, Some(*mark_tok)),
                         _ if has_marks => {
                             return AskMatch::reject(
-                                "Usage: `<card_nick> <mark_nick>` or `pass`.".yellow(),
+                                "Usage: <card_nick> <mark_nick> or pass.".yellow(),
                             );
                         }
                         _ => {
                             return AskMatch::reject(
-                                "There are no Marks in this game — reply `<nick>` to view another player's card, or `pass`."
+                                "There are no Marks in this game — reply <nick> to view another player's card, or pass."
                                     .yellow(),
                             );
                         }

@@ -58,7 +58,7 @@ async fn rogue_waits_for_robber_and_troublemaker_then_steals_post_swap_card_and_
     assert!(!chan.contains("Robber"));
     let reveal = dawn.reveal_text();
     assert!(reveal.contains(
-        "🃏 Roles: Alice: Robber | Bob: Troublemaker | Carol: Rogue → Werewolf 💀 | Dave: Werewolf → Rogue"
+        "🃏 Roles: Alice: Robber · Bob: Troublemaker · Carol: Rogue → Werewolf 💀 · Dave: Werewolf → Rogue"
     ));
     assert!(reveal.contains("📜 What Happened:"));
     assert!(reveal.contains("Robber (Alice) stole Werewolf from Dave (giving Dave Robber)."));

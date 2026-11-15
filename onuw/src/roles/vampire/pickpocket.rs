@@ -37,9 +37,11 @@ impl Pickpocket {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let roster = ctx.roster;
-            let prompt = format!(
-                "🤏 Pickpocket: Reply `<nick>` to swap Marks and view your new Mark, or `pass`. Players: {}",
-                roster.format_players()
+            let prompt = irc_format!(
+                "🤏 Pickpocket: Reply {} to swap Marks and view your new Mark, or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players(),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -49,7 +51,7 @@ impl Pickpocket {
                     match roster.resolve_nick(&m.text) {
                         Some(idx) if idx == seat => AskMatch::reject("Pick ANOTHER player!".yellow()),
                         Some(idx) => AskMatch::accept(Some(idx)),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

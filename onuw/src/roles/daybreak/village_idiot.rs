@@ -21,7 +21,7 @@ impl Role for VillageIdiot {
             "Village Idiot",
             GameSet::Daybreak,
             Team::Village,
-            "May rotate ALL other unshielded players' cards one step `left` or `right` around the table (your own card stays put!).",
+            "May rotate ALL other unshielded players' cards one step left or right around the table (your own card stays put!).",
         )
         .aliases(&["vi", "idiot"])
     }
@@ -34,9 +34,14 @@ impl Role for VillageIdiot {
 impl VillageIdiot {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
-            let prompt = format!(
-                "🤪 Village Idiot: Reply `left` (`-1`), `right` (`+1`), or `pass` to rotate all other unshielded cards! Players: {}",
-                ctx.roster.format_players_marking_shields(ctx.shielded)
+            let prompt = irc_format!(
+                "🤪 Village Idiot: Reply {} ({}), {} ({}), or {} to rotate all other unshielded cards! Players: {}",
+                "left".bold(),
+                "-1".bold(),
+                "right".bold(),
+                "+1".bold(),
+                "pass".bold(),
+                ctx.roster.format_players_marking_shields(ctx.shielded),
             );
             let ans = ctx
                 .ask(prompt, |m| {
@@ -52,7 +57,7 @@ impl VillageIdiot {
                             Some(RotateDir::Right),
                             "🤪 Locked in rotating other cards RIGHT!",
                         ),
-                        _ => AskMatch::reject("Reply `left`, `right`, or `pass`.".yellow()),
+                        _ => AskMatch::reject("Reply left, right, or pass.".yellow()),
                     }
                 })
                 .await?;

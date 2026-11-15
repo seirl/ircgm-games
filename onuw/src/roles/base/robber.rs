@@ -28,9 +28,11 @@ impl Robber {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "🦹 Robber: Reply with `<nick>` to steal their card, or `pass`. Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "🦹 Robber: Reply with {} to steal their card, or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -39,13 +41,13 @@ impl Robber {
                     }
                     match roster.resolve_nick(&m.text) {
                         Some(idx) if idx == seat => AskMatch::reject(
-                            "Pick ANOTHER player (or `pass`), not yourself!".yellow(),
+                            "Pick ANOTHER player (or pass), not yourself!".yellow(),
                         ),
                         Some(idx) if shielded.contains(&idx) => AskMatch::reject(
                             "🛡️ That player's card is shielded by the Sentinel!".yellow(),
                         ),
                         Some(idx) => AskMatch::accept(Some(idx)),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

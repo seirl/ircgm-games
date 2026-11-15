@@ -41,9 +41,11 @@ impl ParanormalInvestigator {
             for step in 1..=2 {
                 let already = peeked.clone();
                 let (roster, shielded) = (ctx.roster, ctx.shielded);
-                let prompt = format!(
-                    "🕵️ Paranormal Investigator (peek {step}/2): Reply `<nick>` to inspect, or `pass`. Players: {}",
-                    roster.format_players_marking_shields(shielded)
+                let prompt = irc_format!(
+                    "🕵️ Paranormal Investigator (peek {step}/2): Reply {} to inspect, or {}. Players: {}",
+                    "<nick>".bold(),
+                    "pass".bold(),
+                    roster.format_players_marking_shields(shielded),
                 );
                 let ans = ctx
                     .ask(prompt, move |m| {
@@ -56,14 +58,14 @@ impl ParanormalInvestigator {
                                 AskMatch::reject("You cannot inspect your own card!".yellow())
                             }
                             Some(idx) if already.contains(&idx) => AskMatch::reject(
-                                "You already inspected that player—pick someone else or `pass`!"
+                                "You already inspected that player—pick someone else or pass!"
                                     .yellow(),
                             ),
                             Some(idx) if shielded.contains(&idx) => AskMatch::reject(
                                 "🛡️ That card is shielded by the Sentinel!".yellow(),
                             ),
                             Some(idx) => AskMatch::accept(Some(idx)),
-                            None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                            None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                         }
                     })
                     .await?;

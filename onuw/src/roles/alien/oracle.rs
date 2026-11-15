@@ -27,7 +27,12 @@ impl Oracle {
         Box::pin(async move {
             let ans = ctx
                 .ask(
-                    "🔮🛸 Oracle: The Mother Ship asks — tune cosmic frequencies to `amplify` (boosts Psychic visions), `static`, or `normal`?",
+                    irc_format!(
+                        "🔮🛸 Oracle: The Mother Ship asks — tune cosmic frequencies to {} (boosts Psychic visions), {}, or {}?",
+                        "amplify".bold(),
+                        "static".bold(),
+                        "normal".bold(),
+                    ),
                     |m| match m.text.trim().to_ascii_lowercase().as_str() {
                         "amplify" | "a" | "yes" => AskMatch::accept_say(
                             OracleOmen::AmplifiedSignals,
@@ -41,7 +46,7 @@ impl Oracle {
                             OracleOmen::Normal,
                             "🔮🛸 Signals kept NORMAL.",
                         ),
-                        _ => AskMatch::reject("Reply `amplify`, `static`, or `normal`.".yellow()),
+                        _ => AskMatch::reject("Reply amplify, static, or normal.".yellow()),
                     },
                 )
                 .await?;

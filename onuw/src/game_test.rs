@@ -25,9 +25,22 @@ async fn full_lobby_custom_deck_to_dawn_chronicle_and_abort_cleanup() {
     srv.settle().await;
     let _ = srv.take_messages_to("#onuw");
 
-    // 1. Start a game, customize deck with `!clear` + `!add` so all 6 cards are deterministic:
+    // 1. Start a game, verify open-lobby `!help` and host `!onuw vampire` hint, then customize deck:
     srv.chat("Alice", "#onuw", "!onuw");
     srv.settle().await;
+    let _ = srv.take_messages_to("#onuw");
+    srv.chat("Bob", "#onuw", "!help");
+    srv.chat("Alice", "#onuw", "!onuw vampire");
+    srv.settle().await;
+    let open_lobby_out = srv.take_messages_to("#onuw").join("\n");
+    assert!(open_lobby_out.contains("Open Lobby"));
+    assert!(open_lobby_out.contains("!preset vampire"));
+    assert!(!open_lobby_out.contains("already in progress"));
+    assert!(
+        !open_lobby_out.contains('`'),
+        "expected zero backticks in open lobby output, got:\n{open_lobby_out}"
+    );
+
     srv.chat("Bob", "#onuw", "!join");
     srv.chat("Carol", "#onuw", "!join");
     srv.chat("Alice", "#onuw", "!clear");
@@ -63,10 +76,11 @@ async fn full_lobby_custom_deck_to_dawn_chronicle_and_abort_cleanup() {
     srv.settle().await;
 
     let chan_out = srv.take_messages_to("#onuw").join("\n");
-    assert!(chan_out.contains("🌅 DAWN — Votes: Alice (1), Bob (1), Carol (1) | 💚 Nobody died!"));
+    assert!(chan_out.contains("🌅 DAWN — Votes: Alice (1), Bob (1), Carol (1) · Nobody died!"));
     assert!(chan_out.contains("🏆 Winners: Alice (Village), Bob (Village), Carol (Village)"));
     assert!(chan_out.contains("Round complete!"));
     assert!(chan_out.contains("!reveal"));
+    assert!(!chan_out.contains('`'));
     // Full game record (center cards, roles, and chronicle) must NOT be spoiled before `!reveal`:
     assert!(!chan_out.contains("🌅 DAWN REVEAL"));
     assert!(!chan_out.contains("📜 What Happened:"));
@@ -78,9 +92,10 @@ async fn full_lobby_custom_deck_to_dawn_chronicle_and_abort_cleanup() {
     srv.settle().await;
     let reveal_out = srv.take_messages_to("#onuw").join("\n");
     assert!(reveal_out.contains("🌅 DAWN REVEAL — Center:"));
-    assert!(reveal_out.contains("🃏 Roles: Alice: Insomniac | Bob: Insomniac | Carol: Insomniac"));
+    assert!(reveal_out.contains("🃏 Roles: Alice: Insomniac · Bob: Insomniac · Carol: Insomniac"));
     assert!(reveal_out.contains("📜 What Happened:"));
     assert!(reveal_out.contains("Insomniac (Alice) checked their card and saw Insomniac."));
+    assert!(!reveal_out.contains('`'));
 
     // Repeating `!reveal` does not re-spam the log:
     srv.chat("Bob", "#onuw", "!reveal");

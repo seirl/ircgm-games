@@ -19,7 +19,7 @@ async fn thing_bumps_immediate_neighbor_and_rejects_non_neighbors() {
     // Alice sits at [1]; immediate neighbors are Dave ([4], left) and Bob ([2], right); Carol ([3]) is across!
     h.reply_dm("Alice", "Carol").await;
     let reject = h.wait_for_new_dm("Alice").await;
-    assert!(reject.contains("Pick `left` or `right`"));
+    assert!(reject.contains("Pick left or right"));
     h.send_dm("Alice", "right").await;
 
     let report = h.finish_night(night).await;

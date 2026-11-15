@@ -2,7 +2,7 @@
 
 use ircgm::prelude::*;
 
-use crate::board::{format_role_slice, BoardCards, Card, Roster, SeatInfo};
+use crate::board::{format_role_slice_styled, BoardCards, Card, Roster, SeatInfo};
 use crate::role::Role;
 use crate::roles::base::{villager::VILLAGER, werewolf::WEREWOLF};
 use crate::roles::{find_role, ALL_ROLES};
@@ -156,13 +156,7 @@ impl DeckSpec {
         let base = match self.base {
             DeckBase::Custom => return "Custom Deck".to_owned(),
             DeckBase::Pack(pack) => pack.label().to_owned(),
-            DeckBase::Scenario(scen) => format!(
-                "{}: {} ({}, {})",
-                scen.pack.label(),
-                scen.name,
-                scen.difficulty.label(),
-                scen.range_label()
-            ),
+            DeckBase::Scenario(scen) => format!("{} ({})", scen.name, scen.pack.label()),
         };
         if self.added.is_empty() && self.removed.is_empty() {
             base
@@ -227,7 +221,7 @@ impl DeckSpec {
                 let count = deck.iter().filter(|&&r| r.id() == role.id()).count();
                 if count % 2 != 0 {
                     return Err(format!(
-                        "Role `{}` must be included in pairs (found {count}).",
+                        "Role {} must be included in pairs (found {count}).",
                         role.name()
                     ));
                 }
@@ -237,22 +231,28 @@ impl DeckSpec {
         Ok(deck)
     }
 
-    pub fn preview_for_players(&self, player_count: usize) -> String {
+    pub fn preview_for_players(&self, player_count: usize) -> Text {
         if self.added.is_empty() && self.removed.is_empty() {
             if let DeckBase::Scenario(scen) = self.base {
-                return format!("[{}] — {}", self.mode_label(), scen.preview_cards(player_count));
+                let sep = " · ".grey();
+                return irc_format!(
+                    "{}{sep}{}{sep}{}",
+                    scen.name.bold(),
+                    scen.difficulty.styled_label(),
+                    scen.preview_cards(player_count),
+                );
             }
         }
         let (min_p, max_p) = self.player_range();
         let effective_n = player_count.clamp(min_p, max_p);
         match self.build_for_players(effective_n) {
-            Ok(deck) => format!(
-                "[{}] ({effective_n}p -> {} cards): {}",
-                self.mode_label(),
+            Ok(deck) => irc_format!(
+                "{} ({effective_n}p, {} cards): {}",
+                self.mode_label().bold(),
                 deck.len(),
-                format_role_slice(&deck)
+                format_role_slice_styled(&deck),
             ),
-            Err(err) => format!("⚠️ Invalid deck for {effective_n}p: {err}"),
+            Err(err) => format!("⚠️ Invalid deck for {effective_n}p: {err}").yellow(),
         }
     }
 
@@ -320,7 +320,7 @@ pub fn parse_role_spec_tokens(
                     out.push((role, mult));
                     continue;
                 }
-                return Err(format!("Unknown role `{rest}`."));
+                return Err(format!("Unknown role '{rest}' (try !roles)."));
             }
         }
         let words: Vec<&str> = trimmed.split_whitespace().collect();
@@ -330,7 +330,7 @@ pub fn parse_role_spec_tokens(
             if let Some(mult) = parse_multiplier_prefix(w) {
                 i += 1;
                 if i >= words.len() {
-                    return Err(format!("Missing role name after `{w}`."));
+                    return Err(format!("Missing role name after '{w}'."));
                 }
                 if i + 1 < words.len() {
                     let two = format!("{} {}", words[i], words[i + 1]);
@@ -345,7 +345,7 @@ pub fn parse_role_spec_tokens(
                     i += 1;
                     continue;
                 }
-                return Err(format!("Unknown role `{}`.", words[i]));
+                return Err(format!("Unknown role '{}' (try !roles).", words[i]));
             }
 
             if let Some((mult, name_part)) = split_inline_multiplier(w) {
@@ -376,13 +376,13 @@ pub fn parse_role_spec_tokens(
                 out.push((role, 1));
                 i += 1;
             } else {
-                return Err(format!("Unknown role `{w}` (try `!roles`)."));
+                return Err(format!("Unknown role '{w}' (try !roles)."));
             }
         }
     }
     if out.is_empty() {
         return Err(
-            "Specify at least one role name (e.g. `!add tanner` or `!add 2x werewolf`).".into(),
+            "Specify at least one role name (e.g. !add tanner or !add 2x werewolf).".into(),
         );
     }
     Ok(out)

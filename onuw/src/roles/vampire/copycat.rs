@@ -17,7 +17,7 @@ impl Role for Copycat {
             "Copycat",
             GameSet::Vampire,
             Team::Independent,
-            "Wake first in Dusk: view 1 center card (`1..=3`) and become that role & team for the rest of the game!",
+            "Wake first in Dusk: view 1 center card (1..=3) and become that role & team for the rest of the game!",
         )
         .aliases(&["cc"])
     }
@@ -32,10 +32,15 @@ impl Copycat {
         Box::pin(async move {
             let ans = ctx
                 .ask(
-                    "🪞 Copycat: Pick a center card (`1`, `2`, or `3`) to view and become!",
+                    irc_format!(
+                        "🪞 Copycat: Pick a center card ({}, {}, or {}) to view and become!",
+                        "1".bold(),
+                        "2".bold(),
+                        "3".bold(),
+                    ),
                     |m| match Roster::parse_center_slot(&m.text) {
                         Some(idx) => AskMatch::accept(idx),
-                        None => AskMatch::reject("Reply `1`, `2`, or `3`.".yellow()),
+                        None => AskMatch::reject("Reply 1, 2, or 3.".yellow()),
                     },
                 )
                 .await?;

@@ -29,9 +29,11 @@ impl Troublemaker {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "😈 Troublemaker: Reply with TWO other players (`<nick1> <nick2>`) to swap, or `pass`. Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "😈 Troublemaker: Reply with TWO other players ({}) to swap, or {}. Players: {}",
+                "<nick1> <nick2>".bold(),
+                "pass".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -40,16 +42,16 @@ impl Troublemaker {
                     }
                     let parts: Vec<&str> = m.text.split_whitespace().collect();
                     if parts.len() != 2 {
-                        return AskMatch::reject("Usage: `<nick1> <nick2>` or `pass`.".yellow());
+                        return AskMatch::reject("Usage: <nick1> <nick2> or pass.".yellow());
                     }
                     let Some(a) = roster.resolve_nick(parts[0]) else {
                         return AskMatch::reject(
-                            format!("Unknown player `{}`.", parts[0]).yellow(),
+                            format!("Unknown player '{}'.", parts[0]).yellow(),
                         );
                     };
                     let Some(b) = roster.resolve_nick(parts[1]) else {
                         return AskMatch::reject(
-                            format!("Unknown player `{}`.", parts[1]).yellow(),
+                            format!("Unknown player '{}'.", parts[1]).yellow(),
                         );
                     };
                     if a == seat || b == seat || a == b {

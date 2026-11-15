@@ -39,9 +39,11 @@ impl DrPeeker {
             }
 
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "🔬 Dr. Peeker: Reply `<nick>` to X-ray a non-Villain's card, or `pass`. Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "🔬 Dr. Peeker: Reply {} to X-ray a non-Villain's card, or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -54,7 +56,7 @@ impl DrPeeker {
                             AskMatch::reject("🛡️ That player is shielded!".yellow())
                         }
                         Some(_) => AskMatch::reject("Pick a non-Villain player!".yellow()),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

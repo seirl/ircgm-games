@@ -40,9 +40,10 @@ impl Assassin {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let roster = ctx.roster;
-            let prompt = format!(
-                "🗡️ Assassin: Reply `<nick>` to place the Mark of the Assassin! Players: {}",
-                roster.format_players()
+            let prompt = irc_format!(
+                "🗡️ Assassin: Reply {} to place the Mark of the Assassin! Players: {}",
+                "<nick>".bold(),
+                roster.format_players(),
             );
             let ans = ctx
                 .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
@@ -155,9 +156,10 @@ impl ApprenticeAssassin {
 
             let actor = active_seats[0];
             let roster = ctx.roster;
-            let prompt = format!(
-                "🗡️ Apprentice Assassin: No Assassin is in play! Reply `<nick>` to place the Mark of the Assassin! Players: {}",
-                roster.format_players()
+            let prompt = irc_format!(
+                "🗡️ Apprentice Assassin: No Assassin is in play! Reply {} to place the Mark of the Assassin! Players: {}",
+                "<nick>".bold(),
+                roster.format_players(),
             );
             let ans = ctx
                 .ask(actor, prompt, move |m| match roster.resolve_nick(&m.text) {

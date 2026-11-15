@@ -4,9 +4,9 @@ use std::future::Future;
 use std::pin::Pin;
 
 use ircgm::prelude::*;
-use ircgm_onuw::lobby::handle_catalog_query as onuw_catalog_query;
+use ircgm_onuw::lobby::{handle_catalog_query as onuw_catalog_query, LobbyPhaseTracker};
 use ircgm_onuw::{
-    run_single_game as run_onuw_game, DeckSpec, GameConfig as OnuwGameConfig,
+    run_single_game_tracked as run_onuw_game, DeckSpec, GameConfig as OnuwGameConfig,
     PlayOutcome as OnuwOutcome, ALL_ROLES,
 };
 
@@ -25,7 +25,8 @@ pub struct GameEntry {
     pub help_hint: Option<&'static str>,
     pub validate_args: fn(&str) -> std::result::Result<(), String>,
     pub handle_query: fn(&Room, &ChatMessage) -> Result<bool>,
-    pub run: for<'a> fn(&'a Bot, &'a Room, User, &'a str, bool) -> GameFuture<'a>,
+    pub run:
+        for<'a> fn(&'a Bot, &'a Room, User, &'a str, bool, &'a LobbyPhaseTracker) -> GameFuture<'a>,
 }
 
 fn validate_onuw_args(raw: &str) -> std::result::Result<(), String> {
@@ -34,7 +35,7 @@ fn validate_onuw_args(raw: &str) -> std::result::Result<(), String> {
         Ok(())
     } else {
         Err(format!(
-            "Unknown pack or scenario `{trimmed}` — try `!scenarios`!"
+            "Unknown pack or scenario '{trimmed}' — try !scenarios!"
         ))
     }
 }
@@ -45,6 +46,7 @@ fn run_onuw<'a>(
     starter: User,
     raw_args: &'a str,
     fast: bool,
+    phase_tracker: &'a LobbyPhaseTracker,
 ) -> GameFuture<'a> {
     Box::pin(async move {
         let spec = DeckSpec::parse(raw_args.trim()).unwrap_or_default();
@@ -53,7 +55,7 @@ fn run_onuw<'a>(
         } else {
             OnuwGameConfig::default()
         };
-        run_onuw_game(bot, lobby, starter, spec, &cfg)
+        run_onuw_game(bot, lobby, starter, spec, &cfg, Some(phase_tracker))
             .await
             .map(|o| match o {
                 OnuwOutcome::Completed(reveal) => GameRunOutcome::Completed {
@@ -69,7 +71,7 @@ pub static REGISTRY: &[GameEntry] = &[GameEntry {
     aliases: &["werewolf"],
     summary: "One Night Ultimate Werewolf",
     help_hint: Some(
-        "Start with `!onuw [pack|scenario]`; `!reveal` post-game; browse with `!scenarios`, `!roles`, `!role <name>`",
+        "Start with !onuw [pack|scenario] · !reveal post-game · browse with !scenarios, !roles, !role <name>",
     ),
     validate_args: validate_onuw_args,
     handle_query: onuw_catalog_query,
@@ -203,13 +205,23 @@ pub(crate) fn send_games_catalog(lobby: &Room, enabled: &EnabledGames) -> Result
             lobby.say(irc_format!("  {} — {}", entry.slug.bold().cyan(), entry.summary))?;
         }
     }
-    lobby.say(irc_format!(
-        "Start a game with {}, {}, or {} (or {} to cancel).",
-        "!play <game>".bold(),
-        "!<game>".bold(),
-        "!random".bold(),
-        "!abort".bold(),
-    ))?;
+    if enabled.slugs().len() == 1 {
+        let only = enabled.slugs()[0];
+        let cmd = format!("!{only}");
+        lobby.say(irc_format!(
+            "Start a game with {} (or {} to cancel).",
+            cmd.bold().cyan(),
+            "!abort".bold(),
+        ))?;
+    } else {
+        lobby.say(irc_format!(
+            "Start a game with {}, {}, or {} (or {} to cancel).",
+            "!play <game>".bold(),
+            "!<game>".bold(),
+            "!random".bold(),
+            "!abort".bold(),
+        ))?;
+    }
     Ok(())
 }
 
@@ -239,7 +251,7 @@ fn build_launch_request(
 ) -> std::result::Result<LaunchRequest, String> {
     if !enabled.is_enabled(entry.slug) {
         return Err(format!(
-            "`{}` is not enabled in this lobby — enabled games: {}.",
+            "{} is not enabled in this lobby — enabled games: {}.",
             entry.slug,
             enabled.slug_list()
         ));
@@ -260,7 +272,7 @@ pub(crate) fn parse_launch_command(
         let trimmed = raw_args.trim();
         if trimmed.is_empty() {
             return Err(format!(
-                "Usage: `!play <game>` or `!random` — enabled: {}.",
+                "Usage: !play <game> or !random — enabled: {}.",
                 enabled.slug_list()
             ));
         }
@@ -270,7 +282,7 @@ pub(crate) fn parse_launch_command(
 
         let Some(entry) = find_entry(first) else {
             return Err(format!(
-                "Unknown game `{first}` — enabled: {}.",
+                "Unknown game '{first}' — enabled: {}.",
                 enabled.slug_list()
             ));
         };

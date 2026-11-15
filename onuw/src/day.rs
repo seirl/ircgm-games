@@ -68,9 +68,10 @@ pub async fn run_day_phase(
         format!("{total_secs}s")
     };
     let prompt = irc_format!(
-        "{} You have {dur_label} to debate! Type {} in channel when ready to vote early (`!time` checks clock).",
+        "{} You have {dur_label} to debate! Type {} in channel when ready to vote early ({} checks clock).",
         "☀️ EVERYONE WAKE UP!".bold().yellow(),
         "!ready".bold().green(),
+        "!time".bold().cyan(),
     );
 
     let mut day_cfg = AskConfig::new().reply_deadline(deadline);
@@ -114,9 +115,9 @@ pub async fn run_day_phase(
             }
             AskMatch::accept_say(
                 (),
-                format!(
+                irc_format!(
                     "🗳️ {} is ready to vote ({ready_count}/{active_total}).",
-                    msg.sender.nick()
+                    msg.sender.nick().bold(),
                 ),
             )
         })
@@ -130,7 +131,7 @@ pub async fn run_day_phase(
         .filter(|s| is_active_in_room(room, &s.user))
         .count();
     if active_now > 0 && answers.len() >= active_now {
-        room.say("🗳️ Everyone is ready—moving to the vote!".bold().green())?;
+        room.say("🗳️ Everyone is ready — moving to the vote!".bold().green())?;
     }
     Ok(())
 }
@@ -149,15 +150,22 @@ pub async fn run_voting_phase(
     if let Some(w) = warn_remaining.filter(|&w| w < vote_timeout) {
         vote_cfg = vote_cfg.warn_remaining(
             w,
-            format!("⏳ Hurry—{}s left to `!vote <nick>`!", w.as_secs()).yellow(),
+            irc_format!(
+                "⏳ {} {}",
+                format!("Hurry — {}s left to", w.as_secs()).yellow(),
+                "!vote <nick>!".bold().yellow(),
+            ),
         );
     }
 
     let dm_reminder = bot.inbox_dms_from(&enrolled).on_map(|msg| {
         if msg.is_cmd("!vote") || roster.resolve_nick(&msg.text).is_some() {
-            let _ = msg.reply(
-                format!("🗳️ Voting is public — type `!vote <nick>` in {}!", room.name()).yellow(),
-            );
+            let _ = msg.reply(irc_format!(
+                "🗳️ {} {} {}",
+                "Voting is public — type".yellow(),
+                "!vote <nick>".bold().yellow(),
+                format!("in {}!", room.name()).yellow(),
+            ));
         }
         None::<Infallible>
     });
@@ -182,7 +190,11 @@ pub async fn run_voting_phase(
                 return AskMatch::ignore();
             };
             if raw_args.is_empty() {
-                return AskMatch::reject("Usage: `!vote <nick>`.".yellow());
+                return AskMatch::reject(irc_format!(
+                    "{} {}",
+                    "Usage:".yellow(),
+                    "!vote <nick>.".bold().yellow(),
+                ));
             }
             match roster.resolve_nick(raw_args) {
                 Some(idx) if idx == voter_idx => {

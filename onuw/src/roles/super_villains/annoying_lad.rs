@@ -12,7 +12,7 @@ impl Role for AnnoyingLad {
             "Annoying Lad",
             GameSet::SuperVillains,
             Team::Village,
-            "Nudge either your immediate `left` or `right` neighbor in DM so they know Annoying Lad sits beside them!",
+            "Nudge either your immediate left or right neighbor in DM so they know Annoying Lad sits beside them!",
         )
         .aliases(&["lad", "annoying"])
     }
@@ -27,10 +27,12 @@ impl AnnoyingLad {
         Box::pin(async move {
             let roster = ctx.roster;
             let (left, right) = roster.neighbors(seat);
-            let prompt = format!(
-                "😜 Annoying Lad: Reply `left` ({}) or `right` ({}) to poke a neighbor!",
+            let prompt = irc_format!(
+                "😜 Annoying Lad: Reply {} ({}) or {} ({}) to poke a neighbor!",
+                "left".bold(),
                 ctx.nick(left),
-                ctx.nick(right)
+                "right".bold(),
+                ctx.nick(right),
             );
             let ans = ctx
                 .ask(
@@ -50,7 +52,7 @@ impl AnnoyingLad {
                                 format!("😜 Poked {}!", roster.seats[idx].user.nick()),
                             ),
                             _ => AskMatch::reject(
-                                "Pick `left` or `right` (or your neighbor's nickname)!".yellow(),
+                                "Pick left or right (or your neighbor's nickname)!".yellow(),
                             ),
                         },
                     },

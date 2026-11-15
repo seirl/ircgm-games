@@ -38,9 +38,10 @@ impl Rapscallion {
             }
 
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "🧨 Rapscallion: You MUST plant the extra Villain card on a non-Villain player (`<nick>`)! Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "🧨 Rapscallion: You MUST plant the extra Villain card on a non-Villain player ({})! Players: {}",
+                "<nick>".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let valid_for_match = valid_targets.clone();
             let ans = ctx

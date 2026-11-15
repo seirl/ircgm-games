@@ -40,9 +40,10 @@ impl AlphaWolf {
             }
 
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "🐺 Alpha Wolf: You MUST swap the center Werewolf card onto a non-Wolf player (`<nick>`)! Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "🐺 Alpha Wolf: You MUST swap the center Werewolf card onto a non-Wolf player ({})! Players: {}",
+                "<nick>".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let valid_for_match = valid_targets.clone();
             let ans = ctx

@@ -22,7 +22,7 @@ impl Role for Alien {
             "Alien",
             GameSet::Alien,
             Team::Werewolf,
-            "Wake with the Aliens; the commander may `scan <nick>` a non-Alien's card OR `beam <nick1> <nick2>` to swap two non-Aliens!",
+            "Wake with the Aliens; the commander may scan <nick> a non-Alien's card OR beam <nick1> <nick2> to swap two non-Aliens!",
         )
         .tags(&[RoleTag::AlienPack])
     }
@@ -59,9 +59,13 @@ impl Alien {
             } else {
                 let commander = active_seats[0];
                 let (roster, shielded) = (ctx.roster, ctx.shielded);
-                let prompt = format!(
-                    "👽 Mother Ship Directive: Reply `scan <nick>` (or `<nick>`) to bio-scan a non-Alien, `beam <nick1> <nick2>` to swap two non-Aliens, or `pass`! Players: {}",
-                    roster.format_players_marking_shields(shielded)
+                let prompt = irc_format!(
+                    "👽 Mother Ship Directive: Reply {} (or {}) to bio-scan a non-Alien, {} to swap two non-Aliens, or {}! Players: {}",
+                    "scan <nick>".bold(),
+                    "<nick>".bold(),
+                    "beam <nick1> <nick2>".bold(),
+                    "pass".bold(),
+                    roster.format_players_marking_shields(shielded),
                 );
                 let ans = ctx
                     .ask(commander, prompt, move |m| {
@@ -73,7 +77,7 @@ impl Alien {
                             w.eq_ignore_ascii_case("beam") || w.eq_ignore_ascii_case("swap")
                         }) {
                             if parts.len() != 3 {
-                                return AskMatch::reject("Usage: `beam <nick1> <nick2>`.".yellow());
+                                return AskMatch::reject("Usage: beam <nick1> <nick2>.".yellow());
                             }
                             let (Some(a), Some(b)) = (
                                 roster.resolve_nick(parts[1]),
@@ -108,14 +112,14 @@ impl Alien {
 
                         let tok = if parts.first().is_some_and(|w| w.eq_ignore_ascii_case("scan")) {
                             if parts.len() != 2 {
-                                return AskMatch::reject("Usage: `scan <nick>`.".yellow());
+                                return AskMatch::reject("Usage: scan <nick>.".yellow());
                             }
                             parts[1]
                         } else if parts.len() == 1 {
                             parts[0]
                         } else {
                             return AskMatch::reject(
-                                "Reply `scan <nick>`, `beam <nick1> <nick2>`, or `pass`.".yellow(),
+                                "Reply scan <nick>, beam <nick1> <nick2>, or pass.".yellow(),
                             );
                         };
 

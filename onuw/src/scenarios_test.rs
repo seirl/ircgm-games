@@ -29,6 +29,7 @@ fn all_scenarios_are_ordered_by_pack_have_unique_ids_and_valid_deltas_at_every_p
     };
     let mut last_rank = 0usize;
     let mut seen_ids = HashSet::new();
+    let mut seen_slugs = HashSet::new();
 
     for scen in all_scenarios() {
         let r = pack_rank(scen.pack);
@@ -45,10 +46,23 @@ fn all_scenarios_are_ordered_by_pack_have_unique_ids_and_valid_deltas_at_every_p
             "duplicate scenario id `{}`",
             scen.id
         );
+        assert!(
+            seen_slugs.insert(scen.slug),
+            "duplicate scenario slug `{}` on `{}`",
+            scen.slug,
+            scen.id
+        );
         assert_eq!(
             find_scenario(scen.id).map(|s| s.id),
             Some(scen.id),
             "find_scenario failed on canonical id `{}`",
+            scen.id
+        );
+        assert_eq!(
+            find_scenario(scen.slug).map(|s| s.id),
+            Some(scen.id),
+            "find_scenario failed on short slug `{}` (expected `{}`)",
+            scen.slug,
             scen.id
         );
 
@@ -138,6 +152,15 @@ fn anarchy_scenarios_enforce_max_three_threats_and_never_split_mason_pairs() {
 
 #[test]
 fn fuzzy_lookup_resolves_short_slugs_bilingual_names_and_new_roles() {
+    for &role in ALL_ROLES {
+        let summary = role.info().summary;
+        assert!(
+            !summary.contains('`'),
+            "role `{}` summary still contains markdown backticks: {summary}",
+            role.id()
+        );
+    }
+
     assert_eq!(find_role("The Count").unwrap().id(), "count");
     assert_eq!(find_role("Gremlin").unwrap().id(), "gremlin");
     assert_eq!(find_role("Kobold").unwrap().id(), "gremlin");
@@ -200,10 +223,16 @@ async fn lobby_supports_browsing_scenarios_by_pack_and_enforces_scenario_player_
     let browse_out = srv.take_messages_to("#onuw").join("\n");
     assert!(browse_out.contains("Preset Scenarios"));
     assert!(browse_out.contains("59 total"));
-    assert!(browse_out.contains("vd_first_bite"));
-    assert!(browse_out.contains("eb_vampire_revenants"));
+    assert!(browse_out.contains("first_bite"));
+    assert!(browse_out.contains("Intro:"));
+    assert!(browse_out.contains("Difficult:"));
+    assert!(browse_out.contains("revenants"));
     assert!(browse_out.contains("For the King!"));
     assert!(browse_out.contains("Prince"));
+    assert!(
+        !browse_out.contains('`'),
+        "expected zero markdown backticks in scenario catalog output, got:\n{browse_out}"
+    );
 
     // 2. Open lobby directly on `rb_base_payback` (`4–7p`) and verify `!go` rejects 3 players!
     srv.chat("Alice", "#onuw", "!onuw rb_base_payback");

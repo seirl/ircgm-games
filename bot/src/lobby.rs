@@ -1,6 +1,7 @@
 //! Game-agnostic lobby supervisor and admin command loops.
 
 use ircgm::prelude::*;
+use ircgm_onuw::lobby::{send_lobby_help as send_onuw_lobby_help, LobbyPhaseTracker};
 
 use crate::games::{
     handle_idle_query, is_launch_attempt, parse_launch_command, send_games_catalog, EnabledGames,
@@ -27,7 +28,7 @@ fn handle_admin_fast_command(msg: &ChatMessage, admins: &[String], fast: &mut bo
         "on" | "true" | "1" | "yes" => true,
         "off" | "false" | "0" | "no" => false,
         _ => {
-            msg.reply("Usage: `!fast [on|off]`".yellow())?;
+            msg.reply("Usage: !fast [on|off]".yellow())?;
             return Ok(true);
         }
     };
@@ -54,16 +55,21 @@ pub async fn run_lobby(
 ) -> Result<()> {
     let mut fast = false;
     let mut pending_reveal: Option<Vec<Text>> = None;
+    let single_onuw = enabled.slugs() == ["onuw"];
 
-    lobby.say(irc_format!(
-        "{} {} Enabled games: {}. Type {}, {}, or {}.",
-        "🎮".bold(),
-        "Bot ready!".bold().green(),
-        enabled.slug_list().bold().cyan(),
-        "!play <game>".bold(),
-        "!random".bold(),
-        "!games".bold(),
-    ))?;
+    if single_onuw {
+        send_onuw_lobby_help(lobby)?;
+    } else {
+        lobby.say(irc_format!(
+            "{} {} Enabled games: {}. Type {}, {}, or {}.",
+            "🎮".bold(),
+            "Bot ready!".bold().green(),
+            enabled.slug_list().bold().cyan(),
+            "!play <game>".bold(),
+            "!random".bold(),
+            "!games".bold(),
+        ))?;
+    }
 
     loop {
         let Some((starter, launch)) = ({
@@ -74,6 +80,10 @@ pub async fn run_lobby(
                     Outcome::Stopped(()) => break None,
                 };
 
+                if idle_msg.is_cmd("!help") && single_onuw {
+                    send_onuw_lobby_help(lobby)?;
+                    continue;
+                }
                 if idle_msg.is_cmd("!games") || idle_msg.is_cmd("!help") {
                     send_games_catalog(lobby, enabled)?;
                     continue;
@@ -157,49 +167,62 @@ pub async fn run_lobby(
             }
         });
 
+        let phase_tracker = LobbyPhaseTracker::new();
+        let phase_for_busy = phase_tracker.clone();
         let starter_for_busy = starter.clone();
         let lobby_for_busy = lobby.clone();
         let enabled_for_busy = enabled.clone();
         let busy_responder = lobby.inbox().on_map(move |msg| {
-            if msg.is_cmd("!games") || msg.is_cmd("!help") {
+            if msg.is_cmd("!games") {
                 let _ = send_games_catalog(&lobby_for_busy, &enabled_for_busy);
             } else if msg.is_cmd("!reveal") {
                 let _ = msg.reply(
-                    "⏳ Finish the current game first — `!reveal` is available after the round ends!"
+                    "⏳ Finish the current game first — !reveal is available after the round ends!"
                         .yellow(),
                 );
             } else if is_launch_attempt(msg) {
+                if phase_for_busy.is_recruiting() {
+                    return None;
+                }
                 let abort_hint = if starter_for_busy.is_online()
                     && lobby_for_busy.has_user(&starter_for_busy)
                 {
-                    format!("{} can type `!abort`", starter_for_busy.nick())
+                    format!("{} can type !abort", starter_for_busy.nick())
                 } else {
-                    "type `!abort`".to_owned()
+                    "type !abort".to_owned()
                 };
                 let _ = lobby_for_busy.say(
-                    format_args!("⏳ `{slug}` is already in progress ({abort_hint} to cancel)!")
+                    format_args!("⏳ {slug} is already in progress ({abort_hint} to cancel)!")
                         .yellow(),
                 );
             }
             None::<StopReason>
         });
 
-        let outcome = (launch.entry.run)(bot, lobby, starter, &launch.args, fast)
-            .until(async {
-                bot.shutdown_requested().await;
-                StopReason::Shutdown
-            })
-            .or_until(admin_stop)
-            .or_until(abort_stop)
-            .or_until(busy_responder)
-            .await;
+        let outcome =
+            (launch.entry.run)(bot, lobby, starter, &launch.args, fast, &phase_tracker)
+                .until(async {
+                    bot.shutdown_requested().await;
+                    StopReason::Shutdown
+                })
+                .or_until(admin_stop)
+                .or_until(abort_stop)
+                .or_until(busy_responder)
+                .await;
 
         match outcome {
             Outcome::Completed(Ok(GameRunOutcome::Completed { reveal })) => {
                 tracing::info!(game = slug, "game completed");
                 let has_reveal = reveal.is_some();
                 pending_reveal = reveal;
-                if has_reveal {
+                if single_onuw && has_reveal {
+                    lobby.say(irc_format!(
+                        "🏁 {} Discuss what happened, then type {} for the full reveal — or {} for another round!",
+                        "Round complete!".bold().green(),
+                        "!reveal".bold().yellow(),
+                        "!onuw [pack|scenario]".bold().cyan(),
+                    ))?;
+                } else if has_reveal {
                     lobby.say(irc_format!(
                         "🏁 {} finished — lobby is open! Discuss what happened and type {} for the full reveal, or {}, {}, {}.",
                         slug.bold().cyan(),
@@ -231,26 +254,26 @@ pub async fn run_lobby(
                 }
                 tracing::warn!(game = slug, error = %err, "game ended early");
                 lobby.say(
-                    format_args!("⚠️ `{slug}` ended early: {err} — lobby is open again!").yellow(),
+                    format_args!("⚠️ {slug} ended early: {err} — lobby is open again!").yellow(),
                 )?;
             }
             Outcome::Stopped(StopReason::Shutdown) => break,
             Outcome::Stopped(StopReason::Admin(admin_msg)) => {
                 tracing::info!(game = slug, admin = %admin_msg.nick, "game stopped by admin");
-                admin_msg.reply(format_args!("🛑 Stopped `{slug}`.").yellow())?;
+                admin_msg.reply(format_args!("🛑 Stopped {slug}.").yellow())?;
                 if admin_msg.is_dm() {
-                    lobby.say(format_args!("🛑 `{slug}` was stopped by an admin.").yellow())?;
+                    lobby.say(format_args!("🛑 {slug} was stopped by an admin.").yellow())?;
                 }
             }
             Outcome::Stopped(StopReason::Aborted(abort_msg)) => {
                 tracing::info!(game = slug, by = %abort_msg.nick, "game aborted");
                 if abort_msg.is_dm() {
-                    abort_msg.reply(format_args!("🛑 Aborted `{slug}`.").yellow())?;
+                    abort_msg.reply(format_args!("🛑 Aborted {slug}.").yellow())?;
                 }
                 lobby.say(irc_format!(
                     "🛑 {} {}",
                     abort_msg.sender.nick().bold(),
-                    format!("aborted `{slug}` — lobby is open!").yellow(),
+                    format!("aborted {slug} — lobby is open!").yellow(),
                 ))?;
             }
         }

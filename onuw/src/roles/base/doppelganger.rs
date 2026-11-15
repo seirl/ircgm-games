@@ -43,8 +43,9 @@ impl Doppelganger {
             let players_str = roster.format_players_marking_shields(shielded);
             let ans = ctx
                 .ask(
-                    format!(
-                        "🎭 Doppelgänger: Pick ONE other player (`<nick>`) to copy! Players: {players_str}"
+                    irc_format!(
+                        "🎭 Doppelgänger: Pick ONE other player ({}) to copy! Players: {players_str}",
+                        "<nick>".bold(),
                     ),
                     move |m| match roster.resolve_nick(&m.text) {
                         Some(idx) if idx == seat => {

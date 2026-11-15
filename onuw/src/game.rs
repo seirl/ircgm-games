@@ -10,7 +10,7 @@ use crate::board::{BoardCards, Roster};
 use crate::dawn::{resolve_and_announce_winners, GameReveal};
 use crate::day::{run_day_phase, run_voting_phase};
 use crate::deck::DeckSpec;
-use crate::lobby::{recruit_players, send_single_role_info};
+use crate::lobby::{recruit_players_tracked, send_active_game_help, send_single_role_info, LobbyPhaseTracker};
 use crate::night::{run_night_phase, NightTimings};
 use crate::roles::find_role;
 
@@ -99,7 +99,19 @@ pub async fn run_single_game(
     initial_spec: DeckSpec,
     config: &GameConfig,
 ) -> Result<PlayOutcome> {
-    let Some((players, deck_spec)) = recruit_players(room, host, initial_spec, config).await?
+    run_single_game_tracked(bot, room, host, initial_spec, config, None).await
+}
+
+pub async fn run_single_game_tracked(
+    bot: &Bot,
+    room: &Room,
+    host: User,
+    initial_spec: DeckSpec,
+    config: &GameConfig,
+    phase_tracker: Option<&LobbyPhaseTracker>,
+) -> Result<PlayOutcome> {
+    let Some((players, deck_spec)) =
+        recruit_players_tracked(room, host, initial_spec, config, phase_tracker).await?
     else {
         return Ok(PlayOutcome::NotEnoughPlayers);
     };
@@ -134,10 +146,12 @@ pub async fn run_dealt_game(
 
     // Phase 1: Announce deck, seating ring, and deal secret role cards in DM:
     room.say(irc_format!(
-        "🃏 [{}] Shuffling {} cards: {}",
+        "🃏 {} {} {} ({} cards): {}",
         mode_label.bold(),
-        format!("{} total", roster.deck.len()).bold().yellow(),
-        roster.format_deck(),
+        "—".grey(),
+        "Shuffling deck".bold(),
+        roster.deck.len(),
+        roster.format_deck_styled(),
     ))?;
     room.say(irc_format!(
         "👥 {}: {}",
@@ -153,14 +167,24 @@ pub async fn run_dealt_game(
         ));
     }
 
-    let deck_snapshot = roster.format_deck();
+    let deck_snapshot = roster.format_deck_styled();
     let deck_len = roster.deck.len();
     let info_scope = InboxScope::new().room(room).dms_from(&players);
-    let info_responder = bot.inbox_scope(info_scope).on_map(|msg| {
+    let info_responder = bot.inbox_scope(info_scope).on_map(move |msg| {
         if msg.is_cmd("!deck") {
-            let _ = msg.reply(format!("🃏 Deck ({deck_len} cards): {deck_snapshot}"));
+            let _ = msg.reply(irc_format!(
+                "🃏 {} {}",
+                format!("Deck ({deck_len} cards):").bold(),
+                deck_snapshot.clone(),
+            ));
         } else if msg.is_cmd("!players") || msg.is_cmd("!who") {
-            let _ = msg.reply(format!("👥 Table circle: {}", roster.format_table_circle()));
+            let _ = msg.reply(irc_format!(
+                "👥 {}: {}",
+                "Table circle".bold(),
+                roster.format_table_circle(),
+            ));
+        } else if msg.is_cmd("!help") {
+            let _ = send_active_game_help(msg);
         } else if let Some(arg) = msg.cmd_arg("!role").or_else(|| msg.cmd_arg("!info")) {
             if let Some(r) = find_role(arg) {
                 let _ = send_single_role_info(msg, r);

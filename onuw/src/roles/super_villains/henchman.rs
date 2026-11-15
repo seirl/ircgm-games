@@ -60,8 +60,12 @@ impl Henchman {
                     .ask(
                         active_seats[0],
                         irc_format!(
-                            "🦹‍♂️ You are the {}! Pick ONE center card to peek (`1`, `2`, `3`, or `pass`):",
-                            "SOLO SUPER VILLAIN".bold().red()
+                            "🦹‍♂️ You are the {}! Pick ONE center card to peek ({}, {}, {}, or {}):",
+                            "SOLO SUPER VILLAIN".bold().red(),
+                            "1".bold(),
+                            "2".bold(),
+                            "3".bold(),
+                            "pass".bold(),
                         ),
                         |m| {
                             if Roster::is_pass(&m.text) {
@@ -69,7 +73,7 @@ impl Henchman {
                             }
                             match Roster::parse_center_slot(&m.text) {
                                 Some(c_idx) => AskMatch::accept(Some(c_idx)),
-                                None => AskMatch::reject("Reply `1`, `2`, `3`, or `pass`.".yellow()),
+                                None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
                             }
                         },
                     )

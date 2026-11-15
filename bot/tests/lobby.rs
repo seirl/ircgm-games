@@ -28,21 +28,24 @@ async fn lobby_supports_games_catalog_admin_fast_busy_abort_stop_and_quit() {
     });
     srv.settle().await;
 
-    // Greeting announces enabled games.
+    // Single-game ONUW greeting shows concise ONUW lobby help without markdown backticks.
     let greeting = srv.take_messages_to("#lobby").join("\n");
-    assert!(greeting.contains("Bot ready!"));
-    assert!(greeting.contains("onuw"));
+    assert!(greeting.contains("One Night Ultimate Werewolf"));
+    assert!(greeting.contains("!onuw"));
+    assert!(!greeting.contains('`'));
 
-    // !games lists enabled games; unknown game reports error.
+    // !games lists enabled games; unknown game reports error without backticks.
     srv.chat("Alice", "#lobby", "!games");
     srv.settle().await;
     let catalog = srv.take_messages_to("#lobby").join("\n");
     assert!(catalog.contains("Enabled games: onuw"));
+    assert!(!catalog.contains('`'));
 
     srv.chat("Alice", "#lobby", "!play nonexistent");
     srv.settle().await;
     let unknown = srv.take_messages_to("#lobby").join("\n");
-    assert!(unknown.contains("Unknown game `nonexistent`"));
+    assert!(unknown.contains("Unknown game 'nonexistent'"));
+    assert!(!unknown.contains('`'));
 
     // Non-admin !fast is ignored; admin !fast toggles fast mode and accepts explicit on/off.
     srv.chat("Alice", "#lobby", "!fast");
@@ -62,23 +65,34 @@ async fn lobby_supports_games_catalog_admin_fast_busy_abort_stop_and_quit() {
     srv.chat("Admin", "#lobby", "!fast maybe");
     srv.settle().await;
     let fast_bad = srv.take_messages_to("#lobby").join("\n");
-    assert!(fast_bad.contains("Usage: `!fast [on|off]`"));
+    assert!(fast_bad.contains("Usage: !fast [on|off]"));
+    assert!(!fast_bad.contains('`'));
 
-    // Starting a game opens recruitment, rejects concurrent starts with busy hint, and !abort cancels it.
+    // Starting a game opens recruitment, gives open-lobby hints on concurrent launch attempts, and !abort cancels it.
     srv.chat("Alice", "#lobby", "!play onuw");
     srv.settle().await;
     let started = srv.take_messages_to("#lobby").join("\n");
     assert!(!started.is_empty());
+    assert!(!started.contains('`'));
+
+    srv.chat("Alice", "#lobby", "!onuw vampire");
+    srv.settle().await;
+    let host_relaunch = srv.take_messages_to("#lobby").join("\n");
+    assert!(host_relaunch.contains("!preset vampire"));
+    assert!(!host_relaunch.contains("already in progress"));
 
     srv.chat("Admin", "#lobby", "!play onuw");
     srv.settle().await;
-    let busy = srv.take_messages_to("#lobby").join("\n");
-    assert!(busy.contains("already in progress"));
+    let non_host_relaunch = srv.take_messages_to("#lobby").join("\n");
+    assert!(non_host_relaunch.contains("Lobby is already open"));
+    assert!(non_host_relaunch.contains("!join"));
+    assert!(!non_host_relaunch.contains('`'));
 
     srv.chat("Alice", "#lobby", "!abort");
     srv.settle().await;
     let aborted = srv.take_messages_to("#lobby").join("\n");
-    assert!(aborted.contains("aborted `onuw`"));
+    assert!(aborted.contains("aborted onuw"));
+    assert!(!aborted.contains('`'));
 
     // Admin !stop cancels an active game (including via DM), and admin !quit shuts down the bot cleanly.
     srv.chat("Alice", "#lobby", "!onuw");
@@ -88,7 +102,8 @@ async fn lobby_supports_games_catalog_admin_fast_busy_abort_stop_and_quit() {
     srv.dm("Admin", "!stop");
     srv.settle().await;
     let dm_reply = srv.take_messages_to("Admin").join("\n");
-    assert!(dm_reply.contains("Stopped `onuw`"));
+    assert!(dm_reply.contains("Stopped onuw"));
+    assert!(!dm_reply.contains('`'));
     let chan_stopped = srv.take_messages_to("#lobby").join("\n");
     assert!(chan_stopped.contains("stopped by an admin"));
 
@@ -138,6 +153,14 @@ async fn lobby_holds_back_onuw_chronicle_until_reveal_command() {
     srv.chat("Alice", "#lobby", "!clear");
     srv.chat("Alice", "#lobby", "!add 6x insomniac");
     srv.chat("Alice", "#lobby", "!go");
+    srv.settle().await;
+    let _ = srv.take_messages_to("#lobby");
+    srv.chat("Admin", "#lobby", "!play onuw");
+    srv.settle().await;
+    let mid_game_busy = srv.take_messages_to("#lobby").join("\n");
+    assert!(mid_game_busy.contains("already in progress"));
+    assert!(!mid_game_busy.contains('`'));
+
     srv.advance(Duration::from_secs(15)).await;
 
     srv.chat("Alice", "#lobby", "!ready");

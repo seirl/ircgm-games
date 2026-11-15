@@ -138,12 +138,18 @@ pub fn resolve_and_announce_winners(
     }
 
     // Build the deferred `!reveal` record (center cards, compact per-seat roles, and Dusk & Night chronicle):
+    let sep = " · ".grey();
     let mut reveal_lines = Vec::new();
     reveal_lines.push(irc_format!(
-        "{} #1 {} | #2 {} | #3 {}",
+        "{} {} {}{}{} {}{}{} {}",
         "🌅 DAWN REVEAL — Center:".bold(),
+        "#1".grey(),
         board.center[0].display_reveal(),
+        sep.clone(),
+        "#2".grey(),
         board.center[1].display_reveal(),
+        sep.clone(),
+        "#3".grey(),
         board.center[2].display_reveal(),
     ));
 
@@ -182,7 +188,7 @@ pub fn resolve_and_announce_winners(
         } else {
             "  ".into()
         };
-        reveal_lines.push(prefix + Text::join(chunk, " | "));
+        reveal_lines.push(prefix + Text::join(chunk, " · ".grey()));
     }
 
     if chronicle.is_empty() {
@@ -220,17 +226,18 @@ pub fn resolve_and_announce_winners(
     };
 
     let outcome_span: Text = if dead.is_empty() {
-        "💚 Nobody died!".green().into()
+        "Nobody died!".bold().green()
     } else {
         let mut sorted_dead: Vec<usize> = dead.iter().copied().collect();
         sorted_dead.sort_unstable();
         let dead_nicks = roster.format_indices(&sorted_dead);
-        irc_format!("{} {}", "💀 Killed:".bold().red(), dead_nicks.as_str().bold())
+        irc_format!("{} {}", "Killed:".bold().red(), dead_nicks.as_str().bold())
     };
 
     room.say(irc_format!(
-        "{} Votes: {tally_str} | {outcome_span}",
+        "{} Votes: {tally_str}{}{outcome_span}",
         "🌅 DAWN —".bold(),
+        sep,
     ))?;
 
     for msg in death_announcements {

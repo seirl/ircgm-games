@@ -30,9 +30,11 @@ impl Instigator {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let roster = ctx.roster;
-            let prompt = format!(
-                "🐍 Instigator: Reply `<nick>` to bestow the Mark of the Traitor (including yourself), or `pass`. Players: {}",
-                roster.format_players()
+            let prompt = irc_format!(
+                "🐍 Instigator: Reply {} to bestow the Mark of the Traitor (including yourself), or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players(),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -48,7 +50,7 @@ impl Instigator {
                                 roster.seats[idx].user.nick().bold(),
                             ),
                         ),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

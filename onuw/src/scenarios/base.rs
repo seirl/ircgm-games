@@ -19,10 +19,11 @@ pub static SCENARIOS: &[Scenario] = &[
     // ------------------------------------------------------------------------
     Scenario {
         id: "rb_base_first_night",
+        slug: "first_night",
         pack: ScenarioPack::Base,
         section: "Base Set",
         name: "The First Night",
-        aliases: &["first_night", "the_first_night"],
+        aliases: &["the_first_night"],
         difficulty: Difficulty::Introduction,
         player_range: (3, 6),
         rule: ScenarioRule::DeltaTable {
@@ -44,10 +45,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "rb_base_lonely_night",
+        slug: "lonely_night",
         pack: ScenarioPack::Base,
         section: "Base Set",
         name: "Lonely Night",
-        aliases: &["lonely_night"],
+        aliases: &[],
         difficulty: Difficulty::Easy,
         player_range: (3, 4),
         rule: ScenarioRule::DeltaTable {
@@ -64,9 +66,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "rb_base_confusion",
+        slug: "confusion",
         pack: ScenarioPack::Base,
         section: "Base Set",
-        name: "Confusion (Base Set)",
+        name: "Confusion",
         aliases: &["base_confusion", "confusion_base"],
         difficulty: Difficulty::Medium,
         player_range: (3, 9),
@@ -92,10 +95,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "rb_base_payback",
+        slug: "payback",
         pack: ScenarioPack::Base,
         section: "Base Set",
         name: "Payback",
-        aliases: &["payback"],
+        aliases: &[],
         difficulty: Difficulty::Medium,
         player_range: (4, 7),
         rule: ScenarioRule::DeltaTable {
@@ -118,10 +122,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "rb_base_tanner_uncertainty",
+        slug: "despair",
         pack: ScenarioPack::Base,
         section: "Base Set",
-        name: "Uncertainties / Despair",
-        aliases: &["tanner_uncertainty", "uncertainties_base", "despair"],
+        name: "Despair",
+        aliases: &["tanner_uncertainty", "uncertainties_base"],
         difficulty: Difficulty::Medium,
         player_range: (4, 10),
         rule: ScenarioRule::DeltaTable {
@@ -147,10 +152,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "rb_base_secret_companions",
+        slug: "secret_companions",
         pack: ScenarioPack::Base,
         section: "Base Set",
         name: "Secret Companions",
-        aliases: &["secret_companions"],
+        aliases: &[],
         difficulty: Difficulty::Medium,
         player_range: (6, 7),
         rule: ScenarioRule::DeltaTable {
@@ -170,10 +176,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "rb_base_twilight_alliance",
+        slug: "twilight_alliance",
         pack: ScenarioPack::Base,
         section: "Base Set",
         name: "Twilight Alliance",
-        aliases: &["twilight_alliance", "twilight"],
+        aliases: &["twilight"],
         difficulty: Difficulty::Difficult,
         player_range: (5, 10),
         rule: ScenarioRule::DeltaTable {
@@ -199,10 +206,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "rb_base_revenant",
+        slug: "revenant",
         pack: ScenarioPack::Base,
         section: "Base Set",
         name: "Revenant",
-        aliases: &["revenant"],
+        aliases: &[],
         difficulty: Difficulty::Difficult,
         player_range: (8, 10),
         rule: ScenarioRule::DeltaTable {
@@ -222,5 +230,4 @@ pub static SCENARIOS: &[Scenario] = &[
             deltas: &[&[], &[&INSOMNIAC], &[&INSOMNIAC, &DRUNK]],
         },
     },
-
 ];

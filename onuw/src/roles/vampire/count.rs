@@ -42,9 +42,11 @@ impl Count {
                 .collect();
 
             let roster = ctx.roster;
-            let prompt = format!(
-                "🦇 Count: Reply `<nick>` to place the Mark of Fear (suppressing their Night wake!), or `pass`. Players: {}",
-                roster.format_players()
+            let prompt = irc_format!(
+                "🦇 Count: Reply {} to place the Mark of Fear (suppressing their Night wake!), or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players(),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -63,7 +65,7 @@ impl Count {
                                 roster.seats[idx].user.nick().bold(),
                             ),
                         ),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

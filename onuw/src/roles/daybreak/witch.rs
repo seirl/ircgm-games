@@ -29,14 +29,20 @@ impl Witch {
         Box::pin(async move {
             let step1 = ctx
                 .ask(
-                    "🧙‍♀️ Witch: Reply `1`, `2`, or `3` to view a center card (you MUST then give it to someone!), or `pass`:",
+                    irc_format!(
+                        "🧙‍♀️ Witch: Reply {}, {}, or {} to view a center card (you MUST then give it to someone!), or {}:",
+                        "1".bold(),
+                        "2".bold(),
+                        "3".bold(),
+                        "pass".bold(),
+                    ),
                     |m| {
                         if Roster::is_pass(&m.text) {
                             return AskMatch::accept(None);
                         }
                         match Roster::parse_center_slot(&m.text) {
                             Some(c_idx) => AskMatch::accept(Some(c_idx)),
-                            None => AskMatch::reject("Reply `1`, `2`, `3`, or `pass`.".yellow()),
+                            None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
                         }
                     },
                 )
@@ -68,10 +74,11 @@ impl Witch {
             let (roster, shielded) = (ctx.roster, ctx.shielded);
             let step2 = ctx
                 .ask(
-                    format!(
-                        "🧙‍♀️ Give Center #{} to which player (`<nick>`, including yourself)? Players: {}",
+                    irc_format!(
+                        "🧙‍♀️ Give Center #{} to which player ({}, including yourself)? Players: {}",
                         c_idx + 1,
-                        roster.format_players_marking_shields(shielded)
+                        "<nick>".bold(),
+                        roster.format_players_marking_shields(shielded),
                     ),
                     move |m| match roster.resolve_nick(&m.text) {
                         Some(idx) if shielded.contains(&idx) => {

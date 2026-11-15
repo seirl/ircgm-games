@@ -35,9 +35,11 @@ impl Revealer {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = format!(
-                "🔦 Revealer: Reply `<nick>` to flip their card, or `pass`. Players: {}",
-                roster.format_players_marking_shields(shielded)
+            let prompt = irc_format!(
+                "🔦 Revealer: Reply {} to flip their card, or {}. Players: {}",
+                "<nick>".bold(),
+                "pass".bold(),
+                roster.format_players_marking_shields(shielded),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -52,7 +54,7 @@ impl Revealer {
                             AskMatch::reject("🛡️ Shielded cards cannot be flipped!".yellow())
                         }
                         Some(idx) => AskMatch::accept(Some(idx)),
-                        None => AskMatch::reject("Unknown player nickname (or `pass`).".yellow()),
+                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
                 .await?;

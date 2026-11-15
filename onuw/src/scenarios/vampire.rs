@@ -54,10 +54,11 @@ pub static SCENARIOS: &[Scenario] = &[
     // ------------------------------------------------------------------------
     Scenario {
         id: "vd_first_bite",
+        slug: "first_bite",
         pack: ScenarioPack::Vampire,
-        section: "VampirDämmerung Standalone",
-        name: "Vampire Starter (3–6p)",
-        aliases: &["first_bite", "vampire_starter"],
+        section: "Vampire",
+        name: "First Bite",
+        aliases: &["vampire_starter"],
         difficulty: Difficulty::Introduction,
         player_range: (3, 6),
         rule: ScenarioRule::DeltaTable {
@@ -79,10 +80,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "vd_monsters_galore",
+        slug: "monsters_galore",
         pack: ScenarioPack::Vampire,
-        section: "VampirDämmerung Standalone",
-        name: "Monsters Galore (Monstres en pagaille / Monster-Chaos)",
-        aliases: &["monsters_galore", "monster_chaos"],
+        section: "Vampire",
+        name: "Monsters Galore",
+        aliases: &["monster_chaos"],
         difficulty: Difficulty::Difficult,
         player_range: (4, 6),
         rule: ScenarioRule::DeltaTable {
@@ -100,9 +102,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "vd_mark_them_standalone",
+        slug: "mark_them",
         pack: ScenarioPack::Vampire,
-        section: "VampirDämmerung Standalone",
-        name: "Mark Them! (Standalone 6–10p)",
+        section: "Vampire",
+        name: "Mark Them!",
         aliases: &["mark_them_standalone"],
         difficulty: Difficulty::Medium,
         player_range: (6, 10),
@@ -129,24 +132,26 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "vd_anarchy",
+        slug: "vampire_anarchy",
         pack: ScenarioPack::Vampire,
-        section: "VampirDämmerung Standalone",
-        name: "Anarchy (Vampire)",
-        aliases: &["vampire_anarchy"],
+        section: "Vampire",
+        name: "Vampire Anarchy",
+        aliases: &[],
         difficulty: Difficulty::Difficult,
         player_range: (3, 10),
         rule: ScenarioRule::Anarchy {
             pool: VAMPIRE_ANARCHY_POOL,
             max_evil_threats: 3,
-            rule_text: "Shuffle all 15 VampirDämmerung cards and deal N + 3 at random.",
+            rule_text: "Shuffle all 15 Vampire role cards and deal N + 3 at random (max 3 Vampires).",
         },
     },
     Scenario {
         id: "vd_vollmond_tauschrausch",
+        slug: "swap_frenzy",
         pack: ScenarioPack::Vampire,
-        section: "VampirDämmerung + Vollmondnacht",
-        name: "Swap Frenzy (Tauschrausch)",
-        aliases: &["swap_frenzy", "tauschrausch"],
+        section: "Vampire + Base",
+        name: "Swap Frenzy",
+        aliases: &["tauschrausch"],
         difficulty: Difficulty::Medium,
         player_range: (4, 8),
         rule: ScenarioRule::DeltaTable {
@@ -170,9 +175,10 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "vd_vollmond_blood_pact",
+        slug: "base_conspiracy",
         pack: ScenarioPack::Vampire,
-        section: "VampirDämmerung + Vollmondnacht",
-        name: "Vampire + Base Conspiracy (6–10p)",
+        section: "Vampire + Base",
+        name: "Base Conspiracy",
         aliases: &["vollmond_blood_pact", "vampire_base_conspiracy"],
         difficulty: Difficulty::Difficult,
         player_range: (6, 10),
@@ -199,10 +205,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "vd_mg_for_the_king",
+        slug: "for_the_king",
         pack: ScenarioPack::Vampire,
-        section: "VampirDämmerung + MorgenGrauen",
-        name: "For the King! (Für den König!)",
-        aliases: &["for_the_king", "fur_den_konig"],
+        section: "Vampire + Daybreak",
+        name: "For the King!",
+        aliases: &["fur_den_konig"],
         difficulty: Difficulty::Difficult,
         player_range: (3, 6),
         rule: ScenarioRule::DeltaTable {
@@ -224,10 +231,11 @@ pub static SCENARIOS: &[Scenario] = &[
     },
     Scenario {
         id: "vd_all3_final_showdown",
+        slug: "final_showdown",
         pack: ScenarioPack::Vampire,
-        section: "VampirDämmerung + Vollmondnacht + MorgenGrauen",
-        name: "Epic Battle: The Final Showdown (Epische Schlacht: Der letzte Showdown)",
-        aliases: &["final_showdown", "the_final_showdown", "der_letzte_showdown"],
+        section: "Vampire + Base + Daybreak",
+        name: "The Final Showdown",
+        aliases: &["the_final_showdown", "der_letzte_showdown"],
         difficulty: Difficulty::Extreme,
         player_range: (6, 10),
         rule: ScenarioRule::DeltaTable {
@@ -251,5 +259,4 @@ pub static SCENARIOS: &[Scenario] = &[
             ],
         },
     },
-
 ];

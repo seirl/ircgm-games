@@ -36,9 +36,10 @@ impl Diseased {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let roster = ctx.roster;
-            let prompt = format!(
-                "🤢 Diseased: Reply `<nick>` to place the Mark of Disease on another player! Players: {}",
-                roster.format_players()
+            let prompt = irc_format!(
+                "🤢 Diseased: Reply {} to place the Mark of Disease on another player! Players: {}",
+                "<nick>".bold(),
+                roster.format_players(),
             );
             let ans = ctx
                 .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
