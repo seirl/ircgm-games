@@ -63,15 +63,40 @@ async fn full_lobby_custom_deck_to_dawn_chronicle_and_abort_cleanup() {
     srv.settle().await;
 
     let chan_out = srv.take_messages_to("#onuw").join("\n");
-    assert!(chan_out.contains("🌅 DAWN REVEAL"));
-    assert!(chan_out.contains("📜 What Happened:"));
-    assert!(chan_out.contains("Insomniac (Alice) checked their card and saw Insomniac."));
+    assert!(chan_out.contains("🌅 DAWN — Votes: Alice (1), Bob (1), Carol (1) | 💚 Nobody died!"));
     assert!(chan_out.contains("🏆 Winners: Alice (Village), Bob (Village), Carol (Village)"));
     assert!(chan_out.contains("Round complete!"));
+    assert!(chan_out.contains("!reveal"));
+    // Full game record (center cards, roles, and chronicle) must NOT be spoiled before `!reveal`:
+    assert!(!chan_out.contains("🌅 DAWN REVEAL"));
+    assert!(!chan_out.contains("📜 What Happened:"));
+    assert!(!chan_out.contains("Insomniac"));
+    assert!(!chan_out.contains("🃏 Roles:"));
 
-    // 2. Start a second game with active Night prompt, then `!abort` mid-Night and verify `+m` is cleaned up!
+    // `!reveal` sends center cards, compact roles summary, and chronicle once:
+    srv.chat("Bob", "#onuw", "!reveal");
+    srv.settle().await;
+    let reveal_out = srv.take_messages_to("#onuw").join("\n");
+    assert!(reveal_out.contains("🌅 DAWN REVEAL — Center:"));
+    assert!(reveal_out.contains("🃏 Roles: Alice: Insomniac | Bob: Insomniac | Carol: Insomniac"));
+    assert!(reveal_out.contains("📜 What Happened:"));
+    assert!(reveal_out.contains("Insomniac (Alice) checked their card and saw Insomniac."));
+
+    // Repeating `!reveal` does not re-spam the log:
+    srv.chat("Bob", "#onuw", "!reveal");
+    srv.settle().await;
+    let second_reveal = srv.take_messages_to("#onuw").join("\n");
+    assert!(second_reveal.contains("Nothing left to reveal from the last game!"));
+    assert!(!second_reveal.contains("📜 What Happened:"));
+
+    // 2. Start a second game with active Night prompt, verify `!reveal` is rejected mid-game,
+    //    then `!abort` mid-Night and verify `+m` is cleaned up!
     srv.chat("Alice", "#onuw", "!onuw base");
     srv.settle().await;
+    srv.chat("Bob", "#onuw", "!reveal");
+    srv.settle().await;
+    let mid_lobby_reveal = srv.take_messages_to("#onuw").join("\n");
+    assert!(mid_lobby_reveal.contains("Finish the current game first"));
     srv.chat("Bob", "#onuw", "!join");
     srv.chat("Carol", "#onuw", "!join");
     srv.chat("Alice", "#onuw", "!clear");

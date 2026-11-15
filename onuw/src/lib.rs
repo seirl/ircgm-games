@@ -23,7 +23,7 @@ pub mod testing;
 
 pub use artifacts::{Artifact, DayConductTracker};
 pub use board::{BoardCards, Card, OracleOmen, Roster, SeatInfo};
-pub use dawn::resolve_and_announce_winners;
+pub use dawn::{resolve_and_announce_winners, GameReveal};
 pub use day::{run_day_phase, run_voting_phase};
 pub use deck::{DeckBase, DeckSpec};
 pub use game::{

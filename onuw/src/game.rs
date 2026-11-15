@@ -7,7 +7,7 @@ use std::time::Duration;
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::dawn::resolve_and_announce_winners;
+use crate::dawn::{resolve_and_announce_winners, GameReveal};
 use crate::day::{run_day_phase, run_voting_phase};
 use crate::deck::DeckSpec;
 use crate::lobby::{recruit_players, send_single_role_info};
@@ -78,7 +78,7 @@ impl GameConfig {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayOutcome {
-    Completed,
+    Completed(GameReveal),
     NotEnoughPlayers,
 }
 
@@ -89,6 +89,7 @@ pub struct GameSummary {
     pub votes: Vec<Option<usize>>,
     pub dead_seats: HashSet<usize>,
     pub winners: Vec<(usize, &'static str)>,
+    pub reveal: GameReveal,
 }
 
 pub async fn run_single_game(
@@ -107,7 +108,7 @@ pub async fn run_single_game(
         .deal(&players)
         .map_err(|_| Error::InvalidInput("invalid ONUW deck size"))?;
 
-    let _ = run_dealt_game(
+    let summary = run_dealt_game(
         bot,
         room,
         &roster,
@@ -116,7 +117,7 @@ pub async fn run_single_game(
         config,
     )
     .await?;
-    Ok(PlayOutcome::Completed)
+    Ok(PlayOutcome::Completed(summary.reveal))
 }
 
 /// Runs a game from an already-dealt [`Roster`] and [`BoardCards`].
@@ -213,7 +214,7 @@ pub async fn run_dealt_game(
             day_channel_log.push(msg);
         }
 
-        // Phase 5: Dawn Reveal, Chronicle Narration, & Victory Resolution
+        // Phase 5: Dawn Vote Results & Victory Resolution (full chronicle deferred to `!reveal`)
         if let Some(g) = mod_guard.take() {
             let _ = g.restore();
         }

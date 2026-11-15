@@ -1,4 +1,4 @@
-//! **Dawn** vote resolution, chain-kills, chronicle reveal, and multi-faction victory evaluation.
+//! **Dawn** vote resolution, chain-kills, multi-faction victory evaluation, and deferred `!reveal` chronicle.
 
 use std::collections::{HashMap, HashSet};
 
@@ -8,6 +8,30 @@ use crate::board::{BoardCards, Roster};
 use crate::game::GameSummary;
 use crate::marks::Mark;
 use crate::role::{DeathCtx, DeathEffect, SpecialVictory, Team, VictoryCtx};
+
+/// Deferred full game record (center cards, Dusk/Night chronicle, and per-seat `start → end`
+/// roles/marks/artifacts) held back after Dawn until `!reveal` is run in channel.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GameReveal {
+    lines: Vec<Text>,
+}
+
+impl GameReveal {
+    pub fn lines(&self) -> &[Text] {
+        &self.lines
+    }
+
+    pub fn into_lines(self) -> Vec<Text> {
+        self.lines
+    }
+
+    pub fn announce(&self, room: &Room) -> Result<()> {
+        for line in &self.lines {
+            room.say(line.clone())?;
+        }
+        Ok(())
+    }
+}
 
 pub fn resolve_and_announce_winners(
     room: &Room,
@@ -113,35 +137,18 @@ pub fn resolve_and_announce_winners(
         dead.extend(newly_killed);
     }
 
-    // 1. Center cards:
-    room.say(irc_format!(
+    // Build the deferred `!reveal` record (center cards, compact per-seat roles, and Dusk & Night chronicle):
+    let mut reveal_lines = Vec::new();
+    reveal_lines.push(irc_format!(
         "{} #1 {} | #2 {} | #3 {}",
         "🌅 DAWN REVEAL — Center:".bold(),
         board.center[0].display_reveal(),
         board.center[1].display_reveal(),
         board.center[2].display_reveal(),
-    ))?;
+    ));
 
-    // 2. Full Dusk & Night Chronicle ("everything that happened"):
-    if chronicle.is_empty() {
-        room.say(irc_format!(
-            "{} Quiet night — no cards or marks were acted upon!",
-            "📜 What Happened:".bold().cyan(),
-        ))?;
-    } else {
-        room.say("📜 What Happened:".bold().cyan())?;
-        for (step_idx, entry) in chronicle.iter().enumerate() {
-            room.say(irc_format!("  {}. {entry}", step_idx + 1))?;
-        }
-    }
-
-    // 3. Per-seat start -> end role, vote target, vote tally, and survival status:
+    let mut role_items: Vec<Text> = Vec::with_capacity(n);
     for idx in 0..n {
-        let status = if dead.contains(&idx) {
-            "💀 KILLED".bold().red()
-        } else {
-            "💚 SURVIVED".green()
-        };
         let mut token_suffix = String::new();
         if board.marks[idx] != Mark::Clarity {
             token_suffix.push_str(&format!(" [{}]", board.marks[idx].name()));
@@ -149,19 +156,82 @@ pub fn resolve_and_announce_winners(
         if let Some(art) = board.artifacts.get(&idx) {
             token_suffix.push_str(&format!(" {{{}}}", art.name()));
         }
-        let pointed_at = match votes[idx] {
-            Some(v) => format!("→ {}", roster.seats[v].user.nick()),
-            None => "abstained".to_owned(),
+        if dead.contains(&idx) {
+            token_suffix.push_str(" 💀");
+        }
+        let nick = roster.seats[idx].user.nick();
+        let item = if board.players[idx].face.id() == roster.seats[idx].initial_role.id() {
+            irc_format!(
+                "{}: {}{token_suffix}",
+                nick.as_str().bold(),
+                board.players[idx].display_reveal(),
+            )
+        } else {
+            irc_format!(
+                "{}: {} → {}{token_suffix}",
+                nick.as_str().bold(),
+                roster.seats[idx].initial_role.styled_name(),
+                board.players[idx].display_reveal(),
+            )
         };
-        room.say(irc_format!(
-            "• {}: started {} → ended {}{token_suffix} ({pointed_at}, {} vote{}) — {status}",
-            roster.seats[idx].user.nick().bold(),
-            roster.seats[idx].initial_role.styled_name(),
-            board.players[idx].display_reveal(),
-            tally[idx],
-            if tally[idx] == 1 { "" } else { "s" },
-        ))?;
+        role_items.push(item);
     }
+    for (chunk_idx, chunk) in role_items.chunks(5).enumerate() {
+        let prefix: Text = if chunk_idx == 0 {
+            irc_format!("{} ", "🃏 Roles:".bold())
+        } else {
+            "  ".into()
+        };
+        reveal_lines.push(prefix + Text::join(chunk, " | "));
+    }
+
+    if chronicle.is_empty() {
+        reveal_lines.push(irc_format!(
+            "{} Quiet night — no cards or marks were acted upon!",
+            "📜 What Happened:".bold().cyan(),
+        ));
+    } else {
+        reveal_lines.push("📜 What Happened:".bold().cyan().into());
+        for (step_idx, entry) in chronicle.iter().enumerate() {
+            reveal_lines.push(irc_format!("  {}. {entry}", step_idx + 1));
+        }
+    }
+    let reveal = GameReveal {
+        lines: reveal_lines,
+    };
+
+    // 1. Announce vote tallies and who died on a single line (without spoiling roles or night actions):
+    let mut voted_seats: Vec<(usize, usize)> = tally
+        .iter()
+        .copied()
+        .enumerate()
+        .filter(|&(_, c)| c > 0)
+        .collect();
+    voted_seats.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
+    let tally_str = if voted_seats.is_empty() {
+        "no votes".to_owned()
+    } else {
+        voted_seats
+            .iter()
+            .map(|&(idx, c)| format!("{} ({c})", roster.seats[idx].user.nick()))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    let outcome_span: Text = if dead.is_empty() {
+        "💚 Nobody died!".green().into()
+    } else {
+        let mut sorted_dead: Vec<usize> = dead.iter().copied().collect();
+        sorted_dead.sort_unstable();
+        let dead_nicks = roster.format_indices(&sorted_dead);
+        irc_format!("{} {}", "💀 Killed:".bold().red(), dead_nicks.as_str().bold())
+    };
+
+    room.say(irc_format!(
+        "{} Votes: {tally_str} | {outcome_span}",
+        "🌅 DAWN —".bold(),
+    ))?;
 
     for msg in death_announcements {
         room.say(msg)?;
@@ -317,5 +387,6 @@ pub fn resolve_and_announce_winners(
         votes,
         dead_seats: dead,
         winners: sorted_winners,
+        reveal,
     })
 }

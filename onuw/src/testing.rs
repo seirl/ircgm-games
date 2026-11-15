@@ -404,4 +404,14 @@ impl DawnReport {
     pub fn channel_text(&self) -> String {
         self.channel_lines.join("\n")
     }
+
+    pub fn reveal_text(&self) -> String {
+        self.summary
+            .reveal
+            .lines()
+            .iter()
+            .map(Text::plain)
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }

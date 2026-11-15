@@ -6,6 +6,7 @@ use futures::FutureExt as _;
 use ircgm::prelude::*;
 use tokio::time::Instant;
 
+use crate::dawn::GameReveal;
 use crate::day::is_active_in_room;
 use crate::deck::{parse_role_spec_tokens, DeckSpec};
 use crate::game::{run_single_game, GameConfig, PlayOutcome, MAX_PLAYERS, MIN_PLAYERS};
@@ -35,9 +36,10 @@ enum StopReason {
 
 pub fn send_lobby_help(lobby: &Room) -> Result<()> {
     lobby.say(irc_format!(
-        "🐺 {} — {} opens a lobby | {} | {} | {} | {} | {} cancels.",
+        "🐺 {} — {} opens a lobby | {} | {} | {} | {} | {} | {} cancels.",
         "One Night Ultimate Werewolf".bold().yellow(),
         "!onuw [pack|scenario]".bold().green(),
+        "!reveal".bold().yellow(),
         "!scenarios [pack|Np]".bold().cyan(),
         "!scenario <id|name>".bold().cyan(),
         "!roles [game]".bold().cyan(),
@@ -232,7 +234,7 @@ pub fn send_single_role_info(reply_to: &ChatMessage, role: &'static dyn Role) ->
 }
 
 /// Shared catalog command handler used in both idle and open recruitment lobbies.
-fn handle_catalog_query(room: &Room, msg: &ChatMessage) -> Result<bool> {
+pub fn handle_catalog_query(room: &Room, msg: &ChatMessage) -> Result<bool> {
     if let Some(arg) = msg.cmd_args("!presets") {
         let q = arg.trim();
         if q.is_empty() {
@@ -620,6 +622,7 @@ pub async fn run_lobby_bot(
     config: &GameConfig,
 ) -> Result<()> {
     send_lobby_help(lobby)?;
+    let mut pending_reveal: Option<GameReveal> = None;
 
     loop {
         let Some((starter, initial_spec)) = ({
@@ -632,6 +635,15 @@ pub async fn run_lobby_bot(
 
                 if idle_msg.is_cmd("!help") {
                     send_lobby_help(lobby)?;
+                    continue;
+                }
+                if idle_msg.is_cmd("!reveal") {
+                    match pending_reveal.take() {
+                        Some(reveal) => reveal.announce(lobby)?,
+                        None => {
+                            idle_msg.reply("Nothing left to reveal from the last game!".yellow())?
+                        }
+                    }
                     continue;
                 }
                 if handle_catalog_query(lobby, &idle_msg)? {
@@ -657,6 +669,7 @@ pub async fn run_lobby_bot(
                     continue;
                 };
 
+                pending_reveal = None;
                 break Some((idle_msg.sender.clone(), spec));
             }
         }) else {
@@ -701,6 +714,11 @@ pub async fn run_lobby_bot(
                     format_args!("⏳ An ONUW game is already in progress ({abort_hint} to cancel)!")
                         .yellow(),
                 );
+            } else if msg.is_cmd("!reveal") {
+                let _ = msg.reply(
+                    "⏳ Finish the current game first — `!reveal` is available after voting ends!"
+                        .yellow(),
+                );
             } else if msg.is_cmd("!help") {
                 let _ = send_lobby_help(&lobby_for_busy);
             }
@@ -715,10 +733,12 @@ pub async fn run_lobby_bot(
             .await;
 
         match outcome {
-            Outcome::Completed(Ok(PlayOutcome::Completed)) => {
+            Outcome::Completed(Ok(PlayOutcome::Completed(reveal))) => {
+                pending_reveal = Some(reveal);
                 lobby.say(irc_format!(
-                    "🏁 {} Type {} for another round!",
+                    "🏁 {} Discuss what happened, then type {} for the full reveal — or {} for another round!",
                     "Round complete!".bold().green(),
+                    "!reveal".bold().yellow(),
                     "!onuw [pack|scenario]".bold().cyan(),
                 ))?;
             }
