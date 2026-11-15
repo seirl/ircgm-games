@@ -20,7 +20,7 @@ impl Role for Sentinel {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(100, Self::prompt).night_start().mutates())
+        Some(Wake::solo(100, Self::prompt).shields())
     }
 }
 

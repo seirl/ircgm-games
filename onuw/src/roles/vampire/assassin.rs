@@ -26,7 +26,7 @@ impl Role for Assassin {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(40, Self::prompt).dusk().mutates())
+        Some(Wake::solo(44, Self::prompt).dusk().mutates())
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
@@ -113,7 +113,7 @@ impl Role for ApprenticeAssassin {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(42, Self::wake_group).dusk().mutates())
+        Some(Wake::group(46, Self::wake_group).dusk().mutates())
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {

@@ -15,7 +15,7 @@ use crate::dawn::GameReveal;
 use crate::day::is_active_in_room;
 use crate::deck::{parse_role_spec_tokens, DeckBase, DeckSpec};
 use crate::game::{run_single_game_tracked, GameConfig, PlayOutcome, MAX_PLAYERS, MIN_PLAYERS};
-use crate::role::{GameSet, Role, WakePhase};
+use crate::role::{GameSet, Phase, Role};
 use crate::roles::{find_role, roles_in_game, ALL_ROLES};
 use crate::scenarios::{
     all_scenarios, find_scenario, parse_player_count_filter, scenario_count, scenarios_in_pack,
@@ -382,10 +382,8 @@ pub fn send_single_role_info(reply_to: &ChatMessage, role: &'static dyn Role) ->
     let wake_str = match role.wake() {
         None => "Sleeps".to_owned(),
         Some(w) => match w.phase {
-            WakePhase::PreCopycat | WakePhase::Copycat | WakePhase::Dusk => {
-                format!("Dusk #{}", w.order)
-            }
-            WakePhase::NightStart | WakePhase::Night => format!("Night #{}", w.order),
+            Phase::Dusk => format!("Dusk #{}", w.order),
+            Phase::Night => format!("Night #{}", w.order),
         },
     };
     let sep = " · ".grey();

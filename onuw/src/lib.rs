@@ -36,8 +36,8 @@ pub use night::{
     build_deck_schedule, run_night_phase, NightTimings, ScheduledTier, TierKind, TierPhase,
 };
 pub use role::{
-    CopycatEffect, DeathEffect, GameSet, GroupEffect, Role, RoleInfo, RoleTag, SeatEffect,
-    SpecialVictory, Team, Wake, WakeKind, WakePhase,
+    DeathEffect, GameSet, GroupEffect, Phase, Role, RoleInfo, RoleTag, SeatEffect, SpecialVictory,
+    Team, Wake, WakeKind,
 };
 pub use roles::{find_role, ALL_ROLES};
 pub use scenarios::{

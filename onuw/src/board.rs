@@ -59,9 +59,7 @@ impl Card {
 
     /// The role this card counts as for team, ability, and victory rules at Dawn.
     pub fn effective_role(self) -> &'static dyn Role {
-        self.became
-            .or_else(|| self.face.copycat_fallback())
-            .unwrap_or(self.face)
+        self.became.unwrap_or(self.face)
     }
 
     pub fn display_for_peek(self) -> Text {
@@ -233,7 +231,7 @@ impl Roster {
             push_unique("Renfield");
         }
         for &r in &self.deck {
-            if r.team() == Team::Independent && !r.is_copycat() {
+            if r.team() == Team::Independent {
                 push_unique(r.name());
             }
         }

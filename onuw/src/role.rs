@@ -214,27 +214,12 @@ impl RoleInfo {
 // Dusk / Night Schedule & Typed Resolution Closures
 // ============================================================================
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CopyBehavior {
-    Sleep,
-    ActImmediately,
-    JoinGroupWake,
-    /// Wakes in the copied role's own scheduled Dusk/Night tier right after initial holders (`X-A`).
-    FollowRoleWake,
-}
-
-/// Explicit phase in the Dusk/Night schedule, matching canonical One Night Wiki wake numbering.
+/// Phase in the Dusk/Night schedule.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum WakePhase {
-    /// `#-9`: Very first wake of the game (`Oracle`), before `Copycat` (`#-8`) and `Doppelgänger`.
-    PreCopycat,
-    /// `#-8` / `#-7` / `#1`: `Copycat` (`#-8`) and `Doppelgänger` (`#-7` in Dusk games, `#1` after `Sentinel` otherwise).
-    Copycat,
-    /// `#-6` .. `#-1B`: Vampire-expansion Dusk phase (followed at `00` by Mark inspection & `Lovers`).
+pub enum Phase {
+    /// Vampire-expansion Dusk phase (`#-9..#-1B`, followed at `00` by Mark inspection & `Lovers`).
     Dusk,
-    /// `#0`: Start of Night (`Sentinel`), after Dusk (`00`) and before Night `#1 Doppelgänger` / `#1A..#13A` roles.
-    NightStart,
-    /// `#1A` .. `#13A`: Standard Night phase.
+    /// Standard Night phase (`#0..#13A`).
     Night,
 }
 
@@ -276,32 +261,10 @@ impl GroupEffect {
     }
 }
 
-/// Deferred resolution closure returned by `Copycat` / `Doppelgänger` (`WakeKind::Copycat`),
-/// invoked at the CopycatPick tier deadline.
-pub struct CopycatEffect(
-    Box<dyn FnOnce(&mut BoardCards, &mut ResolveCtx<'_>) -> Option<CopiedRecord> + Send>,
-);
-
-impl CopycatEffect {
-    pub fn new(
-        f: impl FnOnce(&mut BoardCards, &mut ResolveCtx<'_>) -> Option<CopiedRecord>
-            + Send
-            + 'static,
-    ) -> Self {
-        Self(Box::new(f))
-    }
-
-    pub fn apply(self, board: &mut BoardCards, ctx: &mut ResolveCtx<'_>) -> Option<CopiedRecord> {
-        (self.0)(board, ctx)
-    }
-}
-
 pub type SoloPromptFn = for<'a> fn(usize, PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>>;
 pub type PassiveWakeFn = fn(usize, &str, &mut BoardCards, &mut ResolveCtx<'_>);
 pub type GroupPromptFn =
     for<'a> fn(Vec<usize>, GroupPromptCtx<'a>) -> BoxFuture<'a, Result<GroupEffect>>;
-pub type CopycatPromptFn =
-    for<'a> fn(usize, PromptCtx<'a>) -> BoxFuture<'a, Result<CopycatEffect>>;
 
 /// How the scheduler dispatches a waking role.
 #[derive(Clone, Copy)]
@@ -315,14 +278,6 @@ pub enum WakeKind {
         pack: Option<RoleTag>,
         prompt: GroupPromptFn,
     },
-    /// Copycat / Doppelgänger card-selection wake, falling back to `fallback` if unawakened.
-    /// When `acts_on_role_schedule` is true (`Copycat`), the copier never uses `CopycatImmediate`
-    /// and instead wakes when the copied role's scheduled Dusk/Night tier runs.
-    Copycat {
-        fallback: &'static dyn Role,
-        pick: CopycatPromptFn,
-        acts_on_role_schedule: bool,
-    },
 }
 
 impl fmt::Debug for WakeKind {
@@ -331,15 +286,6 @@ impl fmt::Debug for WakeKind {
             Self::Solo(_) => write!(f, "Solo"),
             Self::Passive(_) => write!(f, "Passive"),
             Self::Group { pack, .. } => write!(f, "Group({pack:?})"),
-            Self::Copycat {
-                fallback,
-                acts_on_role_schedule,
-                ..
-            } => write!(
-                f,
-                "Copycat({}, scheduled={acts_on_role_schedule})",
-                fallback.name()
-            ),
         }
     }
 }
@@ -347,53 +293,70 @@ impl fmt::Debug for WakeKind {
 /// Complete Dusk/Night schedule entry for a role (`None` on [`Role::wake`] means the role sleeps).
 #[derive(Clone, Copy, Debug)]
 pub struct Wake {
-    pub phase: WakePhase,
+    pub phase: Phase,
     pub order: u16,
     pub kind: WakeKind,
     pub mutates_board: bool,
-    /// True for interactive roles (`Count`, `Paranormal Investigator`, `Witch`, `Rogue`) whose
-    /// prompt inspects `ctx.board()` mid-prompt and must start a new tier after any earlier mutator.
+    /// True for interactive roles (`Count`, `Paranormal Investigator`, `Witch`, `Rogue`, `Copycat`)
+    /// whose prompt inspects `ctx.board()` mid-prompt and must start a new tier after any earlier mutator.
     pub reads_live_board: bool,
-    pub copy_behavior: CopyBehavior,
+    /// True on `Sentinel` (`#0`) so subsequent interactive tiers see committed `board.shielded`.
+    pub mutates_shields: bool,
+    /// Uses the shorter card-pick timer (`copycat_pick_budget`) and runs in its own solo tier (`Copycat`, `Doppelgänger`).
+    pub short_budget: bool,
+    /// Marks `Doppelgänger` (`#-7` in Dusk games, `#1` in pure Night games).
+    pub is_doppelganger: bool,
+    /// When `false` on a `Solo` or `Passive` role, `Doppelgänger` performs the copied action immediately;
+    /// when `true`, `Doppelgänger` wakes in the role's scheduled Dusk/Night tier right after initial holders (`X-A`).
+    pub doppelganger_follows: bool,
 }
 
 impl Wake {
     pub const fn solo(order: u16, prompt: SoloPromptFn) -> Self {
         Self {
-            phase: WakePhase::Night,
+            phase: Phase::Night,
             order,
             kind: WakeKind::Solo(prompt),
             mutates_board: false,
             reads_live_board: false,
-            copy_behavior: CopyBehavior::ActImmediately,
+            mutates_shields: false,
+            short_budget: false,
+            is_doppelganger: false,
+            doppelganger_follows: false,
         }
     }
 
     pub const fn passive(order: u16, wake_fn: PassiveWakeFn) -> Self {
         Self {
-            phase: WakePhase::Night,
+            phase: Phase::Night,
             order,
             kind: WakeKind::Passive(wake_fn),
             mutates_board: false,
             reads_live_board: false,
-            copy_behavior: CopyBehavior::FollowRoleWake,
+            mutates_shields: false,
+            short_budget: false,
+            is_doppelganger: false,
+            doppelganger_follows: true,
         }
     }
 
     pub const fn group(order: u16, prompt: GroupPromptFn) -> Self {
         Self {
-            phase: WakePhase::Night,
+            phase: Phase::Night,
             order,
             kind: WakeKind::Group { pack: None, prompt },
             mutates_board: false,
             reads_live_board: false,
-            copy_behavior: CopyBehavior::JoinGroupWake,
+            mutates_shields: false,
+            short_budget: false,
+            is_doppelganger: false,
+            doppelganger_follows: true,
         }
     }
 
     pub const fn pack(order: u16, tag: RoleTag, prompt: GroupPromptFn) -> Self {
         Self {
-            phase: WakePhase::Night,
+            phase: Phase::Night,
             order,
             kind: WakeKind::Group {
                 pack: Some(tag),
@@ -401,72 +364,50 @@ impl Wake {
             },
             mutates_board: false,
             reads_live_board: false,
-            copy_behavior: CopyBehavior::JoinGroupWake,
+            mutates_shields: false,
+            short_budget: false,
+            is_doppelganger: false,
+            doppelganger_follows: true,
         }
     }
 
-    pub const fn copycat(
-        order: u16,
-        fallback: &'static dyn Role,
-        pick: CopycatPromptFn,
-    ) -> Self {
+    /// `Doppelgänger`: wakes at `#-7` (`order 10`) when Dusk roles are in play, or `#1` (`order 105`) otherwise.
+    pub const fn doppelganger(prompt: SoloPromptFn) -> Self {
         Self {
-            phase: WakePhase::Copycat,
-            order,
-            kind: WakeKind::Copycat {
-                fallback,
-                pick,
-                acts_on_role_schedule: false,
-            },
+            phase: Phase::Night,
+            order: 105,
+            kind: WakeKind::Solo(prompt),
             mutates_board: true,
             reads_live_board: true,
-            copy_behavior: CopyBehavior::Sleep,
-        }
-    }
-
-    /// Center-card `Copycat` (`#-8`): picks in `CopycatPick`, then wakes on the copied role's Dusk/Night schedule.
-    pub const fn copycat_scheduled(
-        order: u16,
-        fallback: &'static dyn Role,
-        pick: CopycatPromptFn,
-    ) -> Self {
-        Self {
-            phase: WakePhase::Copycat,
-            order,
-            kind: WakeKind::Copycat {
-                fallback,
-                pick,
-                acts_on_role_schedule: true,
-            },
-            mutates_board: true,
-            reads_live_board: true,
-            copy_behavior: CopyBehavior::Sleep,
+            mutates_shields: false,
+            short_budget: true,
+            is_doppelganger: true,
+            doppelganger_follows: true,
         }
     }
 
     pub const fn dusk(mut self) -> Self {
-        self.phase = WakePhase::Dusk;
-        if matches!(self.copy_behavior, CopyBehavior::ActImmediately) {
-            self.copy_behavior = CopyBehavior::FollowRoleWake;
-        }
-        self
-    }
-
-    /// Places a role at `#-9` before `Copycat` / `Doppelgänger` (`Oracle`).
-    pub const fn before_copycat(mut self) -> Self {
-        self.phase = WakePhase::PreCopycat;
-        self
-    }
-
-    /// Places a role at `#0` (start of Night, after Dusk `00` and before Night `#1 Doppelgänger`, e.g. `Sentinel`).
-    pub const fn night_start(mut self) -> Self {
-        self.phase = WakePhase::NightStart;
+        self.phase = Phase::Dusk;
+        self.doppelganger_follows = true;
         self
     }
 
     /// Indicates that this role mutates cards, marks, shields, artifacts, or state on `BoardCards`.
     pub const fn mutates(mut self) -> Self {
         self.mutates_board = true;
+        self
+    }
+
+    /// Indicates that this role places shield tokens (`Sentinel`), flushing its tier before downstream prompts.
+    pub const fn shields(mut self) -> Self {
+        self.mutates_board = true;
+        self.mutates_shields = true;
+        self
+    }
+
+    /// Uses the shorter card-selection timer (`copycat_pick_budget`) in a dedicated tier (`Copycat`).
+    pub const fn short_budget(mut self) -> Self {
+        self.short_budget = true;
         self
     }
 
@@ -478,14 +419,14 @@ impl Wake {
 
     /// Marks a passive role as acting immediately when copied by `Doppelgänger` (`Psychic`).
     pub const fn immediate_on_copy(mut self) -> Self {
-        self.copy_behavior = CopyBehavior::ActImmediately;
+        self.doppelganger_follows = false;
         self
     }
 
     /// Marks a solo role as waking right after the original role (`X-A`) when copied by `Doppelgänger`
-    /// (`Pickpocket`, `Gremlin`, `Revealer`, `Curator`).
+    /// (`Oracle`, `Pickpocket`, `Gremlin`, `Revealer`, `Curator`).
     pub const fn follow_on_copy(mut self) -> Self {
-        self.copy_behavior = CopyBehavior::FollowRoleWake;
+        self.doppelganger_follows = true;
         self
     }
 
@@ -498,26 +439,12 @@ impl Wake {
 // Night & Dawn Hook Contexts
 // ============================================================================
 
-#[derive(Clone, Copy)]
-pub struct CopiedRecord {
-    pub copycat_seat: usize,
-    pub copied_role: &'static dyn Role,
-}
-
-fn seats_with_tag_in(roster: &Roster, copied_records: &[CopiedRecord], tag: RoleTag) -> Vec<usize> {
-    let mut out: Vec<usize> = roster
-        .seats
+fn seats_with_tag_in(waking_roles: &[&'static dyn Role], tag: RoleTag) -> Vec<usize> {
+    waking_roles
         .iter()
         .enumerate()
-        .filter_map(|(i, s)| s.initial_role.tags().contains(&tag).then_some(i))
-        .collect();
-    for rec in copied_records {
-        if rec.copied_role.tags().contains(&tag) && !out.contains(&rec.copycat_seat) {
-            out.push(rec.copycat_seat);
-        }
-    }
-    out.sort_unstable();
-    out
+        .filter_map(|(i, r)| r.tags().contains(&tag).then_some(i))
+        .collect()
 }
 
 pub struct PromptCtx<'a> {
@@ -527,7 +454,7 @@ pub struct PromptCtx<'a> {
     pub ask_cfg: &'a AskConfig,
     pub deadline: Instant,
     pub shielded: &'a HashSet<usize>,
-    pub copied_records: &'a [CopiedRecord],
+    pub waking_roles: &'a [&'static dyn Role],
     pub(crate) live_board: Option<&'a BoardCards>,
 }
 
@@ -570,9 +497,9 @@ impl<'a> PromptCtx<'a> {
         )
     }
 
-    /// All seats holding `tag` (initial role or copied by a Copycat/Doppelgänger).
+    /// All seats holding `tag` (initial role or copied by `Copycat` / `Doppelgänger`).
     pub fn seats_with_tag(&self, tag: RoleTag) -> Vec<usize> {
-        seats_with_tag_in(self.roster, self.copied_records, tag)
+        seats_with_tag_in(self.waking_roles, tag)
     }
 }
 
@@ -581,7 +508,7 @@ pub struct GroupPromptCtx<'a> {
     pub roster: &'a Roster,
     pub ask_cfg: &'a AskConfig,
     pub deadline: Instant,
-    pub copied_records: &'a [CopiedRecord],
+    pub waking_roles: &'a [&'static dyn Role],
     pub shielded: &'a HashSet<usize>,
     pub feared_seats: &'a HashSet<usize>,
     pub(crate) live_board: Option<&'a BoardCards>,
@@ -638,9 +565,9 @@ impl<'a> GroupPromptCtx<'a> {
         )
     }
 
-    /// All seats holding `tag` (initial role or copied by a Copycat/Doppelgänger), even if feared.
+    /// All seats holding `tag` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
     pub fn seats_with_tag(&self, tag: RoleTag) -> Vec<usize> {
-        seats_with_tag_in(self.roster, self.copied_records, tag)
+        seats_with_tag_in(self.waking_roles, tag)
     }
 
     /// Waking seats holding `tag` (excluding seats suppressed by `Mark::Fear`).
@@ -651,29 +578,22 @@ impl<'a> GroupPromptCtx<'a> {
             .collect()
     }
 
-    /// All seats holding `role` (initial role or copied by a Copycat/Doppelgänger).
+    /// All seats holding `role` (initial role or copied by `Copycat` / `Doppelgänger`).
     pub fn seats_with_role(&self, role: &'static dyn Role) -> Vec<usize> {
         let target_id = role.id();
-        let mut out: Vec<usize> = self
-            .roster
-            .seats
+        self.waking_roles
             .iter()
             .enumerate()
-            .filter_map(|(i, s)| (s.initial_role.id() == target_id).then_some(i))
-            .collect();
-        for rec in self.copied_records {
-            if rec.copied_role.id() == target_id && !out.contains(&rec.copycat_seat) {
-                out.push(rec.copycat_seat);
-            }
-        }
-        out.sort_unstable();
-        out
+            .filter_map(|(i, r)| (r.id() == target_id).then_some(i))
+            .collect()
     }
 }
 
 pub struct ResolveCtx<'a> {
     pub roster: &'a Roster,
     pub chronicle: &'a mut Vec<Text>,
+    pub(crate) waking_roles: &'a mut [&'static dyn Role],
+    pub(crate) waking_labels: &'a mut [String],
 }
 
 impl<'a> ResolveCtx<'a> {
@@ -687,6 +607,21 @@ impl<'a> ResolveCtx<'a> {
 
     pub fn dm(&self, seat: usize, text: impl Into<Text>) {
         let _ = self.roster.seats[seat].user.say(text);
+    }
+
+    /// Permanently transforms `seat`'s waking identity and card (`Copycat` / `Doppelgänger`),
+    /// running the copied role's `on_deal` hook.
+    pub fn become_role(
+        &mut self,
+        seat: usize,
+        role: &'static dyn Role,
+        label: impl Into<String>,
+        board: &mut BoardCards,
+    ) {
+        board.players[seat].transform(role);
+        self.waking_roles[seat] = role;
+        self.waking_labels[seat] = label.into();
+        role.on_deal(seat, board, self);
     }
 }
 
@@ -841,40 +776,36 @@ impl dyn Role {
         ) && !self.is_minion()
     }
 
-    pub fn copy_behavior(&self) -> CopyBehavior {
-        if let Some(w) = self.wake() {
-            w.copy_behavior
-        } else if self.tags().iter().any(|t| {
-            matches!(
-                t,
-                RoleTag::WolfPack | RoleTag::VampirePack | RoleTag::AlienPack | RoleTag::VillainPack
-            )
-        }) {
-            CopyBehavior::JoinGroupWake
-        } else {
-            CopyBehavior::Sleep
-        }
+    pub fn is_doppelganger(&self) -> bool {
+        self.wake().is_some_and(|w| w.is_doppelganger)
     }
 
-    pub fn copycat_fallback(&self) -> Option<&'static dyn Role> {
-        match self.wake()?.kind {
-            WakeKind::Copycat { fallback, .. } => Some(fallback),
-            _ => None,
-        }
+    /// True when `Doppelgänger` performs this role's action immediately at `#-7` / `#1` rather than
+    /// waiting for the role's scheduled Dusk/Night tier.
+    pub fn doppelganger_acts_immediately(&self) -> bool {
+        self.wake().is_some_and(|w| {
+            !w.is_doppelganger
+                && !w.doppelganger_follows
+                && matches!(w.kind, WakeKind::Solo(_) | WakeKind::Passive(_))
+        })
     }
 
-    pub fn acts_on_role_schedule(&self) -> bool {
-        match self.wake().map(|w| w.kind) {
-            Some(WakeKind::Copycat {
-                acts_on_role_schedule,
-                ..
-            }) => acts_on_role_schedule,
-            _ => false,
+    /// True if `Doppelgänger` copying this role will wake later during Dusk or Night on schedule.
+    pub fn doppelganger_wakes_on_schedule(&self) -> bool {
+        if self.doppelganger_acts_immediately() {
+            return false;
         }
-    }
-
-    pub fn is_copycat(&self) -> bool {
-        self.copycat_fallback().is_some()
+        self.wake()
+            .is_some_and(|w| !w.is_doppelganger && w.order > 10)
+            || self.tags().iter().any(|t| {
+                matches!(
+                    t,
+                    RoleTag::WolfPack
+                        | RoleTag::VampirePack
+                        | RoleTag::AlienPack
+                        | RoleTag::VillainPack
+                )
+            })
     }
 }
 
