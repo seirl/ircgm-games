@@ -297,7 +297,7 @@ pub struct Wake {
     pub order: u16,
     pub kind: WakeKind,
     pub mutates_board: bool,
-    /// True for interactive roles (`Count`, `Paranormal Investigator`, `Witch`, `Rogue`, `Copycat`)
+    /// True for interactive roles (`Count`, `Paranormal Investigator`, `Witch`, `Copycat`)
     /// whose prompt inspects `ctx.board()` mid-prompt and must start a new tier after any earlier mutator.
     pub reads_live_board: bool,
     /// True on `Sentinel` (`#0`) so subsequent interactive tiers see committed `board.shielded`.
@@ -700,7 +700,7 @@ impl SpecialVictory {
 // Object-Safe 7-Method `Role` Trait
 // ============================================================================
 
-/// Object-safe role trait implemented by all 60 cards across Base + 4 Expansions.
+/// Object-safe role trait implemented by all 59 cards across Base + 4 Expansions.
 pub trait Role: Send + Sync + 'static {
     fn info(&self) -> RoleInfo;
 

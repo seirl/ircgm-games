@@ -15,14 +15,17 @@ fn deck_spec_supports_packs_multipliers_pairs_and_custom_clear() {
     assert!(DeckSpec::parse("chaos").is_some());
 
     let mut spec = DeckSpec::from_pack(ScenarioPack::Base);
-    let parsed = parse_role_spec_tokens("2x alpha wolf, rogue, mason").unwrap();
+    let parsed = parse_role_spec_tokens("2x alpha wolf, role retriever, mason").unwrap();
     for (r, c) in parsed {
         spec.add_role(r, c);
     }
     let deck = spec.build_for_players(5).unwrap();
     assert_eq!(deck.len(), 8);
     assert_eq!(deck.iter().filter(|r| r.id() == "alpha_wolf").count(), 2);
-    assert_eq!(deck.iter().filter(|r| r.id() == "rogue").count(), 1);
+    assert_eq!(
+        deck.iter().filter(|r| r.id() == "role_retriever").count(),
+        1
+    );
     assert_eq!(deck.iter().filter(|r| r.id() == "mason").count(), 2);
 
     spec.clear_to_custom();

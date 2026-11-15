@@ -1,4 +1,6 @@
-use crate::roles::base::{robber::ROBBER, troublemaker::TROUBLEMAKER, villager::VILLAGER, werewolf::WEREWOLF};
+use crate::roles::base::{
+    robber::ROBBER, troublemaker::TROUBLEMAKER, villager::VILLAGER, werewolf::WEREWOLF,
+};
 use crate::roles::super_villains::{
     annoying_lad::ANNOYING_LAD,
     dr_peeker::DR_PEEKER,
@@ -6,19 +8,18 @@ use crate::roles::super_villains::{
     henchman::HENCHMAN,
     mad_scientist_intern::{INTERN, MAD_SCIENTIST},
     rapscallion::RAPSCALLION,
-    rogue::ROGUE,
     role_retriever::ROLE_RETRIEVER,
     temptress::TEMPTRESS,
 };
 use crate::testing::OnuwTestHarness;
 
 #[tokio::test(start_paused = true)]
-async fn rogue_waits_for_robber_and_troublemaker_then_steals_post_swap_card_and_narrates_it() {
+async fn role_retriever_runs_after_robber_and_dawn_withholds_chronicle_from_channel() {
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &ROBBER),
-            ("Bob", &TROUBLEMAKER),
-            ("Carol", &ROGUE),
+            ("Bob", &ROLE_RETRIEVER),
+            ("Carol", &TROUBLEMAKER),
             ("Dave", &WEREWOLF),
         ],
         [&VILLAGER, &VILLAGER, &VILLAGER],
@@ -30,41 +31,38 @@ async fn rogue_waits_for_robber_and_troublemaker_then_steals_post_swap_card_and_
     h.reply_dm("Dave", "pass").await;
     // Alice (Robber, 160) steals Dave's Werewolf -> Alice=Werewolf, Dave=Robber:
     h.reply_dm("Alice", "Dave").await;
-    // Bob (Troublemaker, 170) swaps Alice (now Werewolf!) and Dave (now Robber!) -> Alice=Robber, Dave=Werewolf:
-    h.reply_dm("Bob", "Alice Dave").await;
-    // Carol (Rogue, 175, AfterUpstreamBoard) inspects Dave (sees post-swap Werewolf!) and steals it!
-    h.reply_dm("Carol", "Dave").await;
-    h.reply_dm("Carol", "steal").await;
+    // Bob (Role Retriever, 162) fetches Alice's new Werewolf -> Bob=Werewolf, Alice=Role Retriever:
+    h.reply_dm("Bob", "Alice").await;
+    // Carol (Troublemaker, 170) swaps Bob (now Werewolf) and Dave (now Robber) -> Bob=Robber, Dave=Werewolf:
+    h.reply_dm("Carol", "Bob Dave").await;
 
     let report = h.finish_night(night).await;
-    assert!(report.dms_to("Carol").contains("Dave currently holds Werewolf!"));
-    assert_eq!(report.effective_role_at(&h.roster, "Carol"), "Werewolf");
-    assert_eq!(report.effective_role_at(&h.roster, "Dave"), "Rogue");
+    assert_eq!(report.effective_role_at(&h.roster, "Alice"), "Role Retriever");
+    assert_eq!(report.effective_role_at(&h.roster, "Bob"), "Robber");
+    assert_eq!(report.effective_role_at(&h.roster, "Dave"), "Werewolf");
 
     // Verify Dawn channel output withholds the chronicle while `reveal_text()` holds the full `📜 What Happened:` log:
     let dawn = h
         .resolve_dawn(
             report,
             &[
-                ("Alice", Some("Carol")),
-                ("Bob", Some("Carol")),
-                ("Carol", Some("Alice")),
-                ("Dave", Some("Carol")),
+                ("Alice", Some("Dave")),
+                ("Bob", Some("Dave")),
+                ("Carol", Some("Dave")),
+                ("Dave", Some("Alice")),
             ],
         )
         .await;
     let chan = dawn.channel_text();
     assert!(!chan.contains("📜 What Happened:"));
-    assert!(!chan.contains("Robber"));
     let reveal = dawn.reveal_text();
-    assert!(reveal.contains(
-        "🃏 Roles: Alice: Robber · Bob: Troublemaker · Carol: Rogue → Werewolf 💀 · Dave: Werewolf → Rogue"
-    ));
     assert!(reveal.contains("📜 What Happened:"));
     assert!(reveal.contains("Robber (Alice) stole Werewolf from Dave (giving Dave Robber)."));
-    assert!(reveal.contains("Troublemaker (Bob) swapped Alice (Werewolf) and Dave (Robber)."));
-    assert!(reveal.contains("Rogue (Carol) stole Werewolf from Dave (giving Dave Rogue)."));
-    assert_eq!(dawn.winner_nicks(&h.roster), vec!["Alice", "Bob", "Dave"]);
+    assert!(reveal.contains(
+        "Role Retriever (Bob) fetched Werewolf from Alice (giving Alice Role Retriever)."
+    ));
+    assert!(reveal.contains("Troublemaker (Carol) swapped Bob (Werewolf) and Dave (Robber)."));
+    assert_eq!(dawn.winner_nicks(&h.roster), vec!["Alice", "Bob", "Carol"]);
 }
 
 #[tokio::test(start_paused = true)]

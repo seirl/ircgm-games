@@ -102,3 +102,7 @@ impl RoleRetriever {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "role_retriever_test.rs"]
+mod test;

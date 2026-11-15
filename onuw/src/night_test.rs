@@ -16,7 +16,7 @@ use crate::roles::{
         alpha_wolf::ALPHA_WOLF, aura_seer::AURA_SEER, prince::PRINCE, revealer::REVEALER,
         sentinel::SENTINEL, witch::WITCH,
     },
-    super_villains::{rapscallion::RAPSCALLION, rogue::ROGUE},
+    super_villains::rapscallion::RAPSCALLION,
     vampire::{
         assassin::ASSASSIN, copycat::COPYCAT, count::COUNT, cupid::CUPID, gremlin::GREMLIN,
         pickpocket::PICKPOCKET, priest::PRIEST, thing::THING, vampire::VAMPIRE,
@@ -41,7 +41,6 @@ fn deck_schedule_is_purely_deck_derived_and_invariant_to_card_order() {
         &ALPHA_WOLF,
         &SEER,
         &WITCH,
-        &ROGUE,
         &INSOMNIAC,
     ];
     let mut deck_order_b = deck_order_a.clone();
@@ -85,8 +84,7 @@ fn deck_schedule_is_purely_deck_derived_and_invariant_to_card_order() {
             (TierPhase::Night, "Sentinel".into(), 80, 100),
             (TierPhase::Night, "Werewolf".into(), 100, 120),
             (TierPhase::Night, "Alpha Wolf, Seer".into(), 120, 140),
-            (TierPhase::Night, "Witch".into(), 140, 160),
-            (TierPhase::Night, "Rogue, Insomniac".into(), 160, 180),
+            (TierPhase::Night, "Witch, Insomniac".into(), 140, 160),
         ]
     );
 }
@@ -146,7 +144,7 @@ async fn fast_vs_slow_or_timed_out_players_cannot_shift_any_downstream_prompt_or
             ("Alice", &DOPPELGANGER),
             ("Bob", &THING),
             ("Carol", &ROBBER),
-            ("Dave", &ROGUE),
+            ("Dave", &WITCH),
         ],
         [&WEREWOLF, &INSOMNIAC, &VILLAGER],
     )
@@ -157,10 +155,10 @@ async fn fast_vs_slow_or_timed_out_players_cannot_shift_any_downstream_prompt_or
     h_fast.reply_dm("Bob", "left").await;
     h_fast.reply_dm("Carol", "Bob").await;
     let dave_prompt_fast = h_fast.wait_for_new_dm("Dave").await;
-    assert!(dave_prompt_fast.contains("Rogue"));
-    let rogue_ts_fast = h_fast.timed_dms["Dave"]
+    assert!(dave_prompt_fast.contains("Witch"));
+    let witch_ts_fast = h_fast.timed_dms["Dave"]
         .iter()
-        .find(|(_, m)| m.contains("Rogue:"))
+        .find(|(_, m)| m.contains("Witch:"))
         .unwrap()
         .0;
     h_fast.send_dm("Dave", "pass").await;
@@ -171,7 +169,7 @@ async fn fast_vs_slow_or_timed_out_players_cannot_shift_any_downstream_prompt_or
             ("Alice", &DOPPELGANGER),
             ("Bob", &THING),
             ("Carol", &VILLAGER),
-            ("Dave", &ROGUE),
+            ("Dave", &WITCH),
         ],
         [&WEREWOLF, &INSOMNIAC, &ROBBER],
     )
@@ -186,15 +184,15 @@ async fn fast_vs_slow_or_timed_out_players_cannot_shift_any_downstream_prompt_or
     h_slow.send_dm("Bob", "left").await;
 
     let _ = h_slow.wait_for_new_dm("Dave").await;
-    let rogue_ts_slow = h_slow.timed_dms["Dave"]
+    let witch_ts_slow = h_slow.timed_dms["Dave"]
         .iter()
-        .find(|(_, m)| m.contains("Rogue:"))
+        .find(|(_, m)| m.contains("Witch:"))
         .unwrap()
         .0;
     let rep_slow = h_slow.finish_night(n_slow).await;
 
-    assert_eq!(rogue_ts_fast, Duration::from_secs(13));
-    assert_eq!(rogue_ts_slow, Duration::from_secs(13));
+    assert_eq!(witch_ts_fast, Duration::from_secs(13));
+    assert_eq!(witch_ts_slow, Duration::from_secs(13));
     assert_eq!(rep_fast.total_elapsed, Duration::from_secs(18));
     assert_eq!(rep_slow.total_elapsed, Duration::from_secs(18));
 }

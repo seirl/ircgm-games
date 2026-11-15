@@ -1,4 +1,4 @@
-//! Static registry and fuzzy lookup for all 60 implemented [`Role`]s across Base + 4 Expansions.
+//! Static registry and fuzzy lookup for all 59 implemented [`Role`]s across Base + 4 Expansions.
 //!
 //! Submodules map 1-to-1 to the five game folders under `src/roles/` (with nothing at the root of `src/roles/`).
 
@@ -38,7 +38,6 @@ use super_villains::{
     henchman::HENCHMAN,
     mad_scientist_intern::{INTERN, MAD_SCIENTIST},
     rapscallion::RAPSCALLION,
-    rogue::ROGUE,
     role_retriever::ROLE_RETRIEVER,
     temptress::TEMPTRESS,
 };
@@ -59,7 +58,7 @@ use vampire::{
     vampire::VAMPIRE,
 };
 
-/// Complete registry of all 60 implemented [`Role`]s across Base + 4 Expansions.
+/// Complete registry of all 59 implemented [`Role`]s across Base + 4 Expansions.
 pub static ALL_ROLES: &[&'static dyn Role] = &[
     // Base (12)
     &DOPPELGANGER,
@@ -115,7 +114,7 @@ pub static ALL_ROLES: &[&'static dyn Role] = &[
     &COW,
     &BLOB,
     &MORTICIAN,
-    // Super Villains (10)
+    // Super Villains (9)
     &HENCHMAN,
     &TEMPTRESS,
     &DR_PEEKER,
@@ -125,7 +124,6 @@ pub static ALL_ROLES: &[&'static dyn Role] = &[
     &ANNOYING_LAD,
     &MAD_SCIENTIST,
     &INTERN,
-    &ROGUE,
 ];
 
 fn normalize_role_key(s: &str) -> String {

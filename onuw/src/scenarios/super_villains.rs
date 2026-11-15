@@ -14,7 +14,6 @@ use crate::roles::{
     super_villains::mad_scientist_intern::INTERN,
     super_villains::mad_scientist_intern::MAD_SCIENTIST,
     super_villains::rapscallion::RAPSCALLION,
-    super_villains::rogue::ROGUE,
     super_villains::role_retriever::ROLE_RETRIEVER,
     super_villains::temptress::TEMPTRESS,
 };
@@ -27,7 +26,6 @@ static SUPER_VILLAINS_ANARCHY_POOL: &[&'static dyn Role] = &[
     &HENCHMAN,
     &EVILOMETER,
     &ROLE_RETRIEVER,
-    &ROGUE,
     &ANNOYING_LAD,
     &MAD_SCIENTIST,
     &INTERN,
@@ -53,8 +51,8 @@ pub static SCENARIOS: &[Scenario] = &[
                 &DR_PEEKER,
                 &EVILOMETER,
                 &ROLE_RETRIEVER,
-                &ROGUE,
                 &ANNOYING_LAD,
+                &INSOMNIAC,
             ],
             deltas: &[
                 &[],
@@ -81,7 +79,7 @@ pub static SCENARIOS: &[Scenario] = &[
                 &INTERN,
                 &EVILOMETER,
                 &ROLE_RETRIEVER,
-                &ROGUE,
+                &INSOMNIAC,
             ],
             deltas: &[
                 &[],
@@ -117,7 +115,7 @@ pub static SCENARIOS: &[Scenario] = &[
                 &RAPSCALLION,
                 &SENTINEL,
                 &ROLE_RETRIEVER,
-                &ROGUE,
+                &WITCH,
                 &EVILOMETER,
                 &REVEALER,
             ],
