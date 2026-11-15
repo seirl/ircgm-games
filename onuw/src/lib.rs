@@ -1,0 +1,45 @@
+//! **One Night Ultimate Werewolf** IRC game master bot built on [`ircgm`].
+//!
+//! Covers all five One Night Ultimate games (`src/roles/{base,daybreak,vampire,alien,super_villains}/`)
+//! and 59 expansion-ordered scenarios (`src/scenarios/`), with fixed-clock anti-timing-attack Night
+//! scheduling (`night.rs`), public channel voting (`day.rs`), and causal Dawn narration (`dawn.rs`).
+
+#![forbid(unsafe_code)]
+
+pub mod artifacts;
+pub mod board;
+pub mod dawn;
+pub mod day;
+pub mod deck;
+pub mod game;
+pub mod lobby;
+pub mod marks;
+pub mod night;
+pub mod role;
+pub mod roles;
+pub mod scenarios;
+#[cfg(test)]
+pub mod testing;
+
+pub use artifacts::{Artifact, DayConductTracker};
+pub use board::{BoardCards, Card, OracleOmen, Roster, SeatInfo};
+pub use dawn::resolve_and_announce_winners;
+pub use day::{run_day_phase, run_voting_phase};
+pub use deck::{DeckBase, DeckSpec};
+pub use game::{
+    run_dealt_game, run_single_game, GameConfig, GameSummary, PlayOutcome, MAX_PLAYERS, MIN_PLAYERS,
+};
+pub use lobby::{recruit_players, run_lobby_bot};
+pub use marks::Mark;
+pub use night::{
+    build_deck_schedule, run_night_phase, NightTimings, ScheduledTier, TierKind, TierPhase,
+};
+pub use role::{
+    CopycatEffect, DeathEffect, GameSet, GroupEffect, Role, RoleInfo, RoleTag, SeatEffect,
+    SpecialVictory, Team, Wake, WakeKind, WakePhase,
+};
+pub use roles::{find_role, ALL_ROLES};
+pub use scenarios::{
+    all_scenarios, find_scenario, scenario_count, scenarios_for_player_count, scenarios_in_pack,
+    Difficulty, Scenario, ScenarioPack, ScenarioRule,
+};

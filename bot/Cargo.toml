@@ -1,0 +1,15 @@
+[package]
+name = "bot"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "IRC game master bot runner for ircgm-games"
+
+[dependencies]
+fastrand.workspace = true
+ircgm.workspace = true
+onuw.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

@@ -1,0 +1,13 @@
+[workspace]
+resolver = "2"
+members = ["bot", "onuw"]
+default-members = ["bot", "onuw"]
+
+[workspace.dependencies]
+fastrand = "2"
+futures = "0.3"
+ircgm = { path = "../ircgm" }
+onuw = { path = "onuw" }
+tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }
+tracing = "0.1"
+tracing-subscriber = "0.3"

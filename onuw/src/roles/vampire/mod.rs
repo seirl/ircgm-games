@@ -1,0 +1,14 @@
+pub mod assassin;
+pub mod copycat;
+pub mod count;
+pub mod cupid;
+pub mod diseased;
+pub mod gremlin;
+pub mod instigator;
+pub mod marksman;
+pub mod pickpocket;
+pub mod priest;
+pub mod renfield;
+pub mod the_master;
+pub mod thing;
+pub mod vampire;
