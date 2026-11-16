@@ -3,7 +3,7 @@ use ircgm::prelude::*;
 use crate::board::{BoardCards, Roster};
 use crate::marks::Mark;
 use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
 };
 
 pub struct Cupid;
@@ -22,57 +22,55 @@ impl Role for Cupid {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(35, Self::prompt).dusk().mutates())
+        Some(
+            Wake::solo(35, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+                .dusk()
+                .mutates(),
+        )
     }
 }
 
 impl Cupid {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let roster = ctx.roster;
-            let prompt = irc_format!(
-                "💘 Cupid: Reply with TWO players ({}) to bestow the Mark of Love, or {}. Players: {}",
-                "<nick1> <nick2>".bold(),
-                "pass".bold(),
-                roster.format_players(),
-            );
-            let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept_say(
-                            None,
-                            "💘 Passed — bestowed no Marks of Love.",
-                        );
-                    }
-                    let parts: Vec<&str> = m.text.split_whitespace().collect();
-                    if parts.len() != 2 {
-                        return AskMatch::reject("Usage: <nick1> <nick2> or pass.".yellow());
-                    }
-                    let (Some(a), Some(b)) = (
-                        roster.resolve_nick(parts[0]),
-                        roster.resolve_nick(parts[1]),
-                    ) else {
-                        return AskMatch::reject("Unknown player nickname.".yellow());
-                    };
-                    if a == b {
-                        return AskMatch::reject("Pick two DIFFERENT players!".yellow());
-                    }
-                    AskMatch::accept_say(
-                        Some((a, b)),
-                        irc_format!(
-                            "💘 Linked {} and {} with the {}!",
-                            roster.seats[a].user.nick().bold(),
-                            roster.seats[b].user.nick().bold(),
-                            Mark::Love.styled(),
-                        ),
-                    )
-                })
-                .await?;
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let roster = ctx.roster;
+        let prompt = irc_format!(
+            "💘 Cupid: Reply with TWO players ({}) to bestow the Mark of Love, or {}. Players: {}",
+            "<nick1> <nick2>".bold(),
+            "pass".bold(),
+            roster.format_players(),
+        );
+        let ans = ctx
+            .ask(prompt, move |m| {
+                if Roster::is_pass(&m.text) {
+                    return AskMatch::accept_say(None, "💘 Passed — bestowed no Marks of Love.");
+                }
+                let parts: Vec<&str> = m.text.split_whitespace().collect();
+                if parts.len() != 2 {
+                    return AskMatch::reject("Usage: <nick1> <nick2> or pass.".yellow());
+                }
+                let (Some(a), Some(b)) =
+                    (roster.resolve_nick(parts[0]), roster.resolve_nick(parts[1]))
+                else {
+                    return AskMatch::reject("Unknown player nickname.".yellow());
+                };
+                if a == b {
+                    return AskMatch::reject("Pick two DIFFERENT players!".yellow());
+                }
+                AskMatch::accept_say(
+                    Some((a, b)),
+                    irc_format!(
+                        "💘 Linked {} and {} with the {}!",
+                        roster.seats[a].user.nick().bold(),
+                        roster.seats[b].user.nick().bold(),
+                        Mark::Love.styled(),
+                    ),
+                )
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

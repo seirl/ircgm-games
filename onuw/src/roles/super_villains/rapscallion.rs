@@ -2,7 +2,7 @@ use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
 use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
 };
 
 pub struct Rapscallion;
@@ -21,42 +21,40 @@ impl Role for Rapscallion {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(127, Self::prompt).follow_on_copy())
+        Some(Wake::solo(127, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).follow_on_copy())
     }
 }
 
 impl Rapscallion {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let prompt = irc_format!(
-                "🧨 Rapscallion: Reply {}, {}, {}, or {} to peek at one center card!",
-                "1".bold(),
-                "2".bold(),
-                "3".bold(),
-                "pass".bold(),
-            );
-            let ans = ctx
-                .ask(prompt, |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept_say(None, "🧨 Passed on peeking the center.");
-                    }
-                    match Roster::parse_center_slot(&m.text) {
-                        Some(c_idx) => AskMatch::accept_say(
-                            Some(c_idx),
-                            format!(
-                                "🧨 Locked in Center #{} — card reveals when the phase ends!",
-                                c_idx + 1
-                            ),
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let prompt = irc_format!(
+            "🧨 Rapscallion: Reply {}, {}, {}, or {} to peek at one center card!",
+            "1".bold(),
+            "2".bold(),
+            "3".bold(),
+            "pass".bold(),
+        );
+        let ans = ctx
+            .ask(prompt, |m| {
+                if Roster::is_pass(&m.text) {
+                    return AskMatch::accept_say(None, "🧨 Passed on peeking the center.");
+                }
+                match Roster::parse_center_slot(&m.text) {
+                    Some(c_idx) => AskMatch::accept_say(
+                        Some(c_idx),
+                        format!(
+                            "🧨 Locked in Center #{} — card reveals when the phase ends!",
+                            c_idx + 1
                         ),
-                        None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
-                    }
-                })
-                .await?;
+                    ),
+                    None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
+                }
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct Gremlin;
 pub static GREMLIN: Gremlin = Gremlin;
@@ -37,70 +35,60 @@ impl Role for Gremlin {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(176, Self::prompt).mutates().follow_on_copy())
+        Some(
+            Wake::solo(176, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+                .mutates()
+                .follow_on_copy(),
+        )
     }
 }
 
 impl Gremlin {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let has_marks = roster.deck_has_marks();
-            let players_str = roster.format_players_marking_shields(shielded);
-            let prompt = if has_marks {
-                irc_format!(
-                    "👺 Gremlin: Reply {} OR {} (any two players, including yourself), or {}. Players: {players_str}",
-                    "cards <nick1> <nick2>".bold(),
-                    "marks <nick1> <nick2>".bold(),
-                    "pass".bold(),
-                )
-            } else {
-                irc_format!(
-                    "👺 Gremlin: Reply {} (any two players, including yourself) to swap their cards, or {}. Players: {players_str}",
-                    "<nick1> <nick2>".bold(),
-                    "pass".bold(),
-                )
-            };
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let has_marks = roster.deck_has_marks();
+        let players_str = roster.format_players_marking_shields(shielded);
+        let prompt = if has_marks {
+            irc_format!(
+                "👺 Gremlin: Reply {} OR {} (any two players, including yourself), or {}. Players: {players_str}",
+                "cards <nick1> <nick2>".bold(),
+                "marks <nick1> <nick2>".bold(),
+                "pass".bold(),
+            )
+        } else {
+            irc_format!(
+                "👺 Gremlin: Reply {} (any two players, including yourself) to swap their cards, or {}. Players: {players_str}",
+                "<nick1> <nick2>".bold(),
+                "pass".bold(),
+            )
+        };
 
-            let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        let msg = if has_marks {
-                            "👺 Passed — left all cards and Marks untouched."
-                        } else {
-                            "👺 Passed — left all cards untouched."
-                        };
-                        return AskMatch::accept_say(GremlinChoice::Pass, msg.cyan());
-                    }
+        let ans = ctx
+            .ask(prompt, move |m| {
+                if Roster::is_pass(&m.text) {
+                    let msg = if has_marks {
+                        "👺 Passed — left all cards and Marks untouched."
+                    } else {
+                        "👺 Passed — left all cards untouched."
+                    };
+                    return AskMatch::accept_say(GremlinChoice::Pass, msg.cyan());
+                }
 
-                    let parts: Vec<&str> = m.text.split_whitespace().collect();
-                    let (swap_cards, tok_a, tok_b) = match parts.as_slice() {
-                        [a, b] if !has_marks => (true, *a, *b),
-                        [kind, a, b] => match kind.to_ascii_lowercase().as_str() {
-                            "cards" | "card" | "c" => (true, *a, *b),
-                            "marks" | "mark" | "m" if has_marks => (false, *a, *b),
-                            "marks" | "mark" | "m" => {
-                                return AskMatch::reject(
-                                    "There are no Marks in this game — reply <nick1> <nick2> to swap cards, or pass."
-                                        .yellow(),
-                                );
-                            }
-                            _ if has_marks => {
-                                return AskMatch::reject(
-                                    "Start with cards or marks (e.g. cards Alice Bob or marks Bob Carol), or pass."
-                                        .yellow(),
-                                );
-                            }
-                            _ => {
-                                return AskMatch::reject(
-                                    "Usage: <nick1> <nick2> (two players, including yourself) or pass."
-                                        .yellow(),
-                                );
-                            }
-                        },
+                let parts: Vec<&str> = m.text.split_whitespace().collect();
+                let (swap_cards, tok_a, tok_b) = match parts.as_slice() {
+                    [a, b] if !has_marks => (true, *a, *b),
+                    [kind, a, b] => match kind.to_ascii_lowercase().as_str() {
+                        "cards" | "card" | "c" => (true, *a, *b),
+                        "marks" | "mark" | "m" if has_marks => (false, *a, *b),
+                        "marks" | "mark" | "m" => {
+                            return AskMatch::reject(
+                                "There are no Marks in this game — reply <nick1> <nick2> to swap cards, or pass."
+                                    .yellow(),
+                            );
+                        }
                         _ if has_marks => {
                             return AskMatch::reject(
-                                "Usage: cards <nick1> <nick2>, marks <nick1> <nick2>, or pass."
+                                "Start with cards or marks (e.g. cards Alice Bob or marks Bob Carol), or pass."
                                     .yellow(),
                             );
                         }
@@ -110,50 +98,62 @@ impl Gremlin {
                                     .yellow(),
                             );
                         }
-                    };
+                    },
+                    _ if has_marks => {
+                        return AskMatch::reject(
+                            "Usage: cards <nick1> <nick2>, marks <nick1> <nick2>, or pass."
+                                .yellow(),
+                        );
+                    }
+                    _ => {
+                        return AskMatch::reject(
+                            "Usage: <nick1> <nick2> (two players, including yourself) or pass."
+                                .yellow(),
+                        );
+                    }
+                };
 
-                    let (Some(a), Some(b)) =
-                        (roster.resolve_nick(tok_a), roster.resolve_nick(tok_b))
-                    else {
-                        return AskMatch::reject("Unknown player nickname.".yellow());
-                    };
-                    if a == b {
-                        return AskMatch::reject("Pick TWO distinct players!".yellow());
-                    }
-                    if swap_cards && (shielded.contains(&a) || shielded.contains(&b)) {
-                        let msg = if has_marks {
-                            "🛡️ Shielded cards cannot be swapped (though Marks can)!"
-                        } else {
-                            "🛡️ Shielded cards cannot be swapped!"
-                        };
-                        return AskMatch::reject(msg.yellow());
-                    }
-                    if swap_cards {
-                        AskMatch::accept_say(
-                            GremlinChoice::SwapCards(a, b),
-                            irc_format!(
-                                "👺 Swapped {}'s card and {}'s card!",
-                                roster.seats[a].user.nick().bold(),
-                                roster.seats[b].user.nick().bold(),
-                            ),
-                        )
+                let (Some(a), Some(b)) =
+                    (roster.resolve_nick(tok_a), roster.resolve_nick(tok_b))
+                else {
+                    return AskMatch::reject("Unknown player nickname.".yellow());
+                };
+                if a == b {
+                    return AskMatch::reject("Pick TWO distinct players!".yellow());
+                }
+                if swap_cards && (shielded.contains(&a) || shielded.contains(&b)) {
+                    let msg = if has_marks {
+                        "🛡️ Shielded cards cannot be swapped (though Marks can)!"
                     } else {
-                        AskMatch::accept_say(
-                            GremlinChoice::SwapMarks(a, b),
-                            irc_format!(
-                                "👺 Swapped {}'s Mark and {}'s Mark!",
-                                roster.seats[a].user.nick().bold(),
-                                roster.seats[b].user.nick().bold(),
-                            ),
-                        )
-                    }
-                })
-                .await?;
+                        "🛡️ Shielded cards cannot be swapped!"
+                    };
+                    return AskMatch::reject(msg.yellow());
+                }
+                if swap_cards {
+                    AskMatch::accept_say(
+                        GremlinChoice::SwapCards(a, b),
+                        irc_format!(
+                            "👺 Swapped {}'s card and {}'s card!",
+                            roster.seats[a].user.nick().bold(),
+                            roster.seats[b].user.nick().bold(),
+                        ),
+                    )
+                } else {
+                    AskMatch::accept_say(
+                        GremlinChoice::SwapMarks(a, b),
+                        irc_format!(
+                            "👺 Swapped {}'s Mark and {}'s Mark!",
+                            roster.seats[a].user.nick().bold(),
+                            roster.seats[b].user.nick().bold(),
+                        ),
+                    )
+                }
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

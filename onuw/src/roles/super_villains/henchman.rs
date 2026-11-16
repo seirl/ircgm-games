@@ -3,8 +3,7 @@ use ircgm::prelude::*;
 use super::evilometer::EVILOMETER;
 use crate::board::BoardCards;
 use crate::role::{
-    BoxFuture, GameSet, GroupEffect, GroupPromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, Team,
-    Wake,
+    GameSet, GroupEffect, GroupPromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, Team, Wake,
 };
 
 pub struct Henchman;
@@ -24,59 +23,56 @@ impl Role for Henchman {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::pack(124, RoleTag::VillainPack, Self::huddle))
+        Some(Wake::pack(124, RoleTag::VillainPack, |seats, ctx| {
+            Box::pin(Self::huddle(seats, ctx))
+        }))
     }
 }
 
 impl Henchman {
-    fn huddle<'a>(
-        active_seats: Vec<usize>,
-        ctx: GroupPromptCtx<'a>,
-    ) -> BoxFuture<'a, Result<GroupEffect>> {
-        Box::pin(async move {
-            let evilometers = ctx.seats_with_role(&EVILOMETER);
-            let evilometer_list = ctx.roster.format_indices(&evilometers);
+    async fn huddle(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+        let evilometers = ctx.seats_with_role(&EVILOMETER);
+        let evilometer_list = ctx.roster.format_indices(&evilometers);
 
-            for &v_seat in &active_seats {
-                if !evilometers.is_empty() {
-                    ctx.dm(
-                        v_seat,
-                        irc_format!(
-                            "📟🦹‍♂️ Syndicate Radar: {} holds the Evilometer!",
-                            evilometer_list.as_str().bold().yellow(),
-                        ),
-                    );
-                }
-            }
-
-            if active_seats.len() >= 2 {
-                for &v_seat in &active_seats {
-                    let partners: Vec<usize> = active_seats
-                        .iter()
-                        .copied()
-                        .filter(|&o| o != v_seat)
-                        .collect();
-                    ctx.dm(
-                        v_seat,
-                        irc_format!(
-                            "🦹‍♂️ Evil Syndicate: Fellow Super Villains: {} (chat here to coordinate!)",
-                            ctx.roster.format_indices(&partners).bold().red(),
-                        ),
-                    );
-                }
-                ctx.relay_huddle("Syndicate".red().bold(), &active_seats)
-                    .await?;
-            } else {
+        for &v_seat in &active_seats {
+            if !evilometers.is_empty() {
                 ctx.dm(
-                    active_seats[0],
-                    "🦹‍♂️ Evil Syndicate: You are the sole waking Super Villain tonight!",
+                    v_seat,
+                    irc_format!(
+                        "📟🦹‍♂️ Syndicate Radar: {} holds the Evilometer!",
+                        evilometer_list.as_str().bold().yellow(),
+                    ),
                 );
             }
+        }
 
-            Ok(GroupEffect::new(move |board, rctx| {
-                Self::resolve(&active_seats, board, rctx);
-            }))
-        })
+        if active_seats.len() >= 2 {
+            for &v_seat in &active_seats {
+                let partners: Vec<usize> = active_seats
+                    .iter()
+                    .copied()
+                    .filter(|&o| o != v_seat)
+                    .collect();
+                ctx.dm(
+                    v_seat,
+                    irc_format!(
+                        "🦹‍♂️ Evil Syndicate: Fellow Super Villains: {} (chat here to coordinate!)",
+                        ctx.roster.format_indices(&partners).bold().red(),
+                    ),
+                );
+            }
+            ctx.relay_huddle("Syndicate".red().bold(), &active_seats)
+                .await?;
+        } else {
+            ctx.dm(
+                active_seats[0],
+                "🦹‍♂️ Evil Syndicate: You are the sole waking Super Villain tonight!",
+            );
+        }
+
+        Ok(GroupEffect::new(move |board, rctx| {
+            Self::resolve(&active_seats, board, rctx);
+        }))
     }
 
     fn resolve(active_seats: &[usize], _board: &mut BoardCards, ctx: &mut ResolveCtx<'_>) {

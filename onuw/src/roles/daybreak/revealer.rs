@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct Revealer;
 pub static REVEALER: Revealer = Revealer;
@@ -27,51 +25,50 @@ impl Role for Revealer {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(192, Self::prompt).mutates().follow_on_copy())
+        Some(
+            Wake::solo(192, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+                .mutates()
+                .follow_on_copy(),
+        )
     }
 }
 
 impl Revealer {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = irc_format!(
-                "🔦 Revealer: Reply {} to flip their card, or {}. Players: {}",
-                "<nick>".bold(),
-                "pass".bold(),
-                roster.format_players_marking_shields(shielded),
-            );
-            let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept_say(
-                            None,
-                            "🔦 Passed — left all cards face down.",
-                        );
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let prompt = irc_format!(
+            "🔦 Revealer: Reply {} to flip their card, or {}. Players: {}",
+            "<nick>".bold(),
+            "pass".bold(),
+            roster.format_players_marking_shields(shielded),
+        );
+        let ans = ctx
+            .ask(prompt, move |m| {
+                if Roster::is_pass(&m.text) {
+                    return AskMatch::accept_say(None, "🔦 Passed — left all cards face down.");
+                }
+                match roster.resolve_nick(&m.text) {
+                    Some(idx) if idx == seat => {
+                        AskMatch::reject("Pick ANOTHER player, not yourself!".yellow())
                     }
-                    match roster.resolve_nick(&m.text) {
-                        Some(idx) if idx == seat => {
-                            AskMatch::reject("Pick ANOTHER player, not yourself!".yellow())
-                        }
-                        Some(idx) if shielded.contains(&idx) => {
-                            AskMatch::reject("🛡️ Shielded cards cannot be flipped!".yellow())
-                        }
-                        Some(idx) => AskMatch::accept_say(
-                            Some(idx),
-                            irc_format!(
-                                "🔦 Locked in flipping {}'s card — reveals when the phase ends!",
-                                roster.seats[idx].user.nick().bold(),
-                            ),
+                    Some(idx) if shielded.contains(&idx) => {
+                        AskMatch::reject("🛡️ Shielded cards cannot be flipped!".yellow())
+                    }
+                    Some(idx) => AskMatch::accept_say(
+                        Some(idx),
+                        irc_format!(
+                            "🔦 Locked in flipping {}'s card — reveals when the phase ends!",
+                            roster.seats[idx].user.nick().bold(),
                         ),
-                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
-                    }
-                })
-                .await?;
+                    ),
+                    None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
+                }
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

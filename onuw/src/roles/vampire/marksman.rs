@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct Marksman;
 pub static MARKSMAN: Marksman = Marksman;
@@ -36,126 +34,126 @@ impl Role for Marksman {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(158, Self::prompt))
+        Some(Wake::solo(158, |seat, ctx| {
+            Box::pin(Self::prompt(seat, ctx))
+        }))
     }
 }
 
 impl Marksman {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let has_marks = roster.deck_has_marks();
-            let players_str = roster.format_players_marking_shields(shielded);
-            let prompt = if has_marks {
-                irc_format!(
-                    "🎯 Marksman: Reply {} (two DIFFERENT other players), {}, {}, or {}. Players: {players_str}",
-                    "<card_nick> <mark_nick>".bold(),
-                    "card <nick>".bold(),
-                    "mark <nick>".bold(),
-                    "pass".bold(),
-                )
-            } else {
-                irc_format!(
-                    "🎯 Marksman: Reply {} to view another player's card, or {}. Players: {players_str}",
-                    "<nick>".bold(),
-                    "pass".bold(),
-                )
-            };
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let has_marks = roster.deck_has_marks();
+        let players_str = roster.format_players_marking_shields(shielded);
+        let prompt = if has_marks {
+            irc_format!(
+                "🎯 Marksman: Reply {} (two DIFFERENT other players), {}, {}, or {}. Players: {players_str}",
+                "<card_nick> <mark_nick>".bold(),
+                "card <nick>".bold(),
+                "mark <nick>".bold(),
+                "pass".bold(),
+            )
+        } else {
+            irc_format!(
+                "🎯 Marksman: Reply {} to view another player's card, or {}. Players: {players_str}",
+                "<nick>".bold(),
+                "pass".bold(),
+            )
+        };
 
-            let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept_say(
-                            MarksmanChoice::Pass,
-                            "🎯 Passed — not inspecting anyone.",
+        let ans = ctx
+            .ask(prompt, move |m| {
+                if Roster::is_pass(&m.text) {
+                    return AskMatch::accept_say(
+                        MarksmanChoice::Pass,
+                        "🎯 Passed — not inspecting anyone.",
+                    );
+                }
+                let parts: Vec<&str> = m.text.split_whitespace().collect();
+                let (card_tok, mark_tok) = match parts.as_slice() {
+                    [w, nick] if w.eq_ignore_ascii_case("card") => (Some(*nick), None),
+                    [w, nick] if has_marks && w.eq_ignore_ascii_case("mark") => {
+                        (None, Some(*nick))
+                    }
+                    [card_tok] if !has_marks => (Some(*card_tok), None),
+                    [card_tok, mark_tok] if has_marks => (Some(*card_tok), Some(*mark_tok)),
+                    _ if has_marks => {
+                        return AskMatch::reject(
+                            "Usage: <card_nick> <mark_nick>, card <nick>, mark <nick>, or pass."
+                                .yellow(),
                         );
                     }
-                    let parts: Vec<&str> = m.text.split_whitespace().collect();
-                    let (card_tok, mark_tok) = match parts.as_slice() {
-                        [w, nick] if w.eq_ignore_ascii_case("card") => (Some(*nick), None),
-                        [w, nick] if has_marks && w.eq_ignore_ascii_case("mark") => {
-                            (None, Some(*nick))
-                        }
-                        [card_tok] if !has_marks => (Some(*card_tok), None),
-                        [card_tok, mark_tok] if has_marks => (Some(*card_tok), Some(*mark_tok)),
-                        _ if has_marks => {
-                            return AskMatch::reject(
-                                "Usage: <card_nick> <mark_nick>, card <nick>, mark <nick>, or pass."
-                                    .yellow(),
-                            );
-                        }
-                        _ => {
-                            return AskMatch::reject(
-                                "There are no Marks in this game — reply <nick> to view another player's card, or pass."
-                                    .yellow(),
-                            );
-                        }
-                    };
-                    let card_idx = if let Some(ct) = card_tok {
-                        let Some(idx) = roster.resolve_nick(ct) else {
-                            return AskMatch::reject("Unknown player nickname.".yellow());
-                        };
-                        if idx == seat {
-                            return AskMatch::reject("You cannot inspect your own card!".yellow());
-                        }
-                        if shielded.contains(&idx) {
-                            return AskMatch::reject(
-                                "🛡️ That card is shielded by the Sentinel!".yellow(),
-                            );
-                        }
-                        Some(idx)
-                    } else {
-                        None
-                    };
-                    let mark_idx = if let Some(mt) = mark_tok {
-                        let Some(idx) = roster.resolve_nick(mt) else {
-                            return AskMatch::reject("Unknown player nickname.".yellow());
-                        };
-                        if idx == seat {
-                            return AskMatch::reject("You cannot inspect your own Mark!".yellow());
-                        }
-                        Some(idx)
-                    } else {
-                        None
-                    };
-                    match (card_idx, mark_idx) {
-                        (Some(c), Some(mk)) if c == mk => AskMatch::reject(
-                            "Card target and Mark target must be DIFFERENT players!".yellow(),
-                        ),
-                        (Some(c), Some(mk)) => AskMatch::accept_say(
-                            MarksmanChoice::CardAndMark(c, mk),
-                            irc_format!(
-                                "🎯 Locked in viewing {}'s card and {}'s mark — reveals when the phase ends!",
-                                roster.seats[c].user.nick().bold(),
-                                roster.seats[mk].user.nick().bold(),
-                            ),
-                        ),
-                        (Some(c), None) => AskMatch::accept_say(
-                            MarksmanChoice::CardOnly(c),
-                            irc_format!(
-                                "🎯 Locked in viewing {}'s card — reveals when the phase ends!",
-                                roster.seats[c].user.nick().bold(),
-                            ),
-                        ),
-                        (None, Some(mk)) => AskMatch::accept_say(
-                            MarksmanChoice::MarkOnly(mk),
-                            irc_format!(
-                                "🎯 Locked in viewing {}'s mark — reveals when the phase ends!",
-                                roster.seats[mk].user.nick().bold(),
-                            ),
-                        ),
-                        (None, None) => AskMatch::accept_say(
-                            MarksmanChoice::Pass,
-                            "🎯 Passed — not inspecting anyone.",
-                        ),
+                    _ => {
+                        return AskMatch::reject(
+                            "There are no Marks in this game — reply <nick> to view another player's card, or pass."
+                                .yellow(),
+                        );
                     }
-                })
-                .await?;
+                };
+                let card_idx = if let Some(ct) = card_tok {
+                    let Some(idx) = roster.resolve_nick(ct) else {
+                        return AskMatch::reject("Unknown player nickname.".yellow());
+                    };
+                    if idx == seat {
+                        return AskMatch::reject("You cannot inspect your own card!".yellow());
+                    }
+                    if shielded.contains(&idx) {
+                        return AskMatch::reject(
+                            "🛡️ That card is shielded by the Sentinel!".yellow(),
+                        );
+                    }
+                    Some(idx)
+                } else {
+                    None
+                };
+                let mark_idx = if let Some(mt) = mark_tok {
+                    let Some(idx) = roster.resolve_nick(mt) else {
+                        return AskMatch::reject("Unknown player nickname.".yellow());
+                    };
+                    if idx == seat {
+                        return AskMatch::reject("You cannot inspect your own Mark!".yellow());
+                    }
+                    Some(idx)
+                } else {
+                    None
+                };
+                match (card_idx, mark_idx) {
+                    (Some(c), Some(mk)) if c == mk => AskMatch::reject(
+                        "Card target and Mark target must be DIFFERENT players!".yellow(),
+                    ),
+                    (Some(c), Some(mk)) => AskMatch::accept_say(
+                        MarksmanChoice::CardAndMark(c, mk),
+                        irc_format!(
+                            "🎯 Locked in viewing {}'s card and {}'s mark — reveals when the phase ends!",
+                            roster.seats[c].user.nick().bold(),
+                            roster.seats[mk].user.nick().bold(),
+                        ),
+                    ),
+                    (Some(c), None) => AskMatch::accept_say(
+                        MarksmanChoice::CardOnly(c),
+                        irc_format!(
+                            "🎯 Locked in viewing {}'s card — reveals when the phase ends!",
+                            roster.seats[c].user.nick().bold(),
+                        ),
+                    ),
+                    (None, Some(mk)) => AskMatch::accept_say(
+                        MarksmanChoice::MarkOnly(mk),
+                        irc_format!(
+                            "🎯 Locked in viewing {}'s mark — reveals when the phase ends!",
+                            roster.seats[mk].user.nick().bold(),
+                        ),
+                    ),
+                    (None, None) => AskMatch::accept_say(
+                        MarksmanChoice::Pass,
+                        "🎯 Passed — not inspecting anyone.",
+                    ),
+                }
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

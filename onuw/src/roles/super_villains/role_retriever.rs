@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct RoleRetriever;
 pub static ROLE_RETRIEVER: RoleRetriever = RoleRetriever;
@@ -21,58 +19,51 @@ impl Role for RoleRetriever {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(162, Self::prompt).mutates())
+        Some(Wake::solo(162, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).mutates())
     }
 }
 
 impl RoleRetriever {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            if ctx.shielded.contains(&seat) {
-                ctx.say(
-                    "🛡️ Your own card has a Shield token — you cannot swap it tonight!",
-                );
-                return Ok(SeatEffect::noop());
-            }
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        if ctx.shielded.contains(&seat) {
+            ctx.say("🛡️ Your own card has a Shield token — you cannot swap it tonight!");
+            return Ok(SeatEffect::noop());
+        }
 
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = irc_format!(
-                "🐕 Role Retriever: Reply {} to swap cards with another player and see your new card, or {}. Players: {}",
-                "<nick>".bold(),
-                "pass".bold(),
-                roster.format_players_marking_shields(shielded),
-            );
-            let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept_say(
-                            None,
-                            "🐕 Passed — not swapping with anyone.",
-                        );
+        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let prompt = irc_format!(
+            "🐕 Role Retriever: Reply {} to swap cards with another player and see your new card, or {}. Players: {}",
+            "<nick>".bold(),
+            "pass".bold(),
+            roster.format_players_marking_shields(shielded),
+        );
+        let ans = ctx
+            .ask(prompt, move |m| {
+                if Roster::is_pass(&m.text) {
+                    return AskMatch::accept_say(None, "🐕 Passed — not swapping with anyone.");
+                }
+                match roster.resolve_nick(&m.text) {
+                    Some(idx) if idx == seat => {
+                        AskMatch::reject("Pick ANOTHER player (or pass)!".yellow())
                     }
-                    match roster.resolve_nick(&m.text) {
-                        Some(idx) if idx == seat => {
-                            AskMatch::reject("Pick ANOTHER player (or pass)!".yellow())
-                        }
-                        Some(idx) if shielded.contains(&idx) => {
-                            AskMatch::reject("🛡️ Shielded players cannot be swapped!".yellow())
-                        }
-                        Some(idx) => AskMatch::accept_say(
-                            Some(idx),
-                            irc_format!(
-                                "🐕 Locked in swapping with {} — new card reveals when the phase ends!",
-                                roster.seats[idx].user.nick().bold(),
-                            ),
+                    Some(idx) if shielded.contains(&idx) => {
+                        AskMatch::reject("🛡️ Shielded players cannot be swapped!".yellow())
+                    }
+                    Some(idx) => AskMatch::accept_say(
+                        Some(idx),
+                        irc_format!(
+                            "🐕 Locked in swapping with {} — new card reveals when the phase ends!",
+                            roster.seats[idx].user.nick().bold(),
                         ),
-                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
-                    }
-                })
-                .await?;
+                    ),
+                    None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
+                }
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

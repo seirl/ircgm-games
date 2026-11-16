@@ -2,9 +2,7 @@ use ircgm::prelude::*;
 
 use crate::artifacts::Artifact;
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct Curator;
 pub static CURATOR: Curator = Curator;
@@ -22,7 +20,7 @@ impl Role for Curator {
 
     fn wake(&self) -> Option<Wake> {
         Some(
-            Wake::solo(194, Self::prompt)
+            Wake::solo(194, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
                 .reads_board()
                 .mutates()
                 .follow_on_copy(),
@@ -31,46 +29,44 @@ impl Role for Curator {
 }
 
 impl Curator {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let (roster, shielded, board) = (ctx.roster, ctx.shielded, ctx.board());
-            let prompt = irc_format!(
-                "🏺 Curator: Reply {} to bestow a random Artifact token (including yourself), or {}. Players: {}",
-                "<nick>".bold(),
-                "pass".bold(),
-                roster.format_players_marking_shields(shielded),
-            );
-            let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept_say(None, "🏺 Passed — placed no Artifact.");
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let (roster, shielded, board) = (ctx.roster, ctx.shielded, ctx.board());
+        let prompt = irc_format!(
+            "🏺 Curator: Reply {} to bestow a random Artifact token (including yourself), or {}. Players: {}",
+            "<nick>".bold(),
+            "pass".bold(),
+            roster.format_players_marking_shields(shielded),
+        );
+        let ans = ctx
+            .ask(prompt, move |m| {
+                if Roster::is_pass(&m.text) {
+                    return AskMatch::accept_say(None, "🏺 Passed — placed no Artifact.");
+                }
+                match roster.resolve_nick(&m.text) {
+                    Some(idx) if shielded.contains(&idx) => {
+                        AskMatch::reject("🛡️ Shielded players cannot receive Artifacts!".yellow())
                     }
-                    match roster.resolve_nick(&m.text) {
-                        Some(idx) if shielded.contains(&idx) => AskMatch::reject(
-                            "🛡️ Shielded players cannot receive Artifacts!".yellow(),
-                        ),
-                        Some(idx) if board.is_player_face_up(idx) => AskMatch::reject(
-                            "🔦 Face-up cards cannot receive an Artifact!".yellow(),
-                        ),
-                        Some(idx) if board.artifacts.contains_key(&idx) => AskMatch::reject(
-                            "🏺 That player already has an Artifact token!".yellow(),
-                        ),
-                        Some(idx) => AskMatch::accept_say(
-                            Some(idx),
-                            irc_format!(
-                                "🏺 Placed a mysterious Artifact on {}!",
-                                roster.seats[idx].user.nick().bold(),
-                            ),
-                        ),
-                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
+                    Some(idx) if board.is_player_face_up(idx) => {
+                        AskMatch::reject("🔦 Face-up cards cannot receive an Artifact!".yellow())
                     }
-                })
-                .await?;
+                    Some(idx) if board.artifacts.contains_key(&idx) => {
+                        AskMatch::reject("🏺 That player already has an Artifact token!".yellow())
+                    }
+                    Some(idx) => AskMatch::accept_say(
+                        Some(idx),
+                        irc_format!(
+                            "🏺 Placed a mysterious Artifact on {}!",
+                            roster.seats[idx].user.nick().bold(),
+                        ),
+                    ),
+                    None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
+                }
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

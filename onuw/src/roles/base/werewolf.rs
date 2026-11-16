@@ -2,8 +2,7 @@ use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
 use crate::role::{
-    BoxFuture, GameSet, GroupEffect, GroupPromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, Team,
-    Wake,
+    GameSet, GroupEffect, GroupPromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, Team, Wake,
 };
 
 pub struct Werewolf;
@@ -28,98 +27,92 @@ impl Role for Werewolf {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::pack(120, RoleTag::WolfPack, Self::huddle))
+        Some(Wake::pack(120, RoleTag::WolfPack, |seats, ctx| {
+            Box::pin(Self::huddle(seats, ctx))
+        }))
     }
 }
 
 impl Werewolf {
-    fn huddle<'a>(
-        active_seats: Vec<usize>,
-        ctx: GroupPromptCtx<'a>,
-    ) -> BoxFuture<'a, Result<GroupEffect>> {
-        Box::pin(async move {
-            let dream_wolves: Vec<usize> = ctx
-                .waking_seats_with_tag(RoleTag::DreamWolfThumb)
-                .into_iter()
-                .filter(|s| !active_seats.contains(s))
-                .collect();
+    async fn huddle(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+        let dream_wolves: Vec<usize> = ctx
+            .waking_seats_with_tag(RoleTag::DreamWolfThumb)
+            .into_iter()
+            .filter(|s| !active_seats.contains(s))
+            .collect();
 
-            let intent = if active_seats.len() >= 2 {
-                for &w_seat in &active_seats {
-                    let partners: Vec<usize> = active_seats
-                        .iter()
-                        .copied()
-                        .filter(|&o| o != w_seat)
-                        .collect();
-                    if dream_wolves.is_empty() {
-                        ctx.dm(
-                            w_seat,
-                            irc_format!(
-                                "🐺 Fellow Werewolf pack: {} (chat here to coordinate!)",
-                                ctx.roster.format_indices(&partners).bold().red()
-                            ),
-                        );
-                    } else {
-                        ctx.dm(
-                            w_seat,
-                            irc_format!(
-                                "🐺 Fellow Werewolf pack: {} · 💤 Dream Wolf (asleep): {} (chat here to coordinate!)",
-                                ctx.roster.format_indices(&partners).bold().red(),
-                                ctx.roster.format_indices(&dream_wolves).bold().red(),
-                            ),
-                        );
-                    }
+        let intent = if active_seats.len() >= 2 {
+            for &w_seat in &active_seats {
+                let partners: Vec<usize> = active_seats
+                    .iter()
+                    .copied()
+                    .filter(|&o| o != w_seat)
+                    .collect();
+                if dream_wolves.is_empty() {
+                    ctx.dm(
+                        w_seat,
+                        irc_format!(
+                            "🐺 Fellow Werewolf pack: {} (chat here to coordinate!)",
+                            ctx.roster.format_indices(&partners).bold().red()
+                        ),
+                    );
+                } else {
+                    ctx.dm(
+                        w_seat,
+                        irc_format!(
+                            "🐺 Fellow Werewolf pack: {} · 💤 Dream Wolf (asleep): {} (chat here to coordinate!)",
+                            ctx.roster.format_indices(&partners).bold().red(),
+                            ctx.roster.format_indices(&dream_wolves).bold().red(),
+                        ),
+                    );
                 }
-                ctx.relay_huddle("Pack".red().bold(), &active_seats).await?;
-                WolfIntent::Pack { dream_wolves }
-            } else if !dream_wolves.is_empty() {
-                ctx.dm(
+            }
+            ctx.relay_huddle("Pack".red().bold(), &active_seats).await?;
+            WolfIntent::Pack { dream_wolves }
+        } else if !dream_wolves.is_empty() {
+            ctx.dm(
+                active_seats[0],
+                irc_format!(
+                    "🐺 Fellow Werewolf pack: 💤 Dream Wolf {} (asleep — you are not the Lone Wolf!).",
+                    ctx.roster.format_indices(&dream_wolves).bold().red(),
+                ),
+            );
+            WolfIntent::Pack { dream_wolves }
+        } else {
+            let choice = ctx
+                .ask(
                     active_seats[0],
                     irc_format!(
-                        "🐺 Fellow Werewolf pack: 💤 Dream Wolf {} (asleep — you are not the Lone Wolf!).",
-                        ctx.roster.format_indices(&dream_wolves).bold().red(),
+                        "🐺 You are the {}! Pick ONE center card to peek ({}, {}, {}, or {}):",
+                        "LONE WOLF".bold().red(),
+                        "1".bold(),
+                        "2".bold(),
+                        "3".bold(),
+                        "pass".bold(),
                     ),
-                );
-                WolfIntent::Pack { dream_wolves }
-            } else {
-                let choice = ctx
-                    .ask(
-                        active_seats[0],
-                        irc_format!(
-                            "🐺 You are the {}! Pick ONE center card to peek ({}, {}, {}, or {}):",
-                            "LONE WOLF".bold().red(),
-                            "1".bold(),
-                            "2".bold(),
-                            "3".bold(),
-                            "pass".bold(),
-                        ),
-                        |m| {
-                            if Roster::is_pass(&m.text) {
-                                return AskMatch::accept_say(
-                                    None,
-                                    "🐺 Passed on peeking the center.",
-                                );
-                            }
-                            match Roster::parse_center_slot(&m.text) {
-                                Some(c_idx) => AskMatch::accept_say(
-                                    Some(c_idx),
-                                    format!(
-                                        "🐺 Locked in Center #{} — card reveals when the phase ends!",
-                                        c_idx + 1
-                                    ),
+                    |m| {
+                        if Roster::is_pass(&m.text) {
+                            return AskMatch::accept_say(None, "🐺 Passed on peeking the center.");
+                        }
+                        match Roster::parse_center_slot(&m.text) {
+                            Some(c_idx) => AskMatch::accept_say(
+                                Some(c_idx),
+                                format!(
+                                    "🐺 Locked in Center #{} — card reveals when the phase ends!",
+                                    c_idx + 1
                                 ),
-                                None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
-                            }
-                        },
-                    )
-                    .await?;
-                WolfIntent::LonePeek(choice)
-            };
+                            ),
+                            None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
+                        }
+                    },
+                )
+                .await?;
+            WolfIntent::LonePeek(choice)
+        };
 
-            Ok(GroupEffect::new(move |board, rctx| {
-                Self::resolve(&active_seats, intent, board, rctx);
-            }))
-        })
+        Ok(GroupEffect::new(move |board, rctx| {
+            Self::resolve(&active_seats, intent, board, rctx);
+        }))
     }
 
     fn resolve(

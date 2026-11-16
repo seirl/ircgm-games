@@ -3,9 +3,7 @@
 use ircgm::prelude::*;
 
 use crate::board::BoardCards;
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct Doppelganger;
 pub static DOPPELGANGER: Doppelganger = Doppelganger;
@@ -23,51 +21,51 @@ impl Role for Doppelganger {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::doppelganger(Self::prompt))
+        Some(Wake::doppelganger(|seat, ctx| {
+            Box::pin(Self::prompt(seat, ctx))
+        }))
     }
 }
 
 impl Doppelganger {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let candidates: Vec<usize> = (0..ctx.roster.len())
-                .filter(|&i| i != seat && !ctx.shielded.contains(&i))
-                .collect();
-            if candidates.is_empty() {
-                return Ok(SeatEffect::noop());
-            }
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let candidates: Vec<usize> = (0..ctx.roster.len())
+            .filter(|&i| i != seat && !ctx.shielded.contains(&i))
+            .collect();
+        if candidates.is_empty() {
+            return Ok(SeatEffect::noop());
+        }
 
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let players_str = roster.format_players_marking_shields(shielded);
-            let ans = ctx
-                .ask(
-                    irc_format!(
-                        "🎭 Doppelgänger: Pick ONE other player ({}) to copy! Players: {players_str}",
-                        "<nick>".bold(),
+        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let players_str = roster.format_players_marking_shields(shielded);
+        let ans = ctx
+            .ask(
+                irc_format!(
+                    "🎭 Doppelgänger: Pick ONE other player ({}) to copy! Players: {players_str}",
+                    "<nick>".bold(),
+                ),
+                move |m| match roster.resolve_nick(&m.text) {
+                    Some(idx) if idx == seat => {
+                        AskMatch::reject("Pick ANOTHER player, not yourself!".yellow())
+                    }
+                    Some(idx) if shielded.contains(&idx) => AskMatch::reject(
+                        "🛡️ That player's card is shielded by the Sentinel!".yellow(),
                     ),
-                    move |m| match roster.resolve_nick(&m.text) {
-                        Some(idx) if idx == seat => {
-                            AskMatch::reject("Pick ANOTHER player, not yourself!".yellow())
-                        }
-                        Some(idx) if shielded.contains(&idx) => AskMatch::reject(
-                            "🛡️ That player's card is shielded by the Sentinel!".yellow(),
+                    Some(idx) => AskMatch::accept_say(
+                        idx,
+                        irc_format!(
+                            "🎭 Locked in copying {} — role reveals when the phase ends!",
+                            roster.seats[idx].user.nick().bold(),
                         ),
-                        Some(idx) => AskMatch::accept_say(
-                            idx,
-                            irc_format!(
-                                "🎭 Locked in copying {} — role reveals when the phase ends!",
-                                roster.seats[idx].user.nick().bold(),
-                            ),
-                        ),
-                        None => AskMatch::reject("Unknown player nickname.".yellow()),
-                    },
-                )
-                .await?;
+                    ),
+                    None => AskMatch::reject("Unknown player nickname.".yellow()),
+                },
+            )
+            .await?;
 
-            Ok(SeatEffect::new(move |_label, board, rctx| {
-                Self::resolve(seat, ans.ok(), board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |_label, board, rctx| {
+            Self::resolve(seat, ans.ok(), board, rctx);
+        }))
     }
 
     fn resolve(

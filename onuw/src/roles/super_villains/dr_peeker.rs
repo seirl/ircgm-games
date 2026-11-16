@@ -2,7 +2,7 @@ use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
 use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
 };
 
 pub struct DrPeeker;
@@ -22,57 +22,55 @@ impl Role for DrPeeker {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(126, Self::prompt).follow_on_copy())
+        Some(Wake::solo(126, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).follow_on_copy())
     }
 }
 
 impl DrPeeker {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let valid_targets: Vec<usize> = (0..ctx.roster.len())
-                .filter(|&i| i != seat && !ctx.shielded.contains(&i))
-                .collect();
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let valid_targets: Vec<usize> = (0..ctx.roster.len())
+            .filter(|&i| i != seat && !ctx.shielded.contains(&i))
+            .collect();
 
-            if valid_targets.is_empty() {
-                return Ok(SeatEffect::noop());
-            }
+        if valid_targets.is_empty() {
+            return Ok(SeatEffect::noop());
+        }
 
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = irc_format!(
-                "🔬 Dr. Peeker: Reply {} to X-ray another player's card, or {}. Players: {}",
-                "<nick>".bold(),
-                "pass".bold(),
-                roster.format_players_marking_shields(shielded),
-            );
-            let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept_say(None, "🔬 Passed — not X-raying anyone.");
-                    }
-                    match roster.resolve_nick(&m.text) {
-                        Some(idx) if valid_targets.contains(&idx) => AskMatch::accept_say(
-                            Some(idx),
-                            irc_format!(
-                                "🔬 Locked in X-raying {} — result arrives when the phase ends!",
-                                roster.seats[idx].user.nick().bold(),
-                            ),
+        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let prompt = irc_format!(
+            "🔬 Dr. Peeker: Reply {} to X-ray another player's card, or {}. Players: {}",
+            "<nick>".bold(),
+            "pass".bold(),
+            roster.format_players_marking_shields(shielded),
+        );
+        let ans = ctx
+            .ask(prompt, move |m| {
+                if Roster::is_pass(&m.text) {
+                    return AskMatch::accept_say(None, "🔬 Passed — not X-raying anyone.");
+                }
+                match roster.resolve_nick(&m.text) {
+                    Some(idx) if valid_targets.contains(&idx) => AskMatch::accept_say(
+                        Some(idx),
+                        irc_format!(
+                            "🔬 Locked in X-raying {} — result arrives when the phase ends!",
+                            roster.seats[idx].user.nick().bold(),
                         ),
-                        Some(idx) if idx == seat => {
-                            AskMatch::reject("Pick ANOTHER player (or pass)!".yellow())
-                        }
-                        Some(idx) if shielded.contains(&idx) => {
-                            AskMatch::reject("🛡️ That player is shielded!".yellow())
-                        }
-                        Some(_) => AskMatch::reject("Pick another player!".yellow()),
-                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
+                    ),
+                    Some(idx) if idx == seat => {
+                        AskMatch::reject("Pick ANOTHER player (or pass)!".yellow())
                     }
-                })
-                .await?;
+                    Some(idx) if shielded.contains(&idx) => {
+                        AskMatch::reject("🛡️ That player is shielded!".yellow())
+                    }
+                    Some(_) => AskMatch::reject("Pick another player!".yellow()),
+                    None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
+                }
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct Seer;
 pub static SEER: Seer = Seer;
@@ -29,32 +27,32 @@ impl Role for Seer {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(150, Self::prompt))
+        Some(Wake::solo(150, |seat, ctx| {
+            Box::pin(Self::prompt(seat, ctx))
+        }))
     }
 }
 
 impl Seer {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = irc_format!(
-                "🔮 Seer: Reply {} (or {}) OR {}, or {}. Players: {}",
-                "player <nick>".bold(),
-                "<nick>".bold(),
-                "center <1-3> <1-3>".bold(),
-                "pass".bold(),
-                roster.format_players_marking_shields(shielded),
-            );
-            let ans = ctx
-                .ask(prompt, move |m| {
-                    parse_seer_choice(roster, shielded, seat, &m.text)
-                })
-                .await?;
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let prompt = irc_format!(
+            "🔮 Seer: Reply {} (or {}) OR {}, or {}. Players: {}",
+            "player <nick>".bold(),
+            "<nick>".bold(),
+            "center <1-3> <1-3>".bold(),
+            "pass".bold(),
+            roster.format_players_marking_shields(shielded),
+        );
+        let ans = ctx
+            .ask(prompt, move |m| {
+                parse_seer_choice(roster, shielded, seat, &m.text)
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

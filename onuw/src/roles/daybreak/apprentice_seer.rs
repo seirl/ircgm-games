@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct ApprenticeSeer;
 pub static APPRENTICE_SEER: ApprenticeSeer = ApprenticeSeer;
@@ -21,47 +19,44 @@ impl Role for ApprenticeSeer {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(152, Self::prompt))
+        Some(Wake::solo(152, |seat, ctx| {
+            Box::pin(Self::prompt(seat, ctx))
+        }))
     }
 }
 
 impl ApprenticeSeer {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let ans = ctx
-                .ask(
-                    irc_format!(
-                        "🔮 Apprentice Seer: Reply {}, {}, or {} to view a center card, or {}:",
-                        "1".bold(),
-                        "2".bold(),
-                        "3".bold(),
-                        "pass".bold(),
-                    ),
-                    |m| {
-                        if Roster::is_pass(&m.text) {
-                            return AskMatch::accept_say(
-                                None,
-                                "🔮 Passed on viewing a center card.",
-                            );
-                        }
-                        match Roster::parse_center_slot(&m.text) {
-                            Some(c_idx) => AskMatch::accept_say(
-                                Some(c_idx),
-                                format!(
-                                    "🔮 Locked in Center #{} — card reveals when the phase ends!",
-                                    c_idx + 1
-                                ),
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let ans = ctx
+            .ask(
+                irc_format!(
+                    "🔮 Apprentice Seer: Reply {}, {}, or {} to view a center card, or {}:",
+                    "1".bold(),
+                    "2".bold(),
+                    "3".bold(),
+                    "pass".bold(),
+                ),
+                |m| {
+                    if Roster::is_pass(&m.text) {
+                        return AskMatch::accept_say(None, "🔮 Passed on viewing a center card.");
+                    }
+                    match Roster::parse_center_slot(&m.text) {
+                        Some(c_idx) => AskMatch::accept_say(
+                            Some(c_idx),
+                            format!(
+                                "🔮 Locked in Center #{} — card reveals when the phase ends!",
+                                c_idx + 1
                             ),
-                            None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
-                        }
-                    },
-                )
-                .await?;
+                        ),
+                        None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
+                    }
+                },
+            )
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct Drunk;
 pub static DRUNK: Drunk = Drunk;
@@ -20,37 +18,33 @@ impl Role for Drunk {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(180, Self::prompt).mutates())
+        Some(Wake::solo(180, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).mutates())
     }
 }
 
 impl Drunk {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let ans = ctx
-                .ask(
-                    irc_format!(
-                        "🍺 Drunk: You MUST swap your card with center {}, {}, or {}!",
-                        "1".bold(),
-                        "2".bold(),
-                        "3".bold(),
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let ans = ctx
+            .ask(
+                irc_format!(
+                    "🍺 Drunk: You MUST swap your card with center {}, {}, or {}!",
+                    "1".bold(),
+                    "2".bold(),
+                    "3".bold(),
+                ),
+                |m| match Roster::parse_center_slot(&m.text) {
+                    Some(c_idx) => AskMatch::accept_say(
+                        c_idx,
+                        format!("🍺 Locked in face-down swap with Center #{}!", c_idx + 1),
                     ),
-                    |m| match Roster::parse_center_slot(&m.text) {
-                        Some(c_idx) => AskMatch::accept_say(
-                            c_idx,
-                            format!("🍺 Locked in face-down swap with Center #{}!", c_idx + 1),
-                        ),
-                        None => {
-                            AskMatch::reject("Drunk MUST swap! Reply 1, 2, or 3.".yellow())
-                        }
-                    },
-                )
-                .await?;
+                    None => AskMatch::reject("Drunk MUST swap! Reply 1, 2, or 3.".yellow()),
+                },
+            )
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

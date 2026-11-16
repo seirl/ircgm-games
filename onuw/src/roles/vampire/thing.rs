@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct Thing;
 pub static THING: Thing = Thing;
@@ -21,54 +19,54 @@ impl Role for Thing {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(141, Self::prompt))
+        Some(Wake::solo(141, |seat, ctx| {
+            Box::pin(Self::prompt(seat, ctx))
+        }))
     }
 }
 
 impl Thing {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let roster = ctx.roster;
-            let (left, right) = roster.neighbors(seat);
-            let prompt = irc_format!(
-                "👻 Thing: Reply {} ({}), {} ({}), or {} to go bump in the night!",
-                "left".bold(),
-                ctx.nick(left),
-                "right".bold(),
-                ctx.nick(right),
-                "pass".bold(),
-            );
-            let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept_say(None, "👻 Passed — stayed quiet tonight.");
-                    }
-                    match m.text.trim().to_ascii_lowercase().as_str() {
-                        "left" | "l" => AskMatch::accept_say(
-                            Some(left),
-                            format!("👻 Bumped {}!", roster.seats[left].user.nick()),
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let roster = ctx.roster;
+        let (left, right) = roster.neighbors(seat);
+        let prompt = irc_format!(
+            "👻 Thing: Reply {} ({}), {} ({}), or {} to go bump in the night!",
+            "left".bold(),
+            ctx.nick(left),
+            "right".bold(),
+            ctx.nick(right),
+            "pass".bold(),
+        );
+        let ans = ctx
+            .ask(prompt, move |m| {
+                if Roster::is_pass(&m.text) {
+                    return AskMatch::accept_say(None, "👻 Passed — stayed quiet tonight.");
+                }
+                match m.text.trim().to_ascii_lowercase().as_str() {
+                    "left" | "l" => AskMatch::accept_say(
+                        Some(left),
+                        format!("👻 Bumped {}!", roster.seats[left].user.nick()),
+                    ),
+                    "right" | "r" => AskMatch::accept_say(
+                        Some(right),
+                        format!("👻 Bumped {}!", roster.seats[right].user.nick()),
+                    ),
+                    other => match roster.resolve_nick(other) {
+                        Some(idx) if idx == left || idx == right => AskMatch::accept_say(
+                            Some(idx),
+                            format!("👻 Bumped {}!", roster.seats[idx].user.nick()),
                         ),
-                        "right" | "r" => AskMatch::accept_say(
-                            Some(right),
-                            format!("👻 Bumped {}!", roster.seats[right].user.nick()),
+                        _ => AskMatch::reject(
+                            "Pick left, right (or your neighbor's nickname), or pass!".yellow(),
                         ),
-                        other => match roster.resolve_nick(other) {
-                            Some(idx) if idx == left || idx == right => AskMatch::accept_say(
-                                Some(idx),
-                                format!("👻 Bumped {}!", roster.seats[idx].user.nick()),
-                            ),
-                            _ => AskMatch::reject(
-                                "Pick left, right (or your neighbor's nickname), or pass!".yellow(),
-                            ),
-                        },
-                    }
-                })
-                .await?;
+                    },
+                }
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

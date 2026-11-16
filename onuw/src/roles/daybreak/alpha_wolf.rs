@@ -2,7 +2,7 @@ use ircgm::prelude::*;
 
 use crate::board::BoardCards;
 use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
 };
 
 pub struct AlphaWolf;
@@ -22,73 +22,75 @@ impl Role for AlphaWolf {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(122, Self::prompt).mutates().follow_on_copy())
+        Some(
+            Wake::solo(122, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+                .mutates()
+                .follow_on_copy(),
+        )
     }
 }
 
 impl AlphaWolf {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let mut wolves = ctx.waking_seats_with_tag(RoleTag::WolfPack);
-            for dw in ctx.waking_seats_with_tag(RoleTag::DreamWolfThumb) {
-                if !wolves.contains(&dw) {
-                    wolves.push(dw);
-                }
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let mut wolves = ctx.waking_seats_with_tag(RoleTag::WolfPack);
+        for dw in ctx.waking_seats_with_tag(RoleTag::DreamWolfThumb) {
+            if !wolves.contains(&dw) {
+                wolves.push(dw);
             }
-            let non_wolves: Vec<usize> = (0..ctx.roster.len())
-                .filter(|&i| i != seat && !wolves.contains(&i))
-                .collect();
-            let valid_targets: Vec<usize> = non_wolves
-                .iter()
-                .copied()
-                .filter(|i| !ctx.shielded.contains(i))
-                .collect();
+        }
+        let non_wolves: Vec<usize> = (0..ctx.roster.len())
+            .filter(|&i| i != seat && !wolves.contains(&i))
+            .collect();
+        let valid_targets: Vec<usize> = non_wolves
+            .iter()
+            .copied()
+            .filter(|i| !ctx.shielded.contains(i))
+            .collect();
 
-            if valid_targets.is_empty() {
-                ctx.say("🐺 Alpha Wolf: No valid non-Wolf targets exist tonight!");
-                return Ok(SeatEffect::noop());
-            }
+        if valid_targets.is_empty() {
+            ctx.say("🐺 Alpha Wolf: No valid non-Wolf targets exist tonight!");
+            return Ok(SeatEffect::noop());
+        }
 
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = irc_format!(
-                "🐺 Alpha Wolf: You MUST swap the center Werewolf card onto a non-Wolf player ({})! Non-Wolves: {}",
-                "<nick>".bold(),
-                roster.format_indices_marking_shields(&non_wolves, shielded),
-            );
-            let valid_for_match = valid_targets.clone();
-            let ans = ctx
-                .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
-                    Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
-                        idx,
-                        irc_format!(
-                            "🐺 Swapped the center Wolf card with {}'s card!",
-                            roster.seats[idx].user.nick().bold().red()
-                        ),
+        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let prompt = irc_format!(
+            "🐺 Alpha Wolf: You MUST swap the center Werewolf card onto a non-Wolf player ({})! Non-Wolves: {}",
+            "<nick>".bold(),
+            roster.format_indices_marking_shields(&non_wolves, shielded),
+        );
+        let valid_for_match = valid_targets.clone();
+        let ans = ctx
+            .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
+                Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
+                    idx,
+                    irc_format!(
+                        "🐺 Swapped the center Wolf card with {}'s card!",
+                        roster.seats[idx].user.nick().bold().red()
                     ),
-                    Some(idx) if shielded.contains(&idx) => AskMatch::reject(
-                        "🛡️ That player's card is shielded by the Sentinel!".yellow(),
-                    ),
-                    Some(_) => AskMatch::reject("Pick another non-Werewolf player!".yellow()),
-                    None => AskMatch::reject("Unknown player nickname.".yellow()),
-                })
-                .await?;
-
-            let chosen = match ans {
-                Answer::Ok(idx) => idx,
-                Answer::TimedOut | Answer::Left { .. } | Answer::Unreachable { .. } => {
-                    let auto = valid_targets[fastrand::usize(..valid_targets.len())];
-                    ctx.say(format!(
-                        "🐺 Randomly swapped the center Wolf card with {}'s card!",
-                        ctx.nick(auto)
-                    ));
-                    auto
+                ),
+                Some(idx) if shielded.contains(&idx) => {
+                    AskMatch::reject("🛡️ That player's card is shielded by the Sentinel!".yellow())
                 }
-            };
+                Some(_) => AskMatch::reject("Pick another non-Werewolf player!".yellow()),
+                None => AskMatch::reject("Unknown player nickname.".yellow()),
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, chosen, board, rctx);
-            }))
-        })
+        let chosen = match ans {
+            Answer::Ok(idx) => idx,
+            Answer::TimedOut | Answer::Left { .. } | Answer::Unreachable { .. } => {
+                let auto = valid_targets[fastrand::usize(..valid_targets.len())];
+                ctx.say(format!(
+                    "🐺 Randomly swapped the center Wolf card with {}'s card!",
+                    ctx.nick(auto)
+                ));
+                auto
+            }
+        };
+
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, chosen, board, rctx);
+        }))
     }
 
     fn resolve(

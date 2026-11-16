@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct VillageIdiot;
 pub static VILLAGE_IDIOT: VillageIdiot = VillageIdiot;
@@ -27,48 +25,43 @@ impl Role for VillageIdiot {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(172, Self::prompt).mutates())
+        Some(Wake::solo(172, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).mutates())
     }
 }
 
 impl VillageIdiot {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let prompt = irc_format!(
-                "🤪 Village Idiot: Reply {} ({}), {} ({}), or {} to rotate all other unshielded cards! Players: {}",
-                "left".bold(),
-                "-1".bold(),
-                "right".bold(),
-                "+1".bold(),
-                "pass".bold(),
-                ctx.roster.format_players_marking_shields(ctx.shielded),
-            );
-            let ans = ctx
-                .ask(prompt, |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept_say(
-                            None,
-                            "🤪 Passed — left all cards in place.",
-                        );
-                    }
-                    match m.text.trim().to_ascii_lowercase().as_str() {
-                        "left" | "l" | "-1" => AskMatch::accept_say(
-                            Some(RotateDir::Left),
-                            "🤪 Locked in rotating other cards LEFT!",
-                        ),
-                        "right" | "r" | "+1" => AskMatch::accept_say(
-                            Some(RotateDir::Right),
-                            "🤪 Locked in rotating other cards RIGHT!",
-                        ),
-                        _ => AskMatch::reject("Reply left, right, or pass.".yellow()),
-                    }
-                })
-                .await?;
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let prompt = irc_format!(
+            "🤪 Village Idiot: Reply {} ({}), {} ({}), or {} to rotate all other unshielded cards! Players: {}",
+            "left".bold(),
+            "-1".bold(),
+            "right".bold(),
+            "+1".bold(),
+            "pass".bold(),
+            ctx.roster.format_players_marking_shields(ctx.shielded),
+        );
+        let ans = ctx
+            .ask(prompt, |m| {
+                if Roster::is_pass(&m.text) {
+                    return AskMatch::accept_say(None, "🤪 Passed — left all cards in place.");
+                }
+                match m.text.trim().to_ascii_lowercase().as_str() {
+                    "left" | "l" | "-1" => AskMatch::accept_say(
+                        Some(RotateDir::Left),
+                        "🤪 Locked in rotating other cards LEFT!",
+                    ),
+                    "right" | "r" | "+1" => AskMatch::accept_say(
+                        Some(RotateDir::Right),
+                        "🤪 Locked in rotating other cards RIGHT!",
+                    ),
+                    _ => AskMatch::reject("Reply left, right, or pass.".yellow()),
+                }
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

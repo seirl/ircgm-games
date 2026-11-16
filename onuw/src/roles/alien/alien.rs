@@ -2,8 +2,8 @@ use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
 use crate::role::{
-    BoxFuture, GameSet, GroupEffect, GroupPromptCtx, ResolveCtx, Role, RoleInfo, RoleTag,
-    SpecialVictory, Team, VictoryCtx, Wake,
+    GameSet, GroupEffect, GroupPromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SpecialVictory,
+    Team, VictoryCtx, Wake,
 };
 
 pub struct Alien;
@@ -28,157 +28,159 @@ impl Role for Alien {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::pack(110, RoleTag::AlienPack, Self::wake_group).mutates())
+        Some(
+            Wake::pack(110, RoleTag::AlienPack, |seats, ctx| {
+                Box::pin(Self::wake_group(seats, ctx))
+            })
+            .mutates(),
+        )
     }
 }
 
 impl Alien {
-    fn wake_group<'a>(
-        active_seats: Vec<usize>,
-        ctx: GroupPromptCtx<'a>,
-    ) -> BoxFuture<'a, Result<GroupEffect>> {
-        Box::pin(async move {
-            let visible_aliens = ctx.waking_seats_with_tag(RoleTag::AlienPack);
-            let alien_list = ctx.roster.format_indices(&visible_aliens);
-            let cow_seats = ctx.seats_with_role(&super::cow::COW);
-            let cow_list = ctx.roster.format_indices(&cow_seats);
+    async fn wake_group(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+        let visible_aliens = ctx.waking_seats_with_tag(RoleTag::AlienPack);
+        let alien_list = ctx.roster.format_indices(&visible_aliens);
+        let cow_seats = ctx.seats_with_role(&super::cow::COW);
+        let cow_list = ctx.roster.format_indices(&cow_seats);
 
-            for &s in &active_seats {
+        for &s in &active_seats {
+            ctx.dm(
+                s,
+                irc_format!(
+                    "👽 Mother Ship Scan — Aliens aboard: {}",
+                    alien_list.as_str().bold().green(),
+                ),
+            );
+            if !cow_seats.is_empty() {
                 ctx.dm(
                     s,
                     irc_format!(
-                        "👽 Mother Ship Scan — Aliens aboard: {}",
-                        alien_list.as_str().bold().green(),
+                        "🐄🛸 Alien Hoof-Scan: {} holds the Cow card!",
+                        cow_list.as_str().bold().yellow(),
                     ),
                 );
-                if !cow_seats.is_empty() {
-                    ctx.dm(
-                        s,
-                        irc_format!(
-                            "🐄🛸 Alien Hoof-Scan: {} holds the Cow card!",
-                            cow_list.as_str().bold().yellow(),
-                        ),
-                    );
-                }
-                if ctx.waking_roles[s].id() == "synthetic_alien" {
-                    ctx.dm(
-                        s,
-                        "🤖👽 Synthetic Alien: You blended into the Alien scan! Get YOURSELF killed at Dawn to win!",
-                    );
-                }
             }
+            if ctx.waking_roles[s].id() == "synthetic_alien" {
+                ctx.dm(
+                    s,
+                    "🤖👽 Synthetic Alien: You blended into the Alien scan! Get YOURSELF killed at Dawn to win!",
+                );
+            }
+        }
 
-            let non_alien_seats: Vec<usize> = (0..ctx.roster.len())
-                .filter(|s| !visible_aliens.contains(s))
-                .collect();
-            let non_aliens: Vec<usize> = non_alien_seats
+        let non_alien_seats: Vec<usize> = (0..ctx.roster.len())
+            .filter(|s| !visible_aliens.contains(s))
+            .collect();
+        let non_aliens: Vec<usize> = non_alien_seats
+            .iter()
+            .copied()
+            .filter(|s| !ctx.shielded.contains(s))
+            .collect();
+        let directive = if non_aliens.is_empty() {
+            AlienDirective::None
+        } else {
+            let commander = active_seats
                 .iter()
                 .copied()
-                .filter(|s| !ctx.shielded.contains(s))
-                .collect();
-            let directive = if non_aliens.is_empty() {
-                AlienDirective::None
-            } else {
-                let commander = active_seats
-                    .iter()
-                    .copied()
-                    .find(|&s| ctx.waking_roles[s].id() == "alien")
-                    .unwrap_or(active_seats[0]);
-                let (roster, shielded) = (ctx.roster, ctx.shielded);
-                let prompt = irc_format!(
-                    "👽 Mother Ship Directive: Reply {} (or {}) to bio-scan a non-Alien, {} to swap two non-Aliens, or {}! Non-Aliens: {}",
-                    "scan <nick>".bold(),
-                    "<nick>".bold(),
-                    "beam <nick1> <nick2>".bold(),
-                    "pass".bold(),
-                    roster.format_indices_marking_shields(&non_alien_seats, shielded),
-                );
-                let ans = ctx
-                    .ask(commander, prompt, move |m| {
-                        if Roster::is_pass(&m.text) {
-                            return AskMatch::accept_say(
-                                AlienDirective::None,
-                                "👽 Passed — Mother Ship standing by.",
-                            );
+                .find(|&s| ctx.waking_roles[s].id() == "alien")
+                .unwrap_or(active_seats[0]);
+            let (roster, shielded) = (ctx.roster, ctx.shielded);
+            let prompt = irc_format!(
+                "👽 Mother Ship Directive: Reply {} (or {}) to bio-scan a non-Alien, {} to swap two non-Aliens, or {}! Non-Aliens: {}",
+                "scan <nick>".bold(),
+                "<nick>".bold(),
+                "beam <nick1> <nick2>".bold(),
+                "pass".bold(),
+                roster.format_indices_marking_shields(&non_alien_seats, shielded),
+            );
+            let ans = ctx
+                .ask(commander, prompt, move |m| {
+                    if Roster::is_pass(&m.text) {
+                        return AskMatch::accept_say(
+                            AlienDirective::None,
+                            "👽 Passed — Mother Ship standing by.",
+                        );
+                    }
+                    let parts: Vec<&str> = m.text.split_whitespace().collect();
+                    if parts.first().is_some_and(|w| {
+                        w.eq_ignore_ascii_case("beam") || w.eq_ignore_ascii_case("swap")
+                    }) {
+                        if parts.len() != 3 {
+                            return AskMatch::reject("Usage: beam <nick1> <nick2>.".yellow());
                         }
-                        let parts: Vec<&str> = m.text.split_whitespace().collect();
-                        if parts.first().is_some_and(|w| {
-                            w.eq_ignore_ascii_case("beam") || w.eq_ignore_ascii_case("swap")
-                        }) {
-                            if parts.len() != 3 {
-                                return AskMatch::reject("Usage: beam <nick1> <nick2>.".yellow());
-                            }
-                            let (Some(a), Some(b)) = (
-                                roster.resolve_nick(parts[1]),
-                                roster.resolve_nick(parts[2]),
-                            ) else {
-                                return AskMatch::reject("Unknown player nickname.".yellow());
-                            };
-                            if a == b {
-                                return AskMatch::reject("Pick two DIFFERENT players!".yellow());
-                            }
-                            if shielded.contains(&a) || shielded.contains(&b) {
-                                return AskMatch::reject(
-                                    "🛡️ Shielded players cannot be tractor-beamed!".yellow(),
-                                );
-                            }
-                            if !non_aliens.contains(&a) || !non_aliens.contains(&b) {
-                                return AskMatch::reject("Pick two non-Alien players!".yellow());
-                            }
-                            return AskMatch::accept_say(
-                                AlienDirective::TractorBeam {
-                                    actor: commander,
-                                    a,
-                                    b,
-                                },
-                                irc_format!(
-                                    "🛸 Tractor Beam locked in: swapping {} and {}!",
-                                    roster.seats[a].user.nick().bold(),
-                                    roster.seats[b].user.nick().bold(),
-                                ),
-                            );
-                        }
-
-                        let tok = if parts.first().is_some_and(|w| w.eq_ignore_ascii_case("scan")) {
-                            if parts.len() != 2 {
-                                return AskMatch::reject("Usage: scan <nick>.".yellow());
-                            }
-                            parts[1]
-                        } else if parts.len() == 1 {
-                            parts[0]
-                        } else {
-                            return AskMatch::reject(
-                                "Reply scan <nick>, beam <nick1> <nick2>, or pass.".yellow(),
-                            );
+                        let (Some(a), Some(b)) =
+                            (roster.resolve_nick(parts[1]), roster.resolve_nick(parts[2]))
+                        else {
+                            return AskMatch::reject("Unknown player nickname.".yellow());
                         };
-
-                        match roster.resolve_nick(tok) {
-                            Some(idx) if non_aliens.contains(&idx) => AskMatch::accept_say(
-                                AlienDirective::Scan {
-                                    actor: commander,
-                                    target: idx,
-                                },
-                                irc_format!(
-                                    "👽 Bio-Scan locked in on {} — result arrives when the phase ends!",
-                                    roster.seats[idx].user.nick().bold(),
-                                ),
-                            ),
-                            Some(idx) if shielded.contains(&idx) => {
-                                AskMatch::reject("🛡️ That player's card is shielded!".yellow())
-                            }
-                            Some(_) => AskMatch::reject("Pick a non-Alien player!".yellow()),
-                            None => AskMatch::reject("Unknown player nickname.".yellow()),
+                        if a == b {
+                            return AskMatch::reject("Pick two DIFFERENT players!".yellow());
                         }
-                    })
-                    .await?;
+                        if shielded.contains(&a) || shielded.contains(&b) {
+                            return AskMatch::reject(
+                                "🛡️ Shielded players cannot be tractor-beamed!".yellow(),
+                            );
+                        }
+                        if !non_aliens.contains(&a) || !non_aliens.contains(&b) {
+                            return AskMatch::reject("Pick two non-Alien players!".yellow());
+                        }
+                        return AskMatch::accept_say(
+                            AlienDirective::TractorBeam {
+                                actor: commander,
+                                a,
+                                b,
+                            },
+                            irc_format!(
+                                "🛸 Tractor Beam locked in: swapping {} and {}!",
+                                roster.seats[a].user.nick().bold(),
+                                roster.seats[b].user.nick().bold(),
+                            ),
+                        );
+                    }
 
-                ans.ok().unwrap_or(AlienDirective::None)
-            };
+                    let tok = if parts
+                        .first()
+                        .is_some_and(|w| w.eq_ignore_ascii_case("scan"))
+                    {
+                        if parts.len() != 2 {
+                            return AskMatch::reject("Usage: scan <nick>.".yellow());
+                        }
+                        parts[1]
+                    } else if parts.len() == 1 {
+                        parts[0]
+                    } else {
+                        return AskMatch::reject(
+                            "Reply scan <nick>, beam <nick1> <nick2>, or pass.".yellow(),
+                        );
+                    };
 
-            Ok(GroupEffect::new(move |board, rctx| {
-                Self::resolve(&active_seats, directive, board, rctx);
-            }))
-        })
+                    match roster.resolve_nick(tok) {
+                        Some(idx) if non_aliens.contains(&idx) => AskMatch::accept_say(
+                            AlienDirective::Scan {
+                                actor: commander,
+                                target: idx,
+                            },
+                            irc_format!(
+                                "👽 Bio-Scan locked in on {} — result arrives when the phase ends!",
+                                roster.seats[idx].user.nick().bold(),
+                            ),
+                        ),
+                        Some(idx) if shielded.contains(&idx) => {
+                            AskMatch::reject("🛡️ That player's card is shielded!".yellow())
+                        }
+                        Some(_) => AskMatch::reject("Pick a non-Alien player!".yellow()),
+                        None => AskMatch::reject("Unknown player nickname.".yellow()),
+                    }
+                })
+                .await?;
+
+            ans.ok().unwrap_or(AlienDirective::None)
+        };
+
+        Ok(GroupEffect::new(move |board, rctx| {
+            Self::resolve(&active_seats, directive, board, rctx);
+        }))
     }
 
     fn resolve(

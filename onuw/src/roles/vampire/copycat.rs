@@ -2,7 +2,7 @@ use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
 use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
 };
 
 pub struct Copycat;
@@ -22,7 +22,7 @@ impl Role for Copycat {
 
     fn wake(&self) -> Option<Wake> {
         Some(
-            Wake::solo(8, Self::prompt)
+            Wake::solo(8, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
                 .dusk()
                 .mutates()
                 .reads_board()
@@ -32,33 +32,31 @@ impl Role for Copycat {
 }
 
 impl Copycat {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let ans = ctx
-                .ask(
-                    irc_format!(
-                        "🪞 Copycat: Pick a center card ({}, {}, or {}) to view and become!",
-                        "1".bold(),
-                        "2".bold(),
-                        "3".bold(),
-                    ),
-                    |m| match Roster::parse_center_slot(&m.text) {
-                        Some(idx) => AskMatch::accept_say(
-                            idx,
-                            format!(
-                                "🪞 Locked in Center #{} — role reveals when the phase ends!",
-                                idx + 1
-                            ),
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let ans = ctx
+            .ask(
+                irc_format!(
+                    "🪞 Copycat: Pick a center card ({}, {}, or {}) to view and become!",
+                    "1".bold(),
+                    "2".bold(),
+                    "3".bold(),
+                ),
+                |m| match Roster::parse_center_slot(&m.text) {
+                    Some(idx) => AskMatch::accept_say(
+                        idx,
+                        format!(
+                            "🪞 Locked in Center #{} — role reveals when the phase ends!",
+                            idx + 1
                         ),
-                        None => AskMatch::reject("Reply 1, 2, or 3.".yellow()),
-                    },
-                )
-                .await?;
+                    ),
+                    None => AskMatch::reject("Reply 1, 2, or 3.".yellow()),
+                },
+            )
+            .await?;
 
-            Ok(SeatEffect::new(move |_label, board, rctx| {
-                Self::resolve(seat, ans.ok(), board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |_label, board, rctx| {
+            Self::resolve(seat, ans.ok(), board, rctx);
+        }))
     }
 
     fn resolve(

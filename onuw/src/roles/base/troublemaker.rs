@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
 pub struct Troublemaker;
 pub static TROUBLEMAKER: Troublemaker = Troublemaker;
@@ -21,67 +19,58 @@ impl Role for Troublemaker {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(170, Self::prompt).mutates())
+        Some(Wake::solo(170, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).mutates())
     }
 }
 
 impl Troublemaker {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
-            let prompt = irc_format!(
-                "😈 Troublemaker: Reply with TWO other players ({}) to swap, or {}. Players: {}",
-                "<nick1> <nick2>".bold(),
-                "pass".bold(),
-                roster.format_players_marking_shields(shielded),
-            );
-            let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept_say(
-                            None,
-                            "😈 Passed — left all cards untouched.",
-                        );
-                    }
-                    let parts: Vec<&str> = m.text.split_whitespace().collect();
-                    if parts.len() != 2 {
-                        return AskMatch::reject("Usage: <nick1> <nick2> or pass.".yellow());
-                    }
-                    let Some(a) = roster.resolve_nick(parts[0]) else {
-                        return AskMatch::reject(
-                            format!("Unknown player '{}'.", parts[0]).yellow(),
-                        );
-                    };
-                    let Some(b) = roster.resolve_nick(parts[1]) else {
-                        return AskMatch::reject(
-                            format!("Unknown player '{}'.", parts[1]).yellow(),
-                        );
-                    };
-                    if a == seat || b == seat || a == b {
-                        return AskMatch::reject(
-                            "Pick TWO DIFFERENT players other than yourself!".yellow(),
-                        );
-                    }
-                    if shielded.contains(&a) || shielded.contains(&b) {
-                        return AskMatch::reject(
-                            "🛡️ Shielded players cannot have their cards swapped!".yellow(),
-                        );
-                    }
-                    AskMatch::accept_say(
-                        Some((a, b)),
-                        irc_format!(
-                            "😈 Locked in swap between {} and {}!",
-                            roster.seats[a].user.nick().bold(),
-                            roster.seats[b].user.nick().bold(),
-                        ),
-                    )
-                })
-                .await?;
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let prompt = irc_format!(
+            "😈 Troublemaker: Reply with TWO other players ({}) to swap, or {}. Players: {}",
+            "<nick1> <nick2>".bold(),
+            "pass".bold(),
+            roster.format_players_marking_shields(shielded),
+        );
+        let ans = ctx
+            .ask(prompt, move |m| {
+                if Roster::is_pass(&m.text) {
+                    return AskMatch::accept_say(None, "😈 Passed — left all cards untouched.");
+                }
+                let parts: Vec<&str> = m.text.split_whitespace().collect();
+                if parts.len() != 2 {
+                    return AskMatch::reject("Usage: <nick1> <nick2> or pass.".yellow());
+                }
+                let Some(a) = roster.resolve_nick(parts[0]) else {
+                    return AskMatch::reject(format!("Unknown player '{}'.", parts[0]).yellow());
+                };
+                let Some(b) = roster.resolve_nick(parts[1]) else {
+                    return AskMatch::reject(format!("Unknown player '{}'.", parts[1]).yellow());
+                };
+                if a == seat || b == seat || a == b {
+                    return AskMatch::reject(
+                        "Pick TWO DIFFERENT players other than yourself!".yellow(),
+                    );
+                }
+                if shielded.contains(&a) || shielded.contains(&b) {
+                    return AskMatch::reject(
+                        "🛡️ Shielded players cannot have their cards swapped!".yellow(),
+                    );
+                }
+                AskMatch::accept_say(
+                    Some((a, b)),
+                    irc_format!(
+                        "😈 Locked in swap between {} and {}!",
+                        roster.seats[a].user.nick().bold(),
+                        roster.seats[b].user.nick().bold(),
+                    ),
+                )
+            })
+            .await?;
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans, board, rctx);
+        }))
     }
 
     fn resolve(

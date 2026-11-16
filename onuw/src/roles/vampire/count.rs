@@ -3,7 +3,7 @@ use ircgm::prelude::*;
 use crate::board::BoardCards;
 use crate::marks::Mark;
 use crate::role::{
-    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
 };
 
 pub struct Count;
@@ -23,60 +23,63 @@ impl Role for Count {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(30, Self::prompt).dusk().reads_board().mutates())
+        Some(
+            Wake::solo(30, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+                .dusk()
+                .reads_board()
+                .mutates(),
+        )
     }
 }
 
 impl Count {
-    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
-        Box::pin(async move {
-            let board = ctx.board();
-            let vamp_seats: Vec<usize> = (0..ctx.roster.len())
-                .filter(|&i| {
-                    board.players[i]
-                        .effective_role()
-                        .tags()
-                        .contains(&RoleTag::VampirePack)
-                        || board.marks[i] == Mark::Vampire
-                })
-                .collect();
-            let valid_targets: Vec<usize> = (0..ctx.roster.len())
-                .filter(|&i| i != seat && !vamp_seats.contains(&i))
-                .collect();
-            if valid_targets.is_empty() {
-                return Ok(SeatEffect::noop());
-            }
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let board = ctx.board();
+        let vamp_seats: Vec<usize> = (0..ctx.roster.len())
+            .filter(|&i| {
+                board.players[i]
+                    .effective_role()
+                    .tags()
+                    .contains(&RoleTag::VampirePack)
+                    || board.marks[i] == Mark::Vampire
+            })
+            .collect();
+        let valid_targets: Vec<usize> = (0..ctx.roster.len())
+            .filter(|&i| i != seat && !vamp_seats.contains(&i))
+            .collect();
+        if valid_targets.is_empty() {
+            return Ok(SeatEffect::noop());
+        }
 
-            let roster = ctx.roster;
-            let non_vamps_str = roster.format_indices(&valid_targets);
-            let valid_for_match = valid_targets.clone();
-            let prompt = irc_format!(
-                "🦇 The Count: You MUST reply {} to place the Mark of Fear on a non-Vampire (suppressing their Night wake)! Non-Vampires: {non_vamps_str}",
-                "<nick>".bold(),
-            );
-            let ans = ctx
-                .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
-                    Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
-                        idx,
-                        irc_format!(
-                            "🦇 Placed {} on {}!",
-                            Mark::Fear.styled(),
-                            roster.seats[idx].user.nick().bold(),
-                        ),
+        let roster = ctx.roster;
+        let non_vamps_str = roster.format_indices(&valid_targets);
+        let valid_for_match = valid_targets.clone();
+        let prompt = irc_format!(
+            "🦇 The Count: You MUST reply {} to place the Mark of Fear on a non-Vampire (suppressing their Night wake)! Non-Vampires: {non_vamps_str}",
+            "<nick>".bold(),
+        );
+        let ans = ctx
+            .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
+                Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
+                    idx,
+                    irc_format!(
+                        "🦇 Placed {} on {}!",
+                        Mark::Fear.styled(),
+                        roster.seats[idx].user.nick().bold(),
                     ),
-                    Some(_) => AskMatch::reject("You cannot terrify a fellow Vampire!".yellow()),
-                    None => AskMatch::reject("Unknown player nickname.".yellow()),
-                })
-                .await?;
+                ),
+                Some(_) => AskMatch::reject("You cannot terrify a fellow Vampire!".yellow()),
+                None => AskMatch::reject("Unknown player nickname.".yellow()),
+            })
+            .await?;
 
-            let target = ans
-                .ok()
-                .unwrap_or_else(|| valid_targets[fastrand::usize(..valid_targets.len())]);
+        let target = ans
+            .ok()
+            .unwrap_or_else(|| valid_targets[fastrand::usize(..valid_targets.len())]);
 
-            Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, target, board, rctx);
-            }))
-        })
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, target, board, rctx);
+        }))
     }
 
     fn resolve(
