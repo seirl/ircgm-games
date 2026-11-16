@@ -20,7 +20,6 @@ pub const MAX_PLAYERS: usize = 10;
 #[derive(Clone, Debug)]
 pub struct GameConfig {
     pub lobby_duration: Duration,
-    pub dm_check_timeout: Option<Duration>,
     pub night_timings: NightTimings,
     /// When `None`, Day duration scales as `(player_count + 2).clamp(5, 8)` minutes.
     pub day_duration_override: Option<Duration>,
@@ -32,7 +31,6 @@ impl Default for GameConfig {
     fn default() -> Self {
         Self {
             lobby_duration: Duration::from_secs(90),
-            dm_check_timeout: Some(Duration::from_secs(25)),
             night_timings: NightTimings::default(),
             day_duration_override: None,
             vote_timeout: Duration::from_secs(45),
@@ -45,7 +43,6 @@ impl GameConfig {
     pub fn fast_mode() -> Self {
         Self {
             lobby_duration: Duration::from_secs(30),
-            dm_check_timeout: None,
             night_timings: NightTimings {
                 tier_budget: Duration::from_secs(15),
                 copycat_pick_budget: Duration::from_secs(10),
@@ -60,7 +57,6 @@ impl GameConfig {
     pub fn for_tests() -> Self {
         Self {
             lobby_duration: Duration::from_secs(15),
-            dm_check_timeout: None,
             night_timings: NightTimings::fast_for_tests(),
             day_duration_override: Some(Duration::from_secs(30)),
             vote_timeout: Duration::from_secs(10),

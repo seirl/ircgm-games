@@ -6,7 +6,6 @@ use std::sync::{
     Arc,
 };
 
-use futures::future::try_join_all;
 use futures::FutureExt as _;
 use ircgm::prelude::*;
 use tokio::time::Instant;
@@ -23,7 +22,7 @@ use crate::scenarios::{
 };
 
 /// Shared flag tracking whether an ONUW session is currently in its open pre-game recruitment lobby
-/// (as opposed to DM reachability check, Dusk/Night, Day, or Voting).
+/// (as opposed to Dusk/Night, Day, or Voting).
 #[derive(Clone, Debug, Default)]
 pub struct LobbyPhaseTracker(Arc<AtomicBool>);
 
@@ -820,70 +819,6 @@ pub async fn recruit_players_tracked(
             )?;
         }
         return Ok(None);
-    }
-
-    if let Some(dm_dur) = config.dm_check_timeout {
-        let check_deadline = Instant::now() + dm_dur;
-        room.say(irc_format!(
-            "📩 DM check: reply {} in DM within {}s to confirm you can receive secret cards!",
-            "ok".bold().green(),
-            dm_dur.as_secs(),
-        ))?;
-        let check_cfg = AskConfig::new()
-            .reply_deadline(check_deadline)
-            .no_timeout_message();
-        let checks = try_join_all(players.iter().map(|p| {
-            let cfg = &check_cfg;
-            async move {
-                let ans = p
-                    .ask(
-                        irc_format!("👋 Reply {} to confirm DMs for ONUW!", "ok".bold().green()),
-                        |m| {
-                            let t = m.text.trim();
-                            (t.eq_ignore_ascii_case("ok")
-                                || t.eq_ignore_ascii_case("ready")
-                                || m.is_cmd("!ok"))
-                            .then(|| AskMatch::accept_say((), "✔ Confirmed!".green()))
-                            .unwrap_or_else(AskMatch::ignore)
-                        },
-                    )
-                    .config(cfg)
-                    .await?;
-                Ok::<_, Error>((p.clone(), ans))
-            }
-        }))
-        .await?;
-
-        let mut verified = Vec::with_capacity(checks.len());
-        let mut dropped_nicks = Vec::new();
-        for (p, ans) in checks {
-            if matches!(ans, Answer::Ok(())) && is_active_in_room(room, &p) {
-                verified.push(p);
-            } else {
-                dropped_nicks.push(p.nick());
-            }
-        }
-
-        if !dropped_nicks.is_empty() {
-            room.say(
-                format_args!(
-                    "⚠️ Dropped from roster (unconfirmed/unreachable DMs): {}",
-                    dropped_nicks.join(", ")
-                )
-                .yellow(),
-            )?;
-        }
-        players = verified;
-        if players.len() < min_needed || players.len() > max_req {
-            room.say(
-                format_args!(
-                    "DM-verified player count ({}) outside required {min_needed}–{max_req} range — game cancelled.",
-                    players.len()
-                )
-                .yellow(),
-            )?;
-            return Ok(None);
-        }
     }
 
     while deck_spec.added.len() > players.len() + 3 {

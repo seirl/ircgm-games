@@ -141,7 +141,7 @@ async fn lobby_holds_back_onuw_chronicle_until_reveal_command() {
     let empty_reveal = srv.take_messages_to("#lobby").join("\n");
     assert!(empty_reveal.contains("Nothing left to reveal"));
 
-    // Enable fast mode so Night has no DM check and runs on 15s tiers.
+    // Enable fast mode so Night runs on 15s tiers.
     srv.chat("Admin", "#lobby", "!fast on");
     srv.settle().await;
     let _ = srv.take_messages_to("#lobby");

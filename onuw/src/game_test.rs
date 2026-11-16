@@ -148,15 +148,14 @@ async fn full_lobby_custom_deck_to_dawn_chronicle_and_abort_cleanup() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn dm_reachability_check_drops_callerid_blocked_player() {
+async fn recruit_players_default_config_skips_dm_check() {
     let (bot, mut srv) = test_harness("GM");
-    srv.complete_join("#onuw", &["Alice", "Bob", "Carol", "BlockedDan"]);
+    srv.complete_join("#onuw", &["Alice", "Bob", "Carol"]);
     srv.settle().await;
 
     let room = bot.room("#onuw").unwrap();
     let host = bot.user("Alice").unwrap();
-    let mut cfg = GameConfig::for_tests();
-    cfg.dm_check_timeout = Some(Duration::from_secs(5));
+    let cfg = GameConfig::default();
 
     let task = tokio::spawn({
         let room = room.clone();
@@ -166,20 +165,15 @@ async fn dm_reachability_check_drops_callerid_blocked_player() {
 
     srv.chat("Bob", "#onuw", "!join");
     srv.chat("Carol", "#onuw", "!join");
-    srv.chat("BlockedDan", "#onuw", "!join");
     srv.chat("Alice", "#onuw", "!go");
     srv.settle().await;
 
-    // Alice, Bob, Carol reply `ok`, while BlockedDan bounces with numeric 716 (`UMODE +g` callerid)!
-    srv.dm("Alice", "ok");
-    srv.dm("Bob", "ok");
-    srv.dm("Carol", "!ok");
-    srv.send_line(":test.srv 716 GM BlockedDan :is in +g mode (server-side ignore)\r\n");
-    srv.settle().await;
-
-    let (verified, _) = task.await.unwrap().unwrap().expect("3 verified players remain");
-    let nicks: Vec<String> = verified.iter().map(|u| u.nick()).collect();
+    let (players, _) = task.await.unwrap().unwrap().expect("3 players recruited");
+    let nicks: Vec<String> = players.iter().map(|u| u.nick()).collect();
     assert_eq!(nicks, vec!["Alice", "Bob", "Carol"]);
+    assert!(srv.take_messages_to("Alice").is_empty());
+    assert!(srv.take_messages_to("Bob").is_empty());
+    assert!(srv.take_messages_to("Carol").is_empty());
     let chan_out = srv.take_messages_to("#onuw").join("\n");
-    assert!(chan_out.contains("Dropped from roster (unconfirmed/unreachable DMs): BlockedDan"));
+    assert!(!chan_out.contains("DM check"));
 }
