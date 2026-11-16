@@ -484,12 +484,24 @@ pub async fn run_night_phase(
                 let outcomes = try_join_all(futs).await?;
                 sleep_until(tier_deadline).await;
 
+                if !immediate_seats.is_empty() {
+                    wakers.wake_log.push((
+                        tier.phase,
+                        format!(
+                            "{}: {}",
+                            tier.callout_label(),
+                            roster.format_seats(immediate_seats)
+                        ),
+                    ));
+                }
+
                 for (seat, step, effect) in outcomes {
                     wakers.acted_immediately.insert(seat);
                     let label = wakers.actor_label(roster, seat);
                     let mut rctx = ResolveCtx {
                         roster,
                         chronicle: &mut all_chronicle,
+                        room,
                         wakers: &mut wakers,
                     };
                     let mut bm = BoardMut::new(
@@ -544,11 +556,23 @@ pub async fn run_night_phase(
                 let outcomes = try_join_all(futs).await?;
                 sleep_until(tier_deadline).await;
 
+                if !slot_actors.is_empty() {
+                    wakers.wake_log.push((
+                        tier.phase,
+                        format!(
+                            "{}: {}",
+                            tier.callout_label(),
+                            roster.format_seats(slot_actors.iter().copied())
+                        ),
+                    ));
+                }
+
                 for (seat, effect) in outcomes {
                     let label = wakers.actor_label(roster, seat);
                     let mut rctx = ResolveCtx {
                         roster,
                         chronicle: &mut all_chronicle,
+                        room,
                         wakers: &mut wakers,
                     };
                     let mut bm = BoardMut::new(
@@ -562,6 +586,21 @@ pub async fn run_night_phase(
             }
 
             TierKind::Steps(steps) => {
+                let mut tier_step_wakers: Vec<(&'static str, SeatSet)> = Vec::new();
+                for &step in steps {
+                    let seats: SeatSet = match step.kind {
+                        StepKind::Group(_) => compute_group_active_seats(step, &wakers),
+                        StepKind::Passive(_) | StepKind::Solo(_) => {
+                            collect_solo_or_passive_actors(roster, step, &wakers)
+                                .into_iter()
+                                .collect()
+                        }
+                    };
+                    if step.eyes_open && !seats.is_empty() && step.order > 1 {
+                        tier_step_wakers.push((step.callout_name(), seats));
+                    }
+                }
+
                 let board_snap = PromptBoard::new(&board);
                 let wakers_ref = &wakers;
                 let cfg_ref = &tier_cfg;
@@ -572,7 +611,7 @@ pub async fn run_night_phase(
                     match step.kind {
                         StepKind::Group(prompt_fn) => {
                             let active_seats = compute_group_active_seats(step, wakers_ref);
-                            if active_seats.is_empty() {
+                            if active_seats.is_empty() && !step.run_when_unheld {
                                 continue;
                             }
                             futs.push(Box::pin(async move {
@@ -629,6 +668,13 @@ pub async fn run_night_phase(
                 let resolutions = try_join_all(futs).await?;
                 sleep_until(tier_deadline).await;
 
+                for (step_name, seats) in tier_step_wakers {
+                    wakers.wake_log.push((
+                        tier.phase,
+                        format!("{step_name}: {}", roster.format_seats(seats)),
+                    ));
+                }
+
                 for res in resolutions {
                     let table_summary = board.visible_table_summary(roster);
                     match res {
@@ -636,6 +682,7 @@ pub async fn run_night_phase(
                             let mut rctx = ResolveCtx {
                                 roster,
                                 chronicle: &mut all_chronicle,
+                                room,
                                 wakers: &mut wakers,
                             };
                             let mut bm = BoardMut::new(
@@ -655,6 +702,7 @@ pub async fn run_night_phase(
                             let mut rctx = ResolveCtx {
                                 roster,
                                 chronicle: &mut all_chronicle,
+                                room,
                                 wakers: &mut wakers,
                             };
                             if step.eyes_open {
@@ -675,6 +723,7 @@ pub async fn run_night_phase(
                             let mut rctx = ResolveCtx {
                                 roster,
                                 chronicle: &mut all_chronicle,
+                                room,
                                 wakers: &mut wakers,
                             };
                             let mut bm = BoardMut::new(
@@ -693,6 +742,26 @@ pub async fn run_night_phase(
 
     if current_phase == Some(Phase::Dusk) && !dusk_finalized {
         Mark::finalize_dusk_boundary(roster, &board, &mut wakers, &mut all_chronicle);
+    }
+
+    for observer in wakers.wake_log_recipients {
+        let feared_in_night = wakers.feared.contains(observer);
+        let visible_entries: Vec<&str> = wakers
+            .wake_log
+            .iter()
+            .filter(|(ph, _)| !feared_in_night || *ph == Phase::Dusk)
+            .map(|(_, s)| s.as_str())
+            .collect();
+        if visible_entries.is_empty() {
+            let _ = roster.seats[observer].user.say(
+                "🔮🛸 Oracle All-Night Watch: Nobody else opened their eyes tonight!",
+            );
+        } else {
+            let _ = roster.seats[observer].user.say(irc_format!(
+                "🔮🛸 Oracle All-Night Watch (who opened their eyes): {}",
+                visible_entries.join(" · ").bold(),
+            ));
+        }
     }
 
     Ok((board, all_chronicle))

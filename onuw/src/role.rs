@@ -379,6 +379,7 @@ pub struct WakeStep {
     pub eyes_open: bool,
     pub short_budget: bool,
     pub is_doppelganger: bool,
+    pub run_when_unheld: bool,
     pub copy_timing: Option<CopyTiming>,
     pub prompt_reads: BoardAccess,
     pub resolve_writes: BoardAccess,
@@ -407,6 +408,7 @@ impl WakeStep {
             eyes_open: true,
             short_budget: false,
             is_doppelganger: false,
+            run_when_unheld: false,
             copy_timing: Some(CopyTiming::Immediate),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
@@ -437,6 +439,7 @@ impl WakeStep {
             eyes_open: true,
             short_budget: false,
             is_doppelganger: false,
+            run_when_unheld: false,
             copy_timing: Some(CopyTiming::OnRoleTurn),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
@@ -453,6 +456,7 @@ impl WakeStep {
             eyes_open: true,
             short_budget: false,
             is_doppelganger: false,
+            run_when_unheld: false,
             copy_timing: None,
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
@@ -481,6 +485,7 @@ impl WakeStep {
             eyes_open: true,
             short_budget: false,
             is_doppelganger: false,
+            run_when_unheld: false,
             copy_timing: Some(CopyTiming::OnRoleTurn),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
@@ -497,11 +502,21 @@ impl WakeStep {
             eyes_open: true,
             short_budget: false,
             is_doppelganger: false,
+            run_when_unheld: false,
             copy_timing: Some(CopyTiming::OnRoleTurn),
             prompt_reads: BoardAccess(BoardAccess::NONE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
             kind: StepKind::Passive(f),
         }
+    }
+
+    pub const fn run_when_unheld(mut self) -> Self {
+        assert!(
+            matches!(self.kind, StepKind::Group(_)),
+            "only Group steps support .run_when_unheld()"
+        );
+        self.run_when_unheld = true;
+        self
     }
 
     pub const fn reads(mut self, mask: u16) -> Self {
@@ -608,6 +623,8 @@ pub(crate) struct NightWakers {
     copied_from: Vec<Option<usize>>,
     pub acted_immediately: SeatSet,
     pub feared: SeatSet,
+    pub wake_log_recipients: SeatSet,
+    pub wake_log: Vec<(Phase, String)>,
 }
 
 impl NightWakers {
@@ -617,7 +634,13 @@ impl NightWakers {
             copied_from: vec![None; roster.len()],
             acted_immediately: SeatSet::EMPTY,
             feared: SeatSet::EMPTY,
+            wake_log_recipients: SeatSet::EMPTY,
+            wake_log: Vec::new(),
         }
+    }
+
+    pub fn set_role(&mut self, seat: usize, role: &'static dyn Role) {
+        self.waking_roles[seat] = role;
     }
 
     pub fn roles(&self) -> &[&'static dyn Role] {
@@ -1075,17 +1098,28 @@ impl<'a> GroupPromptCtx<'a> {
     pub fn copied_from(&self, seat: usize) -> Option<usize> {
         self.wakers.copied_from(seat)
     }
+
+    /// Reads typed blackboard state `K` mid-prompt (`Alien` reading `Oracle` directives, etc.).
+    pub fn get_key<K: BoardKey>(&self) -> K {
+        self.check_read(K::ACCESS, "BoardKey::ACCESS");
+        self.board.raw().get_key::<K>()
+    }
 }
 
 pub struct ResolveCtx<'a> {
     pub roster: &'a Roster,
     pub chronicle: &'a mut Vec<Text>,
+    pub(crate) room: &'a Room,
     pub(crate) wakers: &'a mut NightWakers,
 }
 
 impl<'a> ResolveCtx<'a> {
     pub fn record(&mut self, entry: impl Into<Text>) {
         self.chronicle.push(entry.into());
+    }
+
+    pub fn announce(&self, text: impl Into<Text>) {
+        let _ = self.room.say(text);
     }
 
     pub fn nick(&self, seat: usize) -> String {
@@ -1098,6 +1132,10 @@ impl<'a> ResolveCtx<'a> {
 
     pub fn waking_role(&self, seat: usize) -> &'static dyn Role {
         self.wakers.role(seat)
+    }
+
+    pub fn grant_wake_log(&mut self, seat: usize) {
+        self.wakers.wake_log_recipients.insert(seat);
     }
 }
 
@@ -1171,6 +1209,9 @@ pub enum SpecialVictory {
     Independent(TeamBlock),
     /// Overrides normal team victory rules so `team` wins (`Leader` unanimous Alien point).
     ForceTeam { team: Team, announcement: Text },
+    /// Global hunt override (`Oracle` `#7` wrong guess): holders win solo iff surviving;
+    /// every other player wins iff at least one holder dies.
+    Hunted,
 }
 
 impl SpecialVictory {
@@ -1331,7 +1372,7 @@ impl EndgameModifier for &'static dyn Role {
                 (ctx.board.effective_team(seat) == self.team())
                     .then_some(SpecialVictory::ForceTeam { team, announcement })
             }
-            ind @ SpecialVictory::Independent(_) => Some(ind),
+            ind @ (SpecialVictory::Independent(_) | SpecialVictory::Hunted) => Some(ind),
         }
     }
 

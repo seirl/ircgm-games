@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use crate::artifacts::Artifact;
-use crate::board::{BoardCards, Card, Roster, SeatInfo};
+use crate::board::{BoardCards, BoardKey, Card, Roster, SeatInfo};
 use crate::voting::resolve_and_announce_winners;
 use crate::game::GameSummary;
 use crate::marks::Mark;
@@ -311,6 +311,10 @@ impl OnuwTestHarness {
         self.roster
             .resolve_nick(nick)
             .unwrap_or_else(|| panic!("unknown player `{nick}`"))
+    }
+
+    pub fn set_key<K: BoardKey>(&mut self, val: K) {
+        self.initial_board.set_key_for_test(val);
     }
 }
 

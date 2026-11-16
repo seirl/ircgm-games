@@ -181,26 +181,37 @@ async fn doppelganger_alpha_wolf_swaps_immediately_without_pack_leak_before_real
 }
 
 #[tokio::test(start_paused = true)]
-async fn doppelganger_copying_oracle_answers_omen_immediately() {
+async fn doppelganger_copying_converted_oracle_wakes_with_aliens_without_rerunning_oracle() {
+    use crate::roles::alien::{
+        alien::{AlienEvent, ForcedAlienEvent, ALIEN},
+        oracle::{ForcedOracleQuestion, OracleQuestion},
+    };
+    use crate::role::NightFaction;
+
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &DOPPELGANGER),
             ("Bob", &ORACLE),
-            ("Carol", &VILLAGER),
+            ("Carol", &ALIEN),
         ],
         [&VILLAGER, &VILLAGER, &VILLAGER],
     )
     .await;
+    h.set_key(ForcedOracleQuestion(Some(OracleQuestion::ChangeTeam(
+        NightFaction::Alien,
+    ))));
+    h.set_key(ForcedAlienEvent(Some(AlienEvent::CenterProbe)));
 
     let night = h.spawn_night();
-    // Oracle (#-9 / order 1) wakes before Doppelgänger:
-    h.reply_dm("Bob", "normal").await;
-    // Alice (Doppelgänger) copies Bob (Oracle) and immediately tunes cosmic frequencies:
+    // Oracle Bob (#-9 / order 1) accepts joining the Alien team:
+    h.reply_dm("Bob", "yes").await;
+    // Doppelgänger Alice (#1) copies Bob (Oracle [Alien]) — does NOT re-run #-9, instead wakes with Aliens at #1A!
     h.reply_dm("Alice", "Bob").await;
-    h.reply_dm("Alice", "static").await;
+    // At #1A, Alice, Bob, and Carol all wake together in [Aliens]; Carol probes Center #1:
+    h.reply_dm("Carol", "!probe 1").await;
 
     let report = h.finish_night(night).await;
-    assert!(report.has_chronicle_substr(
-        "Doppelgänger-Oracle (Alice) engaged QuantumStatic, swapping Center #1 and Center #3."
-    ));
+    assert!(report.dms_to("Alice").contains("Aliens aboard: Alice, Bob, Carol"));
+    assert_eq!(report.effective_role_at(&h.roster, "Alice"), "Oracle [Alien]");
+    assert_eq!(report.effective_role_at(&h.roster, "Bob"), "Oracle [Alien]");
 }

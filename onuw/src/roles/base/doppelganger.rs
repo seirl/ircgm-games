@@ -6,7 +6,6 @@ use crate::board::BoardMut;
 use crate::role::{
     GameSet, Phase, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
-use crate::roles::vampire::copycat::COPYCAT;
 
 pub struct Doppelganger;
 pub static DOPPELGANGER: Doppelganger = Doppelganger;
@@ -97,7 +96,7 @@ impl Doppelganger {
             return;
         };
 
-        let seen_face = copied_card.face_role();
+        let seen_face = copied_card.visible_role();
         let endgame_role = copied_card.effective_role();
         let actor_nick = ctx.nick(seat);
         let target_nick = ctx.nick(target_idx);
@@ -108,7 +107,7 @@ impl Doppelganger {
             .iter()
             .any(|r| r.steps().iter().any(|st| st.phase == Phase::Dusk));
 
-        if seen_face.id() == COPYCAT.info().id {
+        if copied_card.is_secret_copy() {
             let detail = if endgame_role.id() == seen_face.id() {
                 seen_face.styled_name()
             } else {

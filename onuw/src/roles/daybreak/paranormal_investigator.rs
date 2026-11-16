@@ -81,20 +81,20 @@ impl ParanormalInvestigator {
             already.insert(target);
 
             let seen_card = ctx.peek_player_card(target);
-            let face_role = seen_card.face_role();
+            let visible_role = seen_card.visible_role();
             let target_nick = ctx.nick(target);
 
-            if face_role.triggers_pi_and_revealer() {
+            if visible_role.triggers_pi_and_revealer() {
                 ctx.say(irc_format!(
                     "😱 {} is {}! You STOP investigating and become {}!",
                     target_nick.bold(),
                     seen_card.display_for_peek(),
-                    face_role.styled_name(),
+                    visible_role.styled_name(),
                 ));
-                became = Some(face_role);
+                became = Some(visible_role);
                 break;
             }
-            if face_role.is_minion() {
+            if visible_role.is_minion() {
                 ctx.say(irc_format!(
                     "🕵️ {} is {} (minion — does not transform you).",
                     target_nick.bold(),

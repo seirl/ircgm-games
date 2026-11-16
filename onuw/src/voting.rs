@@ -284,6 +284,8 @@ pub fn resolve_and_announce_winners(
     // 4a. Special victories across each seat's active EndgameModifiers:
     let mut forced_team_candidate: Option<(Team, Text)> = None;
     let mut team_block = TeamBlock::None;
+    let mut hunted_seats = SeatSet::EMPTY;
+    let mut hunted_label = "Oracle";
     let mut winners: WinnerMap = HashMap::new();
     for seat in 0..n {
         for modifier in board.seat_endgame_modifiers(seat) {
@@ -299,7 +301,32 @@ pub fn resolve_and_announce_winners(
                     winners.insert(seat, modifier.modifier_name());
                     team_block = team_block.max(block);
                 }
+                Some(SpecialVictory::Hunted) => {
+                    hunted_seats.insert(seat);
+                    hunted_label = modifier.modifier_name();
+                }
                 _ => {}
+            }
+        }
+    }
+
+    let center_hunted = (0..3).any(|c| {
+        matches!(
+            board.center_card(c).effective_role().special_victory(0, &vctx),
+            Some(SpecialVictory::Hunted)
+        )
+    });
+    if !hunted_seats.is_empty() || center_hunted {
+        forced_team_candidate = None;
+        team_block = TeamBlock::AllTeams;
+        winners.clear();
+        if hunted_seats.intersects(dead) {
+            for seat in roster.all_seats() - hunted_seats {
+                winners.insert(seat, "Oracle Slain");
+            }
+        } else {
+            for seat in hunted_seats - dead {
+                winners.insert(seat, hunted_label);
             }
         }
     }

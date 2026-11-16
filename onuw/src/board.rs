@@ -75,21 +75,34 @@ impl<T: Clone + fmt::Debug + Send + Sync + 'static> BlackboardValue for T {
     }
 }
 
-/// A physical card on the table: `face` is what is printed on the cardboard when peeked or flipped,
-/// `became` records any mid-night copy/transformation (`Copycat`, `Doppelgänger`, `Paranormal Investigator`),
+#[derive(Clone, Copy)]
+enum CardTransform {
+    None,
+    /// Secret role adoption (`Copycat`, `Doppelgänger`, `Paranormal Investigator`):
+    /// peeking players see only the printed `face`.
+    Secret(&'static dyn Role),
+    /// Public app conversion (`Oracle` omen): everyone knows the physical card now counts as
+    /// this role (except `Copycat`, which always copies the printed `face`).
+    Public(&'static dyn Role),
+}
+
+/// A physical card on the table: `face` is what is printed on the cardboard,
+/// `transform` records any secret (`Copycat`, `Doppelgänger`, `PI`) or public (`Oracle`) transformation,
 /// and `face_up` tracks whether the card was flipped face-up (`Revealer`) so face-up state travels with swaps.
 #[derive(Clone, Copy)]
 pub struct Card {
     face: &'static dyn Role,
-    became: Option<&'static dyn Role>,
+    transform: CardTransform,
     face_up: bool,
 }
 
 impl fmt::Debug for Card {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.became {
-            Some(r) => write!(f, "{}({})", self.face.name(), r.name()),
-            None => write!(f, "{}", self.face.name()),
+        match self.transform {
+            CardTransform::None => write!(f, "{}", self.face.name()),
+            CardTransform::Secret(r) | CardTransform::Public(r) => {
+                write!(f, "{}({})", self.face.name(), r.name())
+            }
         }
     }
 }
@@ -98,27 +111,51 @@ impl Card {
     pub const fn new(face: &'static dyn Role) -> Self {
         Self {
             face,
-            became: None,
+            transform: CardTransform::None,
             face_up: false,
         }
     }
 
     pub fn transform(&mut self, became: &'static dyn Role) {
-        self.became = Some(became);
+        self.transform = CardTransform::Secret(became);
     }
 
-    /// The physical printed face on this card when peeked or flipped during Night.
+    fn transform_public(&mut self, became: &'static dyn Role) {
+        self.transform = CardTransform::Public(became);
+    }
+
+    /// True if this card secretly adopted another role (`Copycat`, `Doppelgänger`, `PI`).
+    pub fn is_secret_copy(self) -> bool {
+        matches!(self.transform, CardTransform::Secret(_))
+    }
+
+    /// The physical printed face on this card.
     pub fn face_role(self) -> &'static dyn Role {
         self.face
     }
 
+    /// The role observed when peeking or flipping this card during Night (`Public` conversions are
+    /// known to the table, while `Secret` copies show only the printed `face`).
+    pub fn visible_role(self) -> &'static dyn Role {
+        match self.transform {
+            CardTransform::Public(r) => r,
+            CardTransform::None | CardTransform::Secret(_) => self.face,
+        }
+    }
+
     /// The role this card counts as for team, ability, and victory rules during Voting.
     pub fn effective_role(self) -> &'static dyn Role {
-        self.became.unwrap_or(self.face)
+        match self.transform {
+            CardTransform::None => self.face,
+            CardTransform::Secret(r) | CardTransform::Public(r) => r,
+        }
     }
 
     pub fn effective_role_ref(&self) -> &&'static dyn Role {
-        self.became.as_ref().unwrap_or(&self.face)
+        match &self.transform {
+            CardTransform::None => &self.face,
+            CardTransform::Secret(r) | CardTransform::Public(r) => r,
+        }
     }
 
     pub fn is_face_up(self) -> bool {
@@ -126,13 +163,15 @@ impl Card {
     }
 
     pub fn display_for_peek(self) -> Text {
-        self.face.styled_name()
+        self.visible_role().styled_name()
     }
 
     pub fn display_reveal(self) -> Text {
-        match self.became {
-            Some(r) => irc_format!("{} ({})", self.face.styled_name(), r.styled_name()),
-            None => self.face.styled_name(),
+        match self.transform {
+            CardTransform::None => self.face.styled_name(),
+            CardTransform::Secret(r) | CardTransform::Public(r) => {
+                irc_format!("{} ({})", self.face.styled_name(), r.styled_name())
+            }
         }
     }
 }
@@ -622,6 +661,11 @@ impl BoardCards {
     pub(crate) fn swap_players_for_test(&mut self, a: usize, b: usize) {
         self.players.swap(a, b);
     }
+
+    #[cfg(test)]
+    pub(crate) fn set_key_for_test<K: BoardKey>(&mut self, val: K) {
+        self.set_key_raw(val);
+    }
 }
 
 // ============================================================================
@@ -842,14 +886,47 @@ impl<'a> BoardMut<'a> {
         }
     }
 
-    /// Transforms `players[seat].became` in place (`Paranormal Investigator`).
+    /// Secretly transforms `players[seat]` in place (`Paranormal Investigator`).
     pub fn transform_in_place(&mut self, seat: usize, new_role: &'static dyn Role) {
         self.check_write(BoardAccess::PLAYER_BECAME, "PLAYER_BECAME");
         self.inner.players[seat].transform(new_role);
     }
 
+    /// Publicly converts `role_id` (across `active_seats`, or in `center` if unheld) to `new_role`
+    /// (`Oracle` omen), optionally registering `active_seats` to wake with `new_role`'s pack.
+    pub fn convert_role_publicly(
+        &mut self,
+        active_seats: SeatSet,
+        role_id: &str,
+        new_role: &'static dyn Role,
+        wake_with_pack: bool,
+        rctx: &mut ResolveCtx<'_>,
+    ) {
+        self.check_write(
+            BoardAccess::PLAYER_BECAME | BoardAccess::CENTER_FACES | BoardAccess::WAKING_ROLES,
+            "PLAYER_BECAME | CENTER_FACES | WAKING_ROLES",
+        );
+        if active_seats.is_empty() {
+            if let Some(card) = self
+                .inner
+                .center
+                .iter_mut()
+                .find(|c| c.face_role().id() == role_id)
+            {
+                card.transform_public(new_role);
+            }
+        } else {
+            for s in active_seats {
+                self.inner.players[s].transform_public(new_role);
+                if wake_with_pack {
+                    rctx.wakers.set_role(s, new_role);
+                }
+            }
+        }
+    }
+
     /// Copies `players[target]` onto `actor` (`Doppelgänger`), inheriting `target`'s effective role
-    /// for Voting while waking as `target`'s physical printed face (`Copycat` stays asleep).
+    /// for Voting and waking as `target`'s visible role (opaque for secret `Copycat`, transparent for public `Oracle`).
     pub fn copy_from_player(
         &mut self,
         actor: usize,
@@ -867,12 +944,12 @@ impl<'a> BoardMut<'a> {
         let target_card = self.inner.players[target];
         self.inner.viewed_or_moved_actors.insert(actor);
         self.inner.players[actor].transform(target_card.effective_role());
-        rctx.wakers.copy_player(actor, target, target_card.face_role());
+        rctx.wakers.copy_player(actor, target, target_card.visible_role());
         Some(target_card)
     }
 
-    /// Copies `center[slot]` onto `actor` (`Copycat`), updating both card & waking identity
-    /// (except when `center[slot]` is `Doppelgänger`, which stays asleep per official ONUV rules).
+    /// Copies `center[slot]`'s printed face onto `actor` (`Copycat`), keeping `Copycat-Oracle` a
+    /// plain Villager per official ONUA rules and keeping center `Doppelgänger` asleep per ONUV rules.
     pub fn copy_from_center(
         &mut self,
         actor: usize,
@@ -883,7 +960,7 @@ impl<'a> BoardMut<'a> {
             BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES,
             "PLAYER_BECAME | WAKING_ROLES",
         );
-        let copied = self.inner.center[slot].effective_role();
+        let copied = self.inner.center[slot].face_role();
         self.inner.viewed_or_moved_actors.insert(actor);
         self.inner.players[actor].transform(copied);
         rctx.wakers.copy_center(actor, copied);
@@ -906,7 +983,7 @@ impl<'a> BoardMut<'a> {
         }
         self.inner.viewed_or_moved_actors.insert(actor);
         let card = self.inner.players[target];
-        if card.face_role().triggers_pi_and_revealer() {
+        if card.visible_role().triggers_pi_and_revealer() {
             Some((card, false))
         } else {
             self.inner.players[target].face_up = true;

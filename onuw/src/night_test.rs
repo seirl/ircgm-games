@@ -639,8 +639,8 @@ async fn tabletop_visibility_omits_empty_dms_shows_markers_to_eyes_open_and_hide
     }
 
     // 2. Sentinel shields Bob (#0), Revealer flips Carol's Villager face-up (#10), Curator places Artifact on Alice (#11):
-    //    - Eyes-open roles (`Alien`, `Curator`, passive `Blob`, solo `Mortician`) see current tabletop markers.
-    //    - Sleeping (`Dream Wolf`) and eyes-closed (`Cow`, `Evilometer`) roles NEVER see tabletop markers!
+    //    - Eyes-open roles (`Alien`, `Curator`, solo `Mortician`) see current tabletop markers.
+    //    - Sleeping (`Dream Wolf`) and eyes-closed (`Cow`, `Evilometer`, `Blob`) roles NEVER see tabletop markers!
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &SENTINEL),
@@ -671,8 +671,8 @@ async fn tabletop_visibility_omits_empty_dms_shows_markers_to_eyes_open_and_hide
 
     let report = h.finish_night(night).await;
 
-    // Sleeping Dream Wolf (Dave) and eyes-closed roles (Cow Bob, Evilometer Eve) NEVER see tabletop state:
-    for closed_nick in ["Bob", "Dave", "Eve"] {
+    // Sleeping Dream Wolf (Dave) and eyes-closed roles (Cow Bob, Evilometer Eve, Blob Ivan) NEVER see tabletop state:
+    for closed_nick in ["Bob", "Dave", "Eve", "Ivan"] {
         let dms = Text::parse(&report.dms_to(closed_nick)).plain();
         assert!(
             !dms.contains("On the table:")
@@ -695,17 +695,15 @@ async fn tabletop_visibility_omits_empty_dms_shows_markers_to_eyes_open_and_hide
         "Heidi DMs: {heidi_dms}"
     );
 
-    // Blob Ivan (#12, passive eyes open) and Mortician Judy (#13, solo eyes open) see all three markers (`Alice🏺`, `Bob🛡`, `Carol [🔦 Villager]`):
-    for late_nick in ["Ivan", "Judy"] {
-        let dms = Text::parse(&report.dms_to(late_nick)).plain();
-        assert!(dms.contains("On the table:"), "{late_nick} DMs: {dms}");
-        assert!(dms.contains("Alice🏺"), "{late_nick} DMs: {dms}");
-        assert!(dms.contains("Bob🛡"), "{late_nick} DMs: {dms}");
-        assert!(
-            dms.contains("Carol [🔦 Villager]"),
-            "{late_nick} DMs: {dms}"
-        );
-    }
+    // Mortician Judy (#13A, solo eyes open) sees all three markers (`Alice🏺`, `Bob🛡`, `Carol [🔦 Villager]`):
+    let judy_dms = Text::parse(&report.dms_to("Judy")).plain();
+    assert!(judy_dms.contains("On the table:"), "Judy DMs: {judy_dms}");
+    assert!(judy_dms.contains("Alice🏺"), "Judy DMs: {judy_dms}");
+    assert!(judy_dms.contains("Bob🛡"), "Judy DMs: {judy_dms}");
+    assert!(
+        judy_dms.contains("Carol [🔦 Villager]"),
+        "Judy DMs: {judy_dms}"
+    );
 }
 
 #[test]
