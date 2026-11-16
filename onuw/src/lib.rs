@@ -2,13 +2,12 @@
 //!
 //! Covers all five One Night Ultimate games (`src/roles/{base,daybreak,vampire,alien,super_villains}/`)
 //! and 59 expansion-ordered scenarios (`src/scenarios/`), with fixed-clock anti-timing-attack Night
-//! scheduling (`night.rs`), public channel voting (`day.rs`), and causal Dawn narration (`dawn.rs`).
+//! scheduling (`night.rs`), public channel voting (`day.rs`), and vote/victory resolution (`voting.rs`).
 
 #![forbid(unsafe_code)]
 
 pub mod artifacts;
 pub mod board;
-pub mod dawn;
 pub mod day;
 pub mod deck;
 pub mod game;
@@ -20,10 +19,10 @@ pub mod roles;
 pub mod scenarios;
 #[cfg(test)]
 pub mod testing;
+pub mod voting;
 
 pub use artifacts::{Artifact, DayConductTracker};
 pub use board::{BoardAccess, BoardCards, BoardKey, BoardMut, Card, Roster, SeatInfo};
-pub use dawn::{resolve_and_announce_winners, GameReveal};
 pub use day::{run_day_phase, run_voting_phase};
 pub use deck::{DeckBase, DeckSpec};
 pub use game::{
@@ -44,3 +43,4 @@ pub use scenarios::{
     all_scenarios, find_scenario, scenario_count, scenarios_for_player_count, scenarios_in_pack,
     Difficulty, Scenario, ScenarioPack, ScenarioRule,
 };
+pub use voting::{resolve_and_announce_winners, GameReveal};

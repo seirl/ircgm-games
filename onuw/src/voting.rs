@@ -1,4 +1,4 @@
-//! **Dawn** vote resolution, chain-kills, multi-faction victory evaluation, and deferred `!reveal` chronicle.
+//! **Voting** resolution, chain-kills, multi-faction victory evaluation, and deferred `!reveal` chronicle.
 
 use std::collections::{HashMap, HashSet};
 
@@ -10,7 +10,7 @@ use crate::marks::Mark;
 use crate::role::{DeathCtx, DeathEffect, SpecialVictory, Team, VictoryCtx, WinnerFilterCtx, WinnerMap};
 
 /// Deferred full game record (center cards, Dusk/Night chronicle, and per-seat `start → end`
-/// roles/marks/artifacts) held back after Dawn until `!reveal` is run in channel.
+/// roles/marks/artifacts) held back after Voting until `!reveal` is run in channel.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GameReveal {
     lines: Vec<Text>,
@@ -168,7 +168,7 @@ pub fn resolve_and_announce_winners(
     let mut reveal_lines = Vec::new();
     reveal_lines.push(irc_format!(
         "{} {} {}{}{} {}{}{} {}",
-        "🌅 DAWN REVEAL — Center:".bold(),
+        "🗳️ VOTING REVEAL — Center:".bold(),
         "#1".grey(),
         board.center_card(0).display_reveal(),
         sep.clone(),
@@ -264,7 +264,7 @@ pub fn resolve_and_announce_winners(
 
     room.say(irc_format!(
         "{} Votes: {tally_str}{}{outcome_span}",
-        "🌅 DAWN —".bold(),
+        "🗳️ VOTING —".bold(),
         sep,
     ))?;
 

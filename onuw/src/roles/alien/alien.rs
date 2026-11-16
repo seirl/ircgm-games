@@ -68,7 +68,7 @@ impl Alien {
             if ctx.waking_roles[s].id() == "synthetic_alien" {
                 ctx.dm(
                     s,
-                    "🤖👽 Synthetic Alien: You blended into the Alien scan! Get YOURSELF killed at Dawn to win!",
+                    "🤖👽 Synthetic Alien: You blended into the Alien scan! Get YOURSELF killed in the vote to win!",
                 );
             }
         }

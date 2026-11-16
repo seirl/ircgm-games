@@ -17,7 +17,7 @@ async fn tanner_blocks_werewolves_when_killed_alone_and_shares_win_with_village_
     h.reply_dm("Bob", "pass").await;
     let report = h.finish_night(night).await;
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Carol")),
@@ -43,7 +43,7 @@ async fn tanner_blocks_werewolves_when_killed_alone_and_shares_win_with_village_
     h2.reply_dm("Bob", "pass").await;
     let report2 = h2.finish_night(night2).await;
     let dawn2 = h2
-        .resolve_dawn(
+        .resolve_voting(
             report2,
             &[
                 ("Alice", Some("Bob")),

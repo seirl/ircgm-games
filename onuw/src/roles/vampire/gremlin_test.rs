@@ -43,7 +43,7 @@ async fn gremlin_and_marksman_omit_marks_completely_when_no_mark_placer_is_in_de
     );
     assert_eq!(
         REVEALER.summary_for_deck(&h.roster),
-        "Flip another player's card face up for Dawn—unless it is a Werewolf, in which case you flip it back face down!"
+        "Flip another player's card face up for Day—unless it is a Werewolf, in which case you flip it back face down!"
     );
 
     let night = h.spawn_night();
@@ -127,7 +127,7 @@ async fn gremlin_enables_marks_when_mark_placer_in_deck_and_epic_battle_splits_f
     // Epic Battle Dawn: Alice (Vampire) and Dave (Seer) tie at 2 votes and both die, while Bob (Werewolf) survives!
     // Because Bob's Werewolf faction had 0 deaths AND a rival Vampire died, ONLY Werewolves (Bob) win — Village loses because a Werewolf survived!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Dave")),

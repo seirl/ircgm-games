@@ -23,7 +23,7 @@ async fn prince_cannot_die_and_deflects_execution_to_runner_up() {
 
     // 3 votes on Alice (Prince) and 2 votes on Bob (Werewolf) -> Prince survives, Bob dies!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Bob")),

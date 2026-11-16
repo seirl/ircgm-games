@@ -8,7 +8,7 @@ use crate::game::GameConfig;
 use crate::lobby::{recruit_players, run_lobby_bot};
 
 #[tokio::test(start_paused = true)]
-async fn full_lobby_custom_deck_to_dawn_chronicle_and_abort_cleanup() {
+async fn full_lobby_custom_deck_to_voting_chronicle_and_abort_cleanup() {
     let (bot, mut srv) = test_harness("GM");
     srv.complete_join("#onuw", &["Alice", "Bob", "Carol"]);
     // Set an initial topic so we can verify RAII topic restoration!
@@ -76,13 +76,13 @@ async fn full_lobby_custom_deck_to_dawn_chronicle_and_abort_cleanup() {
     srv.settle().await;
 
     let chan_out = srv.take_messages_to("#onuw").join("\n");
-    assert!(chan_out.contains("🌅 DAWN — Votes: Alice (1), Bob (1), Carol (1) · Nobody died!"));
+    assert!(chan_out.contains("🗳️ VOTING — Votes: Alice (1), Bob (1), Carol (1) · Nobody died!"));
     assert!(chan_out.contains("🏆 Winners: Alice (Village), Bob (Village), Carol (Village)"));
     assert!(chan_out.contains("Round complete!"));
     assert!(chan_out.contains("!reveal"));
     assert!(!chan_out.contains('`'));
     // Full game record (center cards, roles, and chronicle) must NOT be spoiled before `!reveal`:
-    assert!(!chan_out.contains("🌅 DAWN REVEAL"));
+    assert!(!chan_out.contains("🗳️ VOTING REVEAL"));
     assert!(!chan_out.contains("📜 What Happened:"));
     assert!(!chan_out.contains("Insomniac"));
     assert!(!chan_out.contains("🃏 Roles:"));
@@ -91,7 +91,7 @@ async fn full_lobby_custom_deck_to_dawn_chronicle_and_abort_cleanup() {
     srv.chat("Bob", "#onuw", "!reveal");
     srv.settle().await;
     let reveal_out = srv.take_messages_to("#onuw").join("\n");
-    assert!(reveal_out.contains("🌅 DAWN REVEAL — Center:"));
+    assert!(reveal_out.contains("🗳️ VOTING REVEAL — Center:"));
     assert!(reveal_out.contains("🃏 Roles: Alice: Insomniac · Bob: Insomniac · Carol: Insomniac"));
     assert!(reveal_out.contains("📜 What Happened:"));
     assert!(reveal_out.contains("Insomniac (Alice) checked their card and saw Insomniac."));

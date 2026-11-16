@@ -22,7 +22,7 @@ async fn bodyguard_protects_target_from_execution_and_deflects_to_runner_up() {
 
     // Alice (Bodyguard) points at Carol (3 votes); Bob (Werewolf) has 2 votes -> Carol survives, Bob dies!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Carol")),
@@ -65,7 +65,7 @@ async fn bodyguard_also_blocks_hunter_shot_on_protected_target() {
 
     // Alice (Bodyguard) shields Carol (2 votes); Bob (Hunter, 2 votes) dies and shoots Carol -> blocked!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Carol")),

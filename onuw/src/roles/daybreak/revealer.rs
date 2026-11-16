@@ -13,13 +13,13 @@ impl Role for Revealer {
             "Revealer",
             GameSet::Daybreak,
             Team::Village,
-            "Flip another player's card face up for Dawn—unless it is Evil or Independent, in which case you flip it back face down!",
+            "Flip another player's card face up for Day—unless it is Evil or Independent, in which case you flip it back face down!",
         )
     }
 
     fn summary_for_deck(&self, roster: &Roster) -> String {
         format!(
-            "Flip another player's card face up for Dawn—unless it is {}, in which case you flip it back face down!",
+            "Flip another player's card face up for Day—unless it is {}, in which case you flip it back face down!",
             roster.describe_non_village_roles()
         )
     }
@@ -102,7 +102,7 @@ impl Revealer {
                 ctx.dm(
                     seat,
                     irc_format!(
-                        "🔦 {} is {} — left FACE UP for everyone to see at Dawn!",
+                        "🔦 {} is {} — left FACE UP for everyone to see during Day!",
                         target_nick.as_str().bold(),
                         card.display_for_peek(),
                     ),

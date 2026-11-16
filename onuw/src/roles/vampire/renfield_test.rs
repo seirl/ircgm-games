@@ -48,7 +48,7 @@ async fn renfield_sees_message_when_no_vampires_are_in_play() {
 
     // With 0 Vampires in play, Renfield is on Team::Village and wins with Village when nobody dies!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Bob")),

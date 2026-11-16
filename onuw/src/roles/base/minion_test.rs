@@ -39,7 +39,7 @@ async fn solo_minion_with_zero_wolves_follows_official_onuw_victory_rules() {
     let night = h.spawn_night();
     let report = h.finish_night(night).await;
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Bob")),
@@ -63,7 +63,7 @@ async fn solo_minion_with_zero_wolves_follows_official_onuw_victory_rules() {
     let night2 = h2.spawn_night();
     let report2 = h2.finish_night(night2).await;
     let dawn2 = h2
-        .resolve_dawn(
+        .resolve_voting(
             report2,
             &[
                 ("Alice", Some("Bob")),
@@ -83,7 +83,7 @@ async fn solo_minion_with_zero_wolves_follows_official_onuw_victory_rules() {
     let night3 = h3.spawn_night();
     let report3 = h3.finish_night(night3).await;
     let dawn3 = h3
-        .resolve_dawn(
+        .resolve_voting(
             report3,
             &[
                 ("Alice", Some("Bob")),

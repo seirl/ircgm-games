@@ -10,7 +10,7 @@ use futures::FutureExt as _;
 use ircgm::prelude::*;
 use tokio::time::Instant;
 
-use crate::dawn::GameReveal;
+use crate::voting::GameReveal;
 use crate::day::is_active_in_room;
 use crate::deck::{parse_role_spec_tokens, DeckBase, DeckSpec};
 use crate::game::{run_single_game_tracked, GameConfig, PlayOutcome, MAX_PLAYERS, MIN_PLAYERS};

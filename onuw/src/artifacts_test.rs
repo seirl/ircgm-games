@@ -39,7 +39,7 @@ async fn token_of_mute_allows_gestures_and_punctuation_while_words_forfeit_perso
     h.day_chat("Alice", "Let's vote Carol!").await;
 
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Carol")),
@@ -72,7 +72,7 @@ async fn token_of_mute_allows_gestures_and_punctuation_while_words_forfeit_perso
 
     h2.day_action("Bob", "points at Carol because wolf").await;
     let dawn2 = h2
-        .resolve_dawn(
+        .resolve_voting(
             report2,
             &[
                 ("Alice", Some("Carol")),
@@ -122,7 +122,7 @@ async fn shroud_of_shame_enforces_turning_around_and_no_player_nicks_with_word_b
     h.day_chat("Rob", "!vote Carol").await;
 
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Eve", Some("Carol")),
@@ -155,7 +155,7 @@ async fn shroud_of_shame_enforces_turning_around_and_no_player_nicks_with_word_b
     h2.day_chat("Rob", "Carol: what role were you?").await;
 
     let dawn2 = h2
-        .resolve_dawn(
+        .resolve_voting(
             report2,
             &[
                 ("Eve", Some("Carol")),
@@ -188,7 +188,7 @@ async fn shroud_of_shame_enforces_turning_around_and_no_player_nicks_with_word_b
         .insert_artifact_for_test(h3.seat_of("Rob"), Artifact::ShroudOfShame);
 
     let dawn3 = h3
-        .resolve_dawn(
+        .resolve_voting(
             report3,
             &[
                 ("Eve", Some("Carol")),
@@ -321,7 +321,7 @@ async fn public_channel_voting_works_and_exempts_shroud_of_shame_and_token_of_mu
     assert_eq!(votes, vec![Some(2), Some(2), Some(0)]);
 
     let _ = h.srv.take_messages_to("#onuw");
-    let outcome = crate::dawn::resolve_and_announce_winners(
+    let outcome = crate::voting::resolve_and_announce_winners(
         &h.room,
         &h.roster,
         report.board,

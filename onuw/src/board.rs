@@ -111,7 +111,7 @@ impl Card {
         self.face
     }
 
-    /// The role this card counts as for team, ability, and victory rules at Dawn.
+    /// The role this card counts as for team, ability, and victory rules during Voting.
     pub fn effective_role(self) -> &'static dyn Role {
         self.became.unwrap_or(self.face)
     }
@@ -338,7 +338,7 @@ pub fn format_role_slice_styled(roles: &[&'static dyn Role]) -> Text {
     Text::join(&parts, ", ".grey())
 }
 
-/// Complete tabletop state across Dusk, Night, Day, and Dawn.
+/// Complete tabletop state across Dusk, Night, Day, and Voting.
 ///
 /// All fields are private to `board` so Dusk/Night role code can only read or mutate tabletop state
 /// through access-checked [`crate::role::PromptCtx`], [`crate::role::GroupPromptCtx`], and [`BoardMut`].
@@ -520,7 +520,7 @@ impl BoardCards {
     }
 
     /// True if `seat` holds a role-changing `Artifact` (`Claw`, `Brand`, `Cudgel`), which overrides
-    /// both Dusk `Mark`s and printed/copied Dawn role abilities.
+    /// both Dusk `Mark`s and printed/copied Voting role abilities.
     pub fn has_role_override_artifact(&self, seat: usize) -> bool {
         self.artifacts
             .get(&seat)

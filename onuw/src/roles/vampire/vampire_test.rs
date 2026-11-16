@@ -146,7 +146,7 @@ async fn priest_pickpocket_marksman_instigator_cupid_diseased_master_and_assassi
 
     // Kill Carol (who now holds Mark of the Assassin) -> Assassin Alice wins!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Carol")),
@@ -196,7 +196,7 @@ async fn priest_pickpocket_marksman_instigator_cupid_diseased_master_and_assassi
     //   so Eve forfeits her win! Meanwhile Alice (`Team::Vampire` + `Mark::Traitor`) survived while fellow Vampire Bob died
     //   -> Alice ALSO wins as Traitor!
     let dawn2 = h2
-        .resolve_dawn(
+        .resolve_voting(
             report2,
             &[
                 ("Alice", Some("Carol")),

@@ -44,7 +44,7 @@ async fn role_retriever_runs_after_robber_and_dawn_withholds_chronicle_from_chan
 
     // Verify Dawn channel output withholds the chronicle while `reveal_text()` holds the full `📜 What Happened:` log:
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Dave")),
@@ -128,7 +128,7 @@ async fn rapscallion_center_peek_and_mad_scientist_intern_co_win_blocking_all_te
     // Even when BOTH Alice (Rapscallion, Villain) AND Bob (Mad Scientist) die on a 2-2 tie,
     // Mad Scientist & Intern block ALL teams (including Village!) so ONLY Bob and Carol win!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Bob")),

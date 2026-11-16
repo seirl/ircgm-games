@@ -1,4 +1,4 @@
-//! Thin single-game orchestrator wiring together `lobby`, `deck`, `night`, `day`, and `dawn`.
+//! Thin single-game orchestrator wiring together `lobby`, `deck`, `night`, `day`, and `voting`.
 
 use std::collections::HashSet;
 use std::convert::Infallible;
@@ -7,7 +7,7 @@ use std::time::Duration;
 use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
-use crate::dawn::{resolve_and_announce_winners, GameReveal};
+use crate::voting::{resolve_and_announce_winners, GameReveal};
 use crate::day::{run_day_phase, run_voting_phase};
 use crate::deck::DeckSpec;
 use crate::lobby::{recruit_players_tracked, send_active_game_help, send_single_role_info, LobbyPhaseTracker};
@@ -234,7 +234,7 @@ pub async fn run_dealt_game(
             day_channel_log.push(msg);
         }
 
-        // Phase 5: Dawn Vote Results & Victory Resolution (full chronicle deferred to `!reveal`)
+        // Phase 5: Voting Results & Victory Resolution (full chronicle deferred to `!reveal`)
         if let Some(g) = mod_guard.take() {
             let _ = g.restore();
         }

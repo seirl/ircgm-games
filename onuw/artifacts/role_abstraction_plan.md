@@ -2,10 +2,10 @@
 
 ## Why We Are Refactoring
 
-The original `Role` trait (`onuw/src/role.rs`) modeled Base ONUW ("1 card per seat, at most 1 Night wake, card-only Dawn hooks"), which leaked across 4 expansions in five ways:
+The original `Role` trait (`onuw/src/role.rs`) modeled Base ONUW ("1 card per seat, at most 1 Night wake, card-only Voting hooks"), which leaked across 4 expansions in five ways:
 
 1. **`RoleTag` conflated three orthogonal jobs:** pack-wake scheduling (`WolfPack` pulling `WEREWOLF` into the schedule via an `ALL_ROLES` scan), Night visibility (`DreamWolfThumb` bolted on because `Dream Wolf` sleeps while still appearing as a Wolf), and deck capability (`PlacesMarks`). Meanwhile `Role::wake() -> Option<Wake>` allowed at most one wake per card, forcing two-step specialists (`Alpha Wolf`, `Mystic Wolf`, `Count`, `Temptress`, `Dr. Peeker`, `Rapscallion`, `Groob`, `Zerb`) to smuggle their pack wake via `RoleTag`.
-2. **`Role` was extensible, while `Mark` and `Artifact` were hardcoded switches:** `board.rs` and `dawn.rs` accumulated bespoke branches for `Mark::Vampire`, `Mark::Love`, `Mark::Traitor`, `Mark::Disease`, `"diseased"`, `"renfield"`, `"groob"`, `"zerb"`, `"leader"`, `CudgelOfTheTanner`, `Mask of Muting`, and `Shroud of Shame`. `VictoryCtx::find_seats` also missed `Artifact`/`Mark::Vampire` overrides, causing `Apprentice Assassin` to diverge from `Groob`/`Zerb`/`Intern`.
+2. **`Role` was extensible, while `Mark` and `Artifact` were hardcoded switches:** `board.rs` and `voting.rs` accumulated bespoke branches for `Mark::Vampire`, `Mark::Love`, `Mark::Traitor`, `Mark::Disease`, `"diseased"`, `"renfield"`, `"groob"`, `"zerb"`, `"leader"`, `CudgelOfTheTanner`, `Mask of Muting`, and `Shroud of Shame`. `VictoryCtx::find_seats` also missed `Artifact`/`Mark::Vampire` overrides, causing `Apprentice Assassin` to diverge from `Groob`/`Zerb`/`Intern`.
 3. **`BoardCards` exposed raw `pub` fields and expansion-specific globals:** `oracle_omen`, `apprentice_assassin_marked`, `extra_evil_card`, `extra_villain_card`, and `viewed_or_moved_actors` lived directly on `BoardCards`, and every role had to manually check `shielded` twice and remember `record_card_interaction` for `Aura Seer`.
 4. **Coarse `.mutates()` / `.reads_board()` flags caused unnecessary 25s tier splits:** Because the entire `BoardCards` was treated as a single dependency bit, roles touching disjoint tabletop zones were serialized (e.g. in 4p *Artifact Chaos*, `Paranormal Investigator` only writes `card.became` while `Witch`'s prompt only reads `center[0..3]`, yet they ran in separate 25s tiers; `Psychic` reading `oracle_omen` split after `Alien`/`Alpha Wolf`; `Curator` split into a solo 25s tier at the end of almost every game).
 5. **Unused vs. missing hooks:** `Role::on_deal` had zero implementations across all 59 roles, while dynamic alignment, post-vote win forfeits, and deck-hazard metadata had no trait representation (forcing hardcoded ID lists in `board.rs` and `scenarios.rs`).
@@ -29,7 +29,7 @@ The original `Role` trait (`onuw/src/role.rs`) modeled Base ONUW ("1 card per se
     2. `Doppelgänger -> Mystic Wolf` wakes on Mystic Wolf's post-pack turn (`CopyTiming::OnRoleTurn`, `#2C`).
     3. `Thing` and `Annoying Lad` both use `CopyTiming::Immediate`.
     4. `Apprentice Assassin` uses the unified override-aware `board.active_holders(&ASSASSIN)` query.
-  - **Intra-expansion coupling:** Coupled sibling roles inside the same `src/roles/<expansion>/` directory may reference each other directly (`Alien` spotting `Cow`, `Villains` spotting `Evilometer`, `Leader` checking `Groob`/`Zerb`), while the engine (`board.rs`, `night.rs`, `dawn.rs`, `deck.rs`, `scenarios.rs`) becomes 100% role-agnostic.
+  - **Intra-expansion coupling:** Coupled sibling roles inside the same `src/roles/<expansion>/` directory may reference each other directly (`Alien` spotting `Cow`, `Villains` spotting `Evilometer`, `Leader` checking `Groob`/`Zerb`), while the engine (`board.rs`, `night.rs`, `voting.rs`, `deck.rs`, `scenarios.rs`) becomes 100% role-agnostic.
 
 ---
 
@@ -111,7 +111,7 @@ A `WakeStep` starts a new `ScheduledTier` iff:
 
 For `TierKind::DoppelgangerImmediate`, `resolve_writes` is the union of `resolve_writes` across all `CopyTiming::Immediate` steps present in `deck`.
 
-### 3. `EndgameModifier` & Self-Describing `RoleInfo` (`src/role.rs`, `src/marks.rs`, `src/artifacts.rs`, `src/dawn.rs`)
+### 3. `EndgameModifier` & Self-Describing `RoleInfo` (`src/role.rs`, `src/marks.rs`, `src/artifacts.rs`, `src/voting.rs`)
 
 ```rust
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -166,8 +166,8 @@ Each slice leaves the entire workspace compiling and `cargo test` green before m
 
 1. **Slice 1 — `EndgameModifier` Pipeline + Self-Describing `RoleInfo`:**
    - Unify `Role`, `Mark`, and `Artifact` endgame hooks (`adjust_alignment`, `vote_protection`, `on_death`, `victory_claim`, `modify_winners`).
-   - Move `Renfield`, `Groob`, `Zerb`, `Leader`, and `Diseased` special cases out of `board.rs` / `dawn.rs` into their own role files, and `Love` / `Traitor` / `Disease` / `Cudgel` / `Mute` / `Shame` into `marks.rs` and `artifacts.rs`.
-   - Add `board.active_holders(role)` and `RoleInfo` deck metadata; delete all hardcoded role-ID checks in `board.rs`, `dawn.rs`, and `scenarios.rs`; delete unused `Role::on_deal`.
+   - Move `Renfield`, `Groob`, `Zerb`, `Leader`, and `Diseased` special cases out of `board.rs` / `voting.rs` into their own role files, and `Love` / `Traitor` / `Disease` / `Cudgel` / `Mute` / `Shame` into `marks.rs` and `artifacts.rs`.
+   - Add `board.active_holders(role)` and `RoleInfo` deck metadata; delete all hardcoded role-ID checks in `board.rs`, `voting.rs`, and `scenarios.rs`; delete unused `Role::on_deal`.
 2. **Slice 2 — `NightFaction` + Multi-Step `WakeStep` + Dusk `Mark` Hooks:**
    - Replace `RoleTag` (`DreamWolfThumb`, `PlacesMarks`, `*Pack`) with `NightFaction` + `places_marks: bool`.
    - Replace `Role::wake() -> Option<Wake>` with `Role::steps() -> &'static [WakeStep]` and shared pack steps (`WOLF_PACK_STEP`, `VAMPIRE_PACK_STEP`, `ALIEN_PACK_STEP`, `VILLAIN_PACK_STEP`).

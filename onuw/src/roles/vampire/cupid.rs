@@ -14,7 +14,7 @@ impl Role for Cupid {
             "Cupid",
             GameSet::Vampire,
             Team::Village,
-            "Wake in Dusk to give 2 players the Mark of Love (if one Lover dies at Dawn, the other dies of heartbreak!).",
+            "Wake in Dusk to give 2 players the Mark of Love (if one Lover dies in the vote, the other dies of heartbreak!).",
         )
         .places_marks()
     }

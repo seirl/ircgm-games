@@ -134,8 +134,8 @@ impl Team {
 ///
 /// For example:
 /// - `Dream Wolf` has `Some(NightFaction::Werewolf)` (seen by Wolves & `Minion`) while sleeping (`steps() == &[]`).
-/// - `Synthetic Alien` has `Team::Independent` at Dawn, but `Some(NightFaction::Alien)` during Night.
-/// - `Minion` has `Team::Werewolf` at Dawn, but `None` during Night.
+/// - `Synthetic Alien` has `Team::Independent` at Voting, but `Some(NightFaction::Alien)` during Night.
+/// - `Minion` has `Team::Werewolf` at Voting, but `None` during Night.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum NightFaction {
     Werewolf,
@@ -554,7 +554,7 @@ impl WakeStep {
 }
 
 // ============================================================================
-// Night & Dawn Hook Contexts
+// Night & Voting Hook Contexts
 // ============================================================================
 
 fn seats_with_faction_in(
@@ -969,7 +969,7 @@ pub struct VoteProtection {
 }
 
 pub enum DeathEffect {
-    /// Immediately kills another seat (`Hunter`, `Mark::Love`), cascading in the Dawn fixpoint loop.
+    /// Immediately kills another seat (`Hunter`, `Mark::Love`), cascading in the Voting fixpoint loop.
     Kill {
         seat: usize,
         respects_protection: bool,

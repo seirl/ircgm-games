@@ -1,5 +1,5 @@
 //! Lightweight deterministic test harness for unit-testing individual ONUW [`Role`]s,
-//! fixed-clock Dusk/Night tier scheduling, timing-attack invariance, and Dawn victory resolution.
+//! fixed-clock Dusk/Night tier scheduling, timing-attack invariance, and Voting victory resolution.
 
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
@@ -11,7 +11,7 @@ use tokio::time::Instant;
 
 use crate::artifacts::Artifact;
 use crate::board::{BoardCards, Card, Roster, SeatInfo};
-use crate::dawn::resolve_and_announce_winners;
+use crate::voting::resolve_and_announce_winners;
 use crate::game::GameSummary;
 use crate::marks::Mark;
 use crate::night::{run_night_phase, NightTimings};
@@ -270,12 +270,12 @@ impl OnuwTestHarness {
         self.day_channel_log.push(msg);
     }
 
-    /// Runs Dawn voting/death/victory resolution on `night_report` with explicit `(voter_nick, Option<target_nick>)` votes.
-    pub async fn resolve_dawn(
+    /// Runs Voting death/victory resolution on `night_report` with explicit `(voter_nick, Option<target_nick>)` votes.
+    pub async fn resolve_voting(
         &mut self,
         night_report: NightReport,
         ballots: &[(&str, Option<&str>)],
-    ) -> DawnReport {
+    ) -> VotingReport {
         let mut votes = vec![None; self.roster.len()];
         for &(voter, target_opt) in ballots {
             let v_idx = self
@@ -301,7 +301,7 @@ impl OnuwTestHarness {
         self.srv.settle().await;
         let channel_lines = self.srv.take_messages_to(TEST_ROOM);
 
-        DawnReport {
+        VotingReport {
             summary,
             channel_lines,
         }
@@ -370,12 +370,12 @@ impl NightReport {
     }
 }
 
-pub struct DawnReport {
+pub struct VotingReport {
     pub summary: GameSummary,
     pub channel_lines: Vec<String>,
 }
 
-impl DawnReport {
+impl VotingReport {
     pub fn winner_nicks(&self, roster: &Roster) -> Vec<String> {
         self.summary
             .winners

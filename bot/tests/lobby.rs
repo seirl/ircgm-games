@@ -177,12 +177,12 @@ async fn lobby_holds_back_onuw_chronicle_until_reveal_command() {
     assert!(post_vote.contains("🏆 Winners: Alice (Village), Bob (Village), Carol (Village)"));
     assert!(post_vote.contains("!reveal"));
     assert!(!post_vote.contains("📜 What Happened:"));
-    assert!(!post_vote.contains("🌅 DAWN REVEAL"));
+    assert!(!post_vote.contains("🗳️ VOTING REVEAL"));
 
     srv.chat("Carol", "#lobby", "!reveal");
     srv.settle().await;
     let revealed = srv.take_messages_to("#lobby").join("\n");
-    assert!(revealed.contains("🌅 DAWN REVEAL — Center:"));
+    assert!(revealed.contains("🗳️ VOTING REVEAL — Center:"));
     assert!(revealed.contains("📜 What Happened:"));
     assert!(revealed.contains("Insomniac (Alice) checked their card and saw Insomniac."));
 

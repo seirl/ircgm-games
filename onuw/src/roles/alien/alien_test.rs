@@ -45,7 +45,7 @@ async fn oracle_amplified_signals_doubles_psychic_vision_and_cow_and_aliens_spot
 
     // If Synthetic Alien (Eve) dies alongside Alien (Alice) on a 2-2 tie, Synthetic Alien wins ALONE (blocking Village too!):
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Eve")),
@@ -81,7 +81,7 @@ async fn leader_unanimous_alien_point_steals_victory_even_when_alien_dies() {
 
     // Even though Carol and Dave tie/kill Alice (2-2), BOTH Aliens (Alice & Bob) pointed at Leader Carol!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Carol")),
@@ -132,7 +132,7 @@ async fn groob_zerb_blob_mortician_and_tractor_beam_work() {
     // - Dave (now Mortician, neighbors Carol & Eve): Carol died & Dave survived -> Mortician WINS!
     // - Eve (now Blob at seat #5, <6 players -> Blob spans {Eve, left=Dave}): both survived -> Blob WINS!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Carol")),
@@ -161,7 +161,7 @@ async fn solo_groob_joins_alien_team_and_leader_wins_when_both_groob_and_zerb_su
         .dms_to("Alice")
         .contains("you are on the regular Alien team"));
     let dawn1 = h1
-        .resolve_dawn(
+        .resolve_voting(
             report1,
             &[
                 ("Alice", Some("Bob")),
@@ -190,7 +190,7 @@ async fn solo_groob_joins_alien_team_and_leader_wins_when_both_groob_and_zerb_su
         .dms_to("Carol")
         .contains("Groob & Zerb are pointing at each other (Alice, Bob)"));
     let dawn2 = h2
-        .resolve_dawn(
+        .resolve_voting(
             report2,
             &[
                 ("Alice", Some("Dave")),

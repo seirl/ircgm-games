@@ -102,7 +102,7 @@ async fn hunter_death_shot_kills_voted_werewolf_and_tanner_co_victory_works() {
     // -> Alice and Carol die from the vote, and Alice's Hunter shot kills Bob (Werewolf)!
     // -> Both Tanner (Carol) AND Village (Alice, Dave) win!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Bob")),

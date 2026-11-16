@@ -71,7 +71,7 @@ async fn witch_revealer_curator_aura_seer_and_bodyguard_work_end_to_end() {
     // At Dawn: Carol (now Werewolf!) gets 2 votes, Alice gets 3 votes,
     // BUT Eve (Bodyguard) points at Alice! So Alice survives and Carol (runner-up with 2 votes) dies!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Carol")),
@@ -110,7 +110,7 @@ async fn bodyguard_deflects_execution_to_runner_up_with_at_least_two_votes() {
     // Bob gets 2 votes (Alice=Bodyguard, Carol), Carol gets 2 votes (Bob, Dave), Alice gets 1 vote (Eve):
     // Bodyguard Alice pointed at Bob -> Bob is protected, so ONLY Carol (2 votes) dies and Village wins!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Bob")),

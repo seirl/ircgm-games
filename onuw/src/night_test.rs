@@ -396,7 +396,7 @@ async fn role_override_artifacts_suppress_dawn_powers_and_override_dusk_marks() 
     // Alice (Claw Prince) and Bob (Brand Hunter, voting Carol) tie with 2 votes each and BOTH die:
     // Alice is NOT immune as Prince, and Bob does NOT shoot Carol as Hunter!
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Bob")),
@@ -427,7 +427,7 @@ async fn role_override_artifacts_suppress_dawn_powers_and_override_dusk_marks() 
     rep2.board
         .insert_artifact_for_test(bob2, Artifact::BrandOfTheVillager);
     let dawn2 = h2
-        .resolve_dawn(
+        .resolve_voting(
             rep2,
             &[
                 ("Alice", Some("Bob")),
@@ -462,7 +462,7 @@ async fn epic_battle_eliminates_runner_up_and_tanner_blocks_forced_team_victory(
     report.board.set_mark_for_test(alice_idx, Mark::Clarity);
 
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Bob")),   // Bob gets 1 vote (sole 2nd place!)
@@ -493,7 +493,7 @@ async fn epic_battle_eliminates_runner_up_and_tanner_blocks_forced_team_victory(
 
     // Alien Alice points at Leader Bob, while Bob & Dave execute Tanner Carol (2 votes):
     let dawn_lead = h_lead
-        .resolve_dawn(
+        .resolve_voting(
             rep_lead,
             &[
                 ("Alice", Some("Bob")),

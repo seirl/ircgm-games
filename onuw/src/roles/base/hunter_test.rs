@@ -18,7 +18,7 @@ async fn killed_hunter_takes_down_their_vote_target() {
     let report = h.finish_night(night).await;
 
     let dawn = h
-        .resolve_dawn(
+        .resolve_voting(
             report,
             &[
                 ("Alice", Some("Bob")),
