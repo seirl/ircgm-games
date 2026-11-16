@@ -38,7 +38,7 @@ impl Alien {
         ctx: GroupPromptCtx<'a>,
     ) -> BoxFuture<'a, Result<GroupEffect>> {
         Box::pin(async move {
-            let visible_aliens = ctx.seats_with_tag(RoleTag::AlienPack);
+            let visible_aliens = ctx.waking_seats_with_tag(RoleTag::AlienPack);
             let alien_list = ctx.roster.format_indices(&visible_aliens);
             let cow_seats = ctx.seats_with_role(&super::cow::COW);
             let cow_list = ctx.roster.format_indices(&cow_seats);
@@ -68,8 +68,13 @@ impl Alien {
                 }
             }
 
-            let non_aliens: Vec<usize> = (0..ctx.roster.len())
-                .filter(|s| !visible_aliens.contains(s) && !ctx.shielded.contains(s))
+            let non_alien_seats: Vec<usize> = (0..ctx.roster.len())
+                .filter(|s| !visible_aliens.contains(s))
+                .collect();
+            let non_aliens: Vec<usize> = non_alien_seats
+                .iter()
+                .copied()
+                .filter(|s| !ctx.shielded.contains(s))
                 .collect();
             let directive = if non_aliens.is_empty() {
                 AlienDirective::None
@@ -81,12 +86,12 @@ impl Alien {
                     .unwrap_or(active_seats[0]);
                 let (roster, shielded) = (ctx.roster, ctx.shielded);
                 let prompt = irc_format!(
-                    "👽 Mother Ship Directive: Reply {} (or {}) to bio-scan a non-Alien, {} to swap two non-Aliens, or {}! Players: {}",
+                    "👽 Mother Ship Directive: Reply {} (or {}) to bio-scan a non-Alien, {} to swap two non-Aliens, or {}! Non-Aliens: {}",
                     "scan <nick>".bold(),
                     "<nick>".bold(),
                     "beam <nick1> <nick2>".bold(),
                     "pass".bold(),
-                    roster.format_players_marking_shields(shielded),
+                    roster.format_indices_marking_shields(&non_alien_seats, shielded),
                 );
                 let ans = ctx
                     .ask(commander, prompt, move |m| {

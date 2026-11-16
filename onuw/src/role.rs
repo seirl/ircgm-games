@@ -454,6 +454,7 @@ pub struct PromptCtx<'a> {
     pub ask_cfg: &'a AskConfig,
     pub deadline: Instant,
     pub shielded: &'a HashSet<usize>,
+    pub feared_seats: &'a HashSet<usize>,
     pub waking_roles: &'a [&'static dyn Role],
     pub(crate) live_board: Option<&'a BoardCards>,
 }
@@ -497,9 +498,17 @@ impl<'a> PromptCtx<'a> {
         )
     }
 
-    /// All seats holding `tag` (initial role or copied by `Copycat` / `Doppelgänger`).
+    /// All seats holding `tag` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
     pub fn seats_with_tag(&self, tag: RoleTag) -> Vec<usize> {
         seats_with_tag_in(self.waking_roles, tag)
+    }
+
+    /// Waking seats holding `tag` (excluding seats suppressed by `Mark::Fear`).
+    pub fn waking_seats_with_tag(&self, tag: RoleTag) -> Vec<usize> {
+        self.seats_with_tag(tag)
+            .into_iter()
+            .filter(|s| !self.feared_seats.contains(s))
+            .collect()
     }
 }
 

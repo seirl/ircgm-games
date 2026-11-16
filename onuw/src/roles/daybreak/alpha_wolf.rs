@@ -29,14 +29,19 @@ impl Role for AlphaWolf {
 impl AlphaWolf {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
-            let mut wolves = ctx.seats_with_tag(RoleTag::WolfPack);
-            for dw in ctx.seats_with_tag(RoleTag::DreamWolfThumb) {
+            let mut wolves = ctx.waking_seats_with_tag(RoleTag::WolfPack);
+            for dw in ctx.waking_seats_with_tag(RoleTag::DreamWolfThumb) {
                 if !wolves.contains(&dw) {
                     wolves.push(dw);
                 }
             }
-            let valid_targets: Vec<usize> = (0..ctx.roster.len())
-                .filter(|&i| i != seat && !ctx.shielded.contains(&i) && !wolves.contains(&i))
+            let non_wolves: Vec<usize> = (0..ctx.roster.len())
+                .filter(|&i| i != seat && !wolves.contains(&i))
+                .collect();
+            let valid_targets: Vec<usize> = non_wolves
+                .iter()
+                .copied()
+                .filter(|i| !ctx.shielded.contains(i))
                 .collect();
 
             if valid_targets.is_empty() {
@@ -46,9 +51,9 @@ impl AlphaWolf {
 
             let (roster, shielded) = (ctx.roster, ctx.shielded);
             let prompt = irc_format!(
-                "🐺 Alpha Wolf: You MUST swap the center Werewolf card onto a non-Wolf player ({})! Players: {}",
+                "🐺 Alpha Wolf: You MUST swap the center Werewolf card onto a non-Wolf player ({})! Non-Wolves: {}",
                 "<nick>".bold(),
-                roster.format_players_marking_shields(shielded),
+                roster.format_indices_marking_shields(&non_wolves, shielded),
             );
             let valid_for_match = valid_targets.clone();
             let ans = ctx

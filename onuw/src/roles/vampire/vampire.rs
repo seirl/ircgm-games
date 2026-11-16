@@ -63,9 +63,9 @@ impl Vampire {
             } else {
                 let solo_coven = coven.len() == 1;
                 let coven_names = ctx.roster.format_indices(&full_coven);
-                let players_str = ctx.roster.format_players();
+                let non_vamps_str = ctx.roster.format_indices(&non_vampires);
                 let prompt = irc_format!(
-                    "{} {} — Whisper here to coordinate, or type {} to turn a non-Vampire! Players: {players_str}",
+                    "{} {} — Whisper here to coordinate, or type {} to turn a non-Vampire! Non-Vampires: {non_vamps_str}",
                     "🧛 Vampire Coven:".bold().red(),
                     coven_names.as_str().bold(),
                     "!mark <nick>".bold(),

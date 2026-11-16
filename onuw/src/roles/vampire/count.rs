@@ -48,11 +48,11 @@ impl Count {
             }
 
             let roster = ctx.roster;
+            let non_vamps_str = roster.format_indices(&valid_targets);
             let valid_for_match = valid_targets.clone();
             let prompt = irc_format!(
-                "🦇 The Count: You MUST reply {} to place the Mark of Fear on a non-Vampire (suppressing their Night wake)! Players: {}",
+                "🦇 The Count: You MUST reply {} to place the Mark of Fear on a non-Vampire (suppressing their Night wake)! Non-Vampires: {non_vamps_str}",
                 "<nick>".bold(),
-                roster.format_players(),
             );
             let ans = ctx
                 .ask(prompt, move |m| match roster.resolve_nick(&m.text) {

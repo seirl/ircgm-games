@@ -93,6 +93,8 @@ async fn temptress_dr_peeker_evilometer_role_retriever_and_annoying_lad_work() {
     h.reply_dm("Bob", "Eve").await;
 
     let report = h.finish_night(night).await;
+    // Temptress prompt excludes fellow waking Villains (Alice, Carol):
+    assert!(report.dms_to("Alice").contains("Non-Villains: Bob, Dave, Eve"));
     // Villains spot Evilometer (Dave), and Evilometer (Dave) beeps for adjacent Carol (Dr. Peeker):
     assert!(report.dms_to("Alice").contains("Dave holds the Evilometer"));
     assert!(report.dms_to("Carol").contains("Dave holds the Evilometer"));

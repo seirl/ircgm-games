@@ -118,6 +118,7 @@ async fn groob_zerb_blob_mortician_and_tractor_beam_work() {
     h.reply_dm("Eve", "self").await;
 
     let report = h.finish_night(night).await;
+    assert!(report.dms_to("Alice").contains("Non-Aliens: Dave, Eve"));
     assert_eq!(report.effective_role_at(&h.roster, "Dave"), "Mortician");
     assert_eq!(report.effective_role_at(&h.roster, "Eve"), "Blob");
     assert!(report.dms_to("Eve").contains("Your own card is Blob"));

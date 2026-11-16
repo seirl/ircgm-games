@@ -28,9 +28,14 @@ impl Role for Temptress {
 impl Temptress {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
-            let villains = ctx.seats_with_tag(RoleTag::VillainPack);
-            let valid_targets: Vec<usize> = (0..ctx.roster.len())
-                .filter(|&i| i != seat && !ctx.shielded.contains(&i) && !villains.contains(&i))
+            let villains = ctx.waking_seats_with_tag(RoleTag::VillainPack);
+            let non_villains: Vec<usize> = (0..ctx.roster.len())
+                .filter(|&i| i != seat && !villains.contains(&i))
+                .collect();
+            let valid_targets: Vec<usize> = non_villains
+                .iter()
+                .copied()
+                .filter(|i| !ctx.shielded.contains(i))
                 .collect();
 
             if valid_targets.is_empty() {
@@ -40,9 +45,9 @@ impl Temptress {
 
             let (roster, shielded) = (ctx.roster, ctx.shielded);
             let prompt = irc_format!(
-                "💋 Temptress: You MUST plant the extra Villain card on a non-Villain player ({})! Players: {}",
+                "💋 Temptress: You MUST plant the extra Villain card on a non-Villain player ({})! Non-Villains: {}",
                 "<nick>".bold(),
-                roster.format_players_marking_shields(shielded),
+                roster.format_indices_marking_shields(&non_villains, shielded),
             );
             let valid_for_match = valid_targets.clone();
             let ans = ctx

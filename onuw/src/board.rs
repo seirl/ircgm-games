@@ -137,6 +137,25 @@ impl Roster {
             .join(", ")
     }
 
+    pub fn format_indices_marking_shields(
+        &self,
+        indices: &[usize],
+        shielded: &HashSet<usize>,
+    ) -> String {
+        indices
+            .iter()
+            .map(|&i| {
+                let nick = self.seats[i].user.nick();
+                if shielded.contains(&i) {
+                    format!("{nick}🛡")
+                } else {
+                    nick
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     pub fn format_indices(&self, indices: &[usize]) -> String {
         indices
             .iter()

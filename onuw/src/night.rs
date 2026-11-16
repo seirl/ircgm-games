@@ -430,6 +430,7 @@ pub async fn run_night_phase(
 
                 let board_snap = &board;
                 let shielded_snap = &board.shielded;
+                let feared_snap = &feared_seats;
                 let waking_snap = waking_roles.as_slice();
                 let cfg_ref = &tier_cfg;
                 let futs = immediate_seats.iter().map(|&seat| async move {
@@ -448,6 +449,7 @@ pub async fn run_night_phase(
                                 ask_cfg: cfg_ref,
                                 deadline: tier_deadline,
                                 shielded: shielded_snap,
+                                feared_seats: feared_snap,
                                 waking_roles: waking_snap,
                                 live_board: wake.reads_live_board.then_some(board_snap),
                             };
@@ -509,6 +511,7 @@ pub async fn run_night_phase(
 
                 let board_snap = &board;
                 let shielded_snap = &board.shielded;
+                let feared_snap = &feared_seats;
                 let waking_snap = waking_roles.as_slice();
                 let cfg_ref = &tier_cfg;
 
@@ -524,6 +527,7 @@ pub async fn run_night_phase(
                             ask_cfg: cfg_ref,
                             deadline: tier_deadline,
                             shielded: shielded_snap,
+                            feared_seats: feared_snap,
                             waking_roles: waking_snap,
                             live_board: wake.reads_live_board.then_some(board_snap),
                         };
@@ -627,6 +631,7 @@ pub async fn run_night_phase(
                                         ask_cfg: cfg_ref,
                                         deadline: tier_deadline,
                                         shielded: shielded_snap,
+                                        feared_seats: feared_snap,
                                         waking_roles: waking_snap,
                                         live_board: wake.reads_live_board.then_some(board_snap),
                                     };
