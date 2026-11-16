@@ -39,10 +39,19 @@ impl ApprenticeSeer {
                     ),
                     |m| {
                         if Roster::is_pass(&m.text) {
-                            return AskMatch::accept(None);
+                            return AskMatch::accept_say(
+                                None,
+                                "🔮 Passed on viewing a center card.",
+                            );
                         }
                         match Roster::parse_center_slot(&m.text) {
-                            Some(c_idx) => AskMatch::accept(Some(c_idx)),
+                            Some(c_idx) => AskMatch::accept_say(
+                                Some(c_idx),
+                                format!(
+                                    "🔮 Locked in Center #{} — card reveals when the phase ends!",
+                                    c_idx + 1
+                                ),
+                            ),
                             None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
                         }
                     },

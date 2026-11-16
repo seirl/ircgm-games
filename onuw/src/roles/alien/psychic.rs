@@ -80,7 +80,13 @@ impl Psychic {
                                 Some(t) if shielded.contains(&t) => {
                                     AskMatch::reject("🛡️ That neighbor's mind is shielded!".yellow())
                                 }
-                                Some(t) => AskMatch::accept(t),
+                                Some(t) => AskMatch::accept_say(
+                                    t,
+                                    irc_format!(
+                                        "🧠 Locked in reading {}'s mind — vision arrives when the phase ends!",
+                                        roster.seats[t].user.nick().bold(),
+                                    ),
+                                ),
                                 None => AskMatch::reject("Reply left or right.".yellow()),
                             }
                         })

@@ -62,7 +62,10 @@ impl Mortician {
                     .ask(prompt, move |m| {
                         let raw = m.text.trim();
                         if Roster::is_pass(raw) {
-                            return AskMatch::accept(None);
+                            return AskMatch::accept_say(
+                                None,
+                                "⚰️ Passed — not peeking at any card.",
+                            );
                         }
                         let lower = raw.to_ascii_lowercase();
                         let target = match lower.as_str() {
@@ -75,7 +78,17 @@ impl Mortician {
                             Some(t) if shielded.contains(&t) => {
                                 AskMatch::reject("🛡️ That card is shielded!".yellow())
                             }
-                            Some(t) => AskMatch::accept(Some(t)),
+                            Some(t) if t == seat => AskMatch::accept_say(
+                                Some(t),
+                                "⚰️ Locked in peeking at your own card — reveals when the phase ends!",
+                            ),
+                            Some(t) => AskMatch::accept_say(
+                                Some(t),
+                                irc_format!(
+                                    "⚰️ Locked in peeking at {}'s card — reveals when the phase ends!",
+                                    roster.seats[t].user.nick().bold(),
+                                ),
+                            ),
                             None => AskMatch::reject(
                                 "Reply left, right, self, or pass.".yellow(),
                             ),

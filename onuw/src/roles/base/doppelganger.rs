@@ -52,7 +52,13 @@ impl Doppelganger {
                         Some(idx) if shielded.contains(&idx) => AskMatch::reject(
                             "🛡️ That player's card is shielded by the Sentinel!".yellow(),
                         ),
-                        Some(idx) => AskMatch::accept(idx),
+                        Some(idx) => AskMatch::accept_say(
+                            idx,
+                            irc_format!(
+                                "🎭 Locked in copying {} — role reveals when the phase ends!",
+                                roster.seats[idx].user.nick().bold(),
+                            ),
+                        ),
                         None => AskMatch::reject("Unknown player nickname.".yellow()),
                     },
                 )

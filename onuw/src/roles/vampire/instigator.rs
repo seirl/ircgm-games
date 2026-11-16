@@ -39,7 +39,10 @@ impl Instigator {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(
+                            None,
+                            "🐍 Passed — bestowed no Mark of the Traitor.",
+                        );
                     }
                     match roster.resolve_nick(&m.text) {
                         Some(idx) => AskMatch::accept_say(

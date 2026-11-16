@@ -45,7 +45,10 @@ impl RoleRetriever {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(
+                            None,
+                            "🐕 Passed — not swapping with anyone.",
+                        );
                     }
                     match roster.resolve_nick(&m.text) {
                         Some(idx) if idx == seat => {
@@ -54,7 +57,13 @@ impl RoleRetriever {
                         Some(idx) if shielded.contains(&idx) => {
                             AskMatch::reject("🛡️ Shielded players cannot be swapped!".yellow())
                         }
-                        Some(idx) => AskMatch::accept(Some(idx)),
+                        Some(idx) => AskMatch::accept_say(
+                            Some(idx),
+                            irc_format!(
+                                "🐕 Locked in swapping with {} — new card reveals when the phase ends!",
+                                roster.seats[idx].user.nick().bold(),
+                            ),
+                        ),
                         None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })

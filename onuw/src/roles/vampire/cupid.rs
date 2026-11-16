@@ -39,7 +39,10 @@ impl Cupid {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(
+                            None,
+                            "💘 Passed — bestowed no Marks of Love.",
+                        );
                     }
                     let parts: Vec<&str> = m.text.split_whitespace().collect();
                     if parts.len() != 2 {

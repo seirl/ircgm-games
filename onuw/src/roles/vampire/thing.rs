@@ -41,7 +41,7 @@ impl Thing {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(None, "👻 Passed — stayed quiet tonight.");
                     }
                     match m.text.trim().to_ascii_lowercase().as_str() {
                         "left" | "l" => AskMatch::accept_say(

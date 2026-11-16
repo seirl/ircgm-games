@@ -46,11 +46,17 @@ impl Pickpocket {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(None, "🤏 Passed — kept your own Mark.");
                     }
                     match roster.resolve_nick(&m.text) {
                         Some(idx) if idx == seat => AskMatch::reject("Pick ANOTHER player!".yellow()),
-                        Some(idx) => AskMatch::accept(Some(idx)),
+                        Some(idx) => AskMatch::accept_say(
+                            Some(idx),
+                            irc_format!(
+                                "🤏 Locked in swapping Marks with {} — reveals when the phase ends!",
+                                roster.seats[idx].user.nick().bold(),
+                            ),
+                        ),
                         None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })

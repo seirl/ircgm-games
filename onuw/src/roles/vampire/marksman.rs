@@ -65,7 +65,10 @@ impl Marksman {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(MarksmanChoice::Pass);
+                        return AskMatch::accept_say(
+                            MarksmanChoice::Pass,
+                            "🎯 Passed — not inspecting anyone.",
+                        );
                     }
                     let parts: Vec<&str> = m.text.split_whitespace().collect();
                     let (card_tok, mark_tok) = match parts.as_slice() {
@@ -119,10 +122,32 @@ impl Marksman {
                         (Some(c), Some(mk)) if c == mk => AskMatch::reject(
                             "Card target and Mark target must be DIFFERENT players!".yellow(),
                         ),
-                        (Some(c), Some(mk)) => AskMatch::accept(MarksmanChoice::CardAndMark(c, mk)),
-                        (Some(c), None) => AskMatch::accept(MarksmanChoice::CardOnly(c)),
-                        (None, Some(mk)) => AskMatch::accept(MarksmanChoice::MarkOnly(mk)),
-                        (None, None) => AskMatch::accept(MarksmanChoice::Pass),
+                        (Some(c), Some(mk)) => AskMatch::accept_say(
+                            MarksmanChoice::CardAndMark(c, mk),
+                            irc_format!(
+                                "🎯 Locked in viewing {}'s card and {}'s mark — reveals when the phase ends!",
+                                roster.seats[c].user.nick().bold(),
+                                roster.seats[mk].user.nick().bold(),
+                            ),
+                        ),
+                        (Some(c), None) => AskMatch::accept_say(
+                            MarksmanChoice::CardOnly(c),
+                            irc_format!(
+                                "🎯 Locked in viewing {}'s card — reveals when the phase ends!",
+                                roster.seats[c].user.nick().bold(),
+                            ),
+                        ),
+                        (None, Some(mk)) => AskMatch::accept_say(
+                            MarksmanChoice::MarkOnly(mk),
+                            irc_format!(
+                                "🎯 Locked in viewing {}'s mark — reveals when the phase ends!",
+                                roster.seats[mk].user.nick().bold(),
+                            ),
+                        ),
+                        (None, None) => AskMatch::accept_say(
+                            MarksmanChoice::Pass,
+                            "🎯 Passed — not inspecting anyone.",
+                        ),
                     }
                 })
                 .await?;

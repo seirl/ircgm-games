@@ -46,7 +46,10 @@ impl VillageIdiot {
             let ans = ctx
                 .ask(prompt, |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(
+                            None,
+                            "🤪 Passed — left all cards in place.",
+                        );
                     }
                     match m.text.trim().to_ascii_lowercase().as_str() {
                         "left" | "l" | "-1" => AskMatch::accept_say(

@@ -38,7 +38,7 @@ impl Witch {
                     ),
                     |m| {
                         if Roster::is_pass(&m.text) {
-                            return AskMatch::accept(None);
+                            return AskMatch::accept_say(None, "🧙‍♀️ Passed — brewed nothing tonight.");
                         }
                         match Roster::parse_center_slot(&m.text) {
                             Some(c_idx) => AskMatch::accept(Some(c_idx)),

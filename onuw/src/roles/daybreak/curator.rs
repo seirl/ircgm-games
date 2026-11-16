@@ -43,7 +43,7 @@ impl Curator {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(None, "🏺 Passed — placed no Artifact.");
                     }
                     match roster.resolve_nick(&m.text) {
                         Some(idx) if shielded.contains(&idx) => AskMatch::reject(

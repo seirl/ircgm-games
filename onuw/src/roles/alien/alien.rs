@@ -91,7 +91,10 @@ impl Alien {
                 let ans = ctx
                     .ask(commander, prompt, move |m| {
                         if Roster::is_pass(&m.text) {
-                            return AskMatch::accept(AlienDirective::None);
+                            return AskMatch::accept_say(
+                                AlienDirective::None,
+                                "👽 Passed — Mother Ship standing by.",
+                            );
                         }
                         let parts: Vec<&str> = m.text.split_whitespace().collect();
                         if parts.first().is_some_and(|w| {
@@ -145,12 +148,16 @@ impl Alien {
                         };
 
                         match roster.resolve_nick(tok) {
-                            Some(idx) if non_aliens.contains(&idx) => {
-                                AskMatch::accept(AlienDirective::Scan {
+                            Some(idx) if non_aliens.contains(&idx) => AskMatch::accept_say(
+                                AlienDirective::Scan {
                                     actor: commander,
                                     target: idx,
-                                })
-                            }
+                                },
+                                irc_format!(
+                                    "👽 Bio-Scan locked in on {} — result arrives when the phase ends!",
+                                    roster.seats[idx].user.nick().bold(),
+                                ),
+                            ),
                             Some(idx) if shielded.contains(&idx) => {
                                 AskMatch::reject("🛡️ That player's card is shielded!".yellow())
                             }

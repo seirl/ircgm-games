@@ -47,10 +47,16 @@ impl DrPeeker {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(None, "🔬 Passed — not X-raying anyone.");
                     }
                     match roster.resolve_nick(&m.text) {
-                        Some(idx) if valid_targets.contains(&idx) => AskMatch::accept(Some(idx)),
+                        Some(idx) if valid_targets.contains(&idx) => AskMatch::accept_say(
+                            Some(idx),
+                            irc_format!(
+                                "🔬 Locked in X-raying {} — result arrives when the phase ends!",
+                                roster.seats[idx].user.nick().bold(),
+                            ),
+                        ),
                         Some(idx) if idx == seat => {
                             AskMatch::reject("Pick ANOTHER player (or pass)!".yellow())
                         }

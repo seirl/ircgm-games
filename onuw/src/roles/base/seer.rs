@@ -122,7 +122,7 @@ fn parse_seer_choice(
     raw: &str,
 ) -> AskMatch<SeerChoice> {
     if Roster::is_pass(raw) {
-        return AskMatch::accept(SeerChoice::Pass);
+        return AskMatch::accept_say(SeerChoice::Pass, "🔮 Passed — not viewing any cards.");
     }
     let parts: Vec<&str> = raw.split_whitespace().collect();
     if parts
@@ -141,7 +141,14 @@ fn parse_seer_choice(
         if a == b {
             return AskMatch::reject("Pick two DIFFERENT center slots (1..=3).".yellow());
         }
-        return AskMatch::accept(SeerChoice::Center(a, b));
+        return AskMatch::accept_say(
+            SeerChoice::Center(a, b),
+            format!(
+                "🔮 Locked in Center #{} & Center #{} — cards reveal when the phase ends!",
+                a + 1,
+                b + 1
+            ),
+        );
     }
 
     if parts.len() == 2
@@ -153,7 +160,14 @@ fn parse_seer_choice(
             Roster::parse_center_slot(parts[1]),
         ) {
             if a != b {
-                return AskMatch::accept(SeerChoice::Center(a, b));
+                return AskMatch::accept_say(
+                    SeerChoice::Center(a, b),
+                    format!(
+                        "🔮 Locked in Center #{} & Center #{} — cards reveal when the phase ends!",
+                        a + 1,
+                        b + 1
+                    ),
+                );
             }
         }
     }
@@ -181,7 +195,13 @@ fn parse_seer_choice(
         Some(idx) if shielded.contains(&idx) => AskMatch::reject(
             "🛡️ That player's card has a Shield token and cannot be viewed!".yellow(),
         ),
-        Some(idx) => AskMatch::accept(SeerChoice::Player(idx)),
+        Some(idx) => AskMatch::accept_say(
+            SeerChoice::Player(idx),
+            irc_format!(
+                "🔮 Locked in viewing {}'s card — reveals when the phase ends!",
+                roster.seats[idx].user.nick().bold(),
+            ),
+        ),
         None => AskMatch::reject("Unknown player nickname.".yellow()),
     }
 }

@@ -43,7 +43,13 @@ impl Copycat {
                         "3".bold(),
                     ),
                     |m| match Roster::parse_center_slot(&m.text) {
-                        Some(idx) => AskMatch::accept(idx),
+                        Some(idx) => AskMatch::accept_say(
+                            idx,
+                            format!(
+                                "🪞 Locked in Center #{} — role reveals when the phase ends!",
+                                idx + 1
+                            ),
+                        ),
                         None => AskMatch::reject("Reply 1, 2, or 3.".yellow()),
                     },
                 )

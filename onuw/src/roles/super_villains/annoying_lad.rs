@@ -39,7 +39,7 @@ impl AnnoyingLad {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(None, "😜 Passed — stayed still tonight.");
                     }
                     match m.text.trim().to_ascii_lowercase().as_str() {
                         "left" | "l" => AskMatch::accept_say(

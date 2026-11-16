@@ -44,7 +44,10 @@ impl Revealer {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(
+                            None,
+                            "🔦 Passed — left all cards face down.",
+                        );
                     }
                     match roster.resolve_nick(&m.text) {
                         Some(idx) if idx == seat => {
@@ -53,7 +56,13 @@ impl Revealer {
                         Some(idx) if shielded.contains(&idx) => {
                             AskMatch::reject("🛡️ Shielded cards cannot be flipped!".yellow())
                         }
-                        Some(idx) => AskMatch::accept(Some(idx)),
+                        Some(idx) => AskMatch::accept_say(
+                            Some(idx),
+                            irc_format!(
+                                "🔦 Locked in flipping {}'s card — reveals when the phase ends!",
+                                roster.seats[idx].user.nick().bold(),
+                            ),
+                        ),
                         None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })

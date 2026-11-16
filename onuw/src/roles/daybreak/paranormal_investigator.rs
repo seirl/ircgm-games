@@ -51,7 +51,7 @@ impl ParanormalInvestigator {
                     .ask(prompt, move |m| {
                         let t = m.text.trim();
                         if Roster::is_pass(t) || t.eq_ignore_ascii_case("stop") {
-                            return AskMatch::accept(None);
+                            return AskMatch::accept_say(None, "🕵️ Stopped investigating.");
                         }
                         match roster.resolve_nick(t) {
                             Some(idx) if idx == seat => {

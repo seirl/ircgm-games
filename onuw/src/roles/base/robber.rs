@@ -49,7 +49,7 @@ impl Robber {
             let ans = ctx
                 .ask(prompt, move |m| {
                     if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
+                        return AskMatch::accept_say(None, "🦹 Passed — not robbing anyone.");
                     }
                     match roster.resolve_nick(&m.text) {
                         Some(idx) if idx == seat => AskMatch::reject(
@@ -58,7 +58,13 @@ impl Robber {
                         Some(idx) if shielded.contains(&idx) => AskMatch::reject(
                             "🛡️ That player's card is shielded by the Sentinel!".yellow(),
                         ),
-                        Some(idx) => AskMatch::accept(Some(idx)),
+                        Some(idx) => AskMatch::accept_say(
+                            Some(idx),
+                            irc_format!(
+                                "🦹 Locked in robbing {} — new card reveals when the phase ends!",
+                                roster.seats[idx].user.nick().bold(),
+                            ),
+                        ),
                         None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })
