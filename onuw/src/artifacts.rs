@@ -1,12 +1,12 @@
 //! Daybreak **Artifact** tokens (`Claw`, `Brand`, `Cudgel`, `Mask of Muting`, `Shroud of Shame`, `Void`)
 //! and their Day/Voting channel-conduct rules (`DayConductTracker`).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use ircgm::prelude::*;
 use ircgm::CaseMap;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardCards, Roster, SeatSet};
 use crate::role::{
     EffectiveAlignment, EndgameModifier, SpecialVictory, Team, VictoryCtx, WinnerFilterCtx,
     WinnerMap,
@@ -48,11 +48,11 @@ impl Artifact {
     }
 
     /// Draws a random Artifact not yet present in `existing` (without replacement when multiple Curators act).
-    pub fn random_unused(existing: &HashMap<usize, Artifact>) -> Artifact {
+    pub fn random_unused(existing: &[Option<Artifact>]) -> Artifact {
         let unused: Vec<Artifact> = Self::ALL
             .iter()
             .copied()
-            .filter(|cand| !existing.values().any(|&a| a == *cand))
+            .filter(|cand| !existing.contains(&Some(*cand)))
             .collect();
         if unused.is_empty() {
             Self::random()
@@ -239,8 +239,8 @@ impl EndgameModifier for Artifact {
 #[derive(Clone, Debug, Default)]
 pub struct DayConductTracker {
     mute_violations: HashMap<usize, String>,
-    turned_around: HashSet<usize>,
-    spoke_before_turning: HashSet<usize>,
+    turned_around: SeatSet,
+    spoke_before_turning: SeatSet,
     named_player_violations: HashMap<usize, String>,
 }
 
@@ -281,7 +281,7 @@ impl DayConductTracker {
             }
         }
 
-        if !self.turned_around.contains(&seat) && !self.spoke_before_turning.contains(&seat) {
+        if !self.turned_around.contains(seat) && !self.spoke_before_turning.contains(seat) {
             if is_turn {
                 self.turned_around.insert(seat);
             } else {
@@ -298,10 +298,10 @@ impl DayConductTracker {
         if let Some(mentioned) = self.named_player_violations.get(&seat) {
             return Some(format!("mentioned player {mentioned}"));
         }
-        if self.spoke_before_turning.contains(&seat) {
+        if self.spoke_before_turning.contains(seat) {
             return Some("spoke in channel before /me turns around".to_owned());
         }
-        if !self.turned_around.contains(&seat) {
+        if !self.turned_around.contains(seat) {
             return Some("never faced the wall with /me turns around".to_owned());
         }
         None

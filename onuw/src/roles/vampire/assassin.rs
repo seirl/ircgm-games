@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster};
+use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
 use crate::marks::Mark;
 use crate::role::{
     GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect,
@@ -46,8 +46,9 @@ impl Role for Assassin {
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        (0..ctx.roster.len())
-            .any(|s| ctx.board.mark(s) == Mark::Assassin && ctx.is_dead(s))
+        ctx.dead_seats
+            .into_iter()
+            .any(|s| ctx.board.mark(s) == Mark::Assassin)
             .then_some(SpecialVictory::independent())
     }
 }
@@ -138,14 +139,17 @@ impl Role for ApprenticeAssassin {
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         let solo_marked = ctx.board.get_key::<ApprenticeSoloMark>().0;
         let won = if solo_marked {
-            (0..ctx.roster.len()).any(|s| ctx.board.mark(s) == Mark::Assassin && ctx.is_dead(s))
+            ctx.dead_seats
+                .into_iter()
+                .any(|s| ctx.board.mark(s) == Mark::Assassin)
         } else {
             let assassins = ctx.active_holders(&ASSASSIN);
             if !assassins.is_empty() {
-                assassins.into_iter().any(|a| ctx.is_dead(a))
+                assassins.intersects(ctx.dead_seats)
             } else {
-                (0..ctx.roster.len())
-                    .any(|s| ctx.board.mark(s) == Mark::Assassin && ctx.is_dead(s))
+                ctx.dead_seats
+                    .into_iter()
+                    .any(|s| ctx.board.mark(s) == Mark::Assassin)
             }
         };
         won.then_some(SpecialVictory::independent())
@@ -153,11 +157,11 @@ impl Role for ApprenticeAssassin {
 }
 
 impl ApprenticeAssassin {
-    async fn wake_group(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let assassins = ctx.seats_with_role(&ASSASSIN);
         if !assassins.is_empty() {
-            let list = ctx.roster.format_indices(&assassins);
-            for &s in &active_seats {
+            let list = ctx.roster.format_seats(assassins);
+            for s in active_seats {
                 ctx.dm(
                     s,
                     irc_format!(
@@ -167,7 +171,7 @@ impl ApprenticeAssassin {
                 );
             }
             return Ok(GroupEffect::new(move |_board, rctx| {
-                let names = rctx.roster.format_indices(&active_seats);
+                let names = rctx.roster.format_seats(active_seats);
                 rctx.record(irc_format!(
                     "🗡️ Apprentice Assassin ({}) identified their mentor Assassin.",
                     names.bold(),
@@ -175,18 +179,17 @@ impl ApprenticeAssassin {
             }));
         }
 
-        let actor = active_seats[0];
-        if active_seats.len() > 1 {
-            for &s in &active_seats[1..] {
-                ctx.dm(
-                    s,
-                    irc_format!(
-                        "🗡️ Apprentice Assassin: No Assassin is in play! Fellow Apprentice {} is placing the {}!",
-                        ctx.nick(actor).bold(),
-                        Mark::Assassin.styled(),
-                    ),
-                );
-            }
+        let actor = active_seats.first().expect("active_seats non-empty");
+        let others = active_seats.without(actor);
+        for s in others {
+            ctx.dm(
+                s,
+                irc_format!(
+                    "🗡️ Apprentice Assassin: No Assassin is in play! Fellow Apprentice {} is placing the {}!",
+                    ctx.nick(actor).bold(),
+                    Mark::Assassin.styled(),
+                ),
+            );
         }
         let roster = ctx.roster;
         let prompt = irc_format!(
@@ -212,7 +215,7 @@ impl ApprenticeAssassin {
         Ok(GroupEffect::new(move |board, rctx| {
             board.set_mark(target, Mark::Assassin);
             board.set_key(ApprenticeSoloMark(true));
-            for &s in &active_seats[1..] {
+            for s in others {
                 rctx.dm(
                     s,
                     irc_format!(

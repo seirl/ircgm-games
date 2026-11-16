@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::Roster;
+use crate::board::{Roster, SeatSet};
 use crate::role::{
     GameSet, PromptCtx, Role, RoleInfo, SeatEffect, SpecialVictory, Team, VictoryCtx, WakeStep,
 };
@@ -42,10 +42,7 @@ impl Mortician {
         let roster = ctx.roster;
         let view = ctx.view();
         let (left, right) = roster.neighbors(seat);
-        let candidates: Vec<usize> = [left, right, seat]
-            .into_iter()
-            .filter(|&s| !view.is_shielded(s))
-            .collect();
+        let candidates = SeatSet::from([left, right, seat]) - view.shielded_seats();
 
         let chosen = if candidates.is_empty() {
             ctx.say("⚰️ Mortician: Your card and both neighbors' cards are shielded — you cannot peek tonight!");

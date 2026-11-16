@@ -17,12 +17,14 @@ pub mod night;
 pub mod role;
 pub mod roles;
 pub mod scenarios;
+pub mod seat_set;
 #[cfg(test)]
 pub mod testing;
 pub mod voting;
 
 pub use artifacts::{Artifact, DayConductTracker};
 pub use board::{BoardAccess, BoardCards, BoardKey, BoardMut, Card, Roster, SeatInfo};
+pub use seat_set::{SeatIter, SeatSet};
 pub use day::{run_day_phase, run_voting_phase};
 pub use deck::{DeckBase, DeckSpec};
 pub use game::{

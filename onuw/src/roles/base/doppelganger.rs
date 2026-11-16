@@ -27,9 +27,7 @@ impl Role for Doppelganger {
 
 impl Doppelganger {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let candidates: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| i != seat && !ctx.is_shielded(i))
-            .collect();
+        let candidates = ctx.roster.all_seats().without(seat) - ctx.shielded_seats();
         if candidates.is_empty() {
             return Ok(SeatEffect::noop());
         }
@@ -77,9 +75,12 @@ impl Doppelganger {
             return;
         }
 
-        let (target_idx, was_random) = match chosen.filter(|idx| candidates.contains(idx)) {
+        let (target_idx, was_random) = match chosen.filter(|&idx| candidates.contains(idx)) {
             Some(idx) => (idx, false),
-            None => (candidates[fastrand::usize(..candidates.len())], true),
+            None => (
+                candidates.choose_random().expect("candidates non-empty"),
+                true,
+            ),
         };
 
         let Some(copied) = board.copy_from_player(seat, target_idx, "Doppelgänger", ctx) else {

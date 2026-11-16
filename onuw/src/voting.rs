@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardCards, Roster, SeatSet};
 use crate::game::GameSummary;
 use crate::marks::Mark;
 use crate::role::{DeathCtx, DeathEffect, SpecialVictory, Team, VictoryCtx, WinnerFilterCtx, WinnerMap};
@@ -56,10 +56,10 @@ pub fn resolve_and_announce_winners(
     };
 
     // Determine active monster factions in front of players (`Epic Battle` when >= 2 monster factions clash):
-    let threats_by_faction: Vec<(Team, Vec<usize>)> = Team::MONSTER_TEAMS
+    let threats_by_faction: Vec<(Team, SeatSet)> = Team::MONSTER_TEAMS
         .iter()
         .map(|&team| {
-            let seats: Vec<usize> = (0..n)
+            let seats: SeatSet = (0..n)
                 .filter(|&i| board.is_monster_threat_for(i, team))
                 .collect();
             (team, seats)
@@ -73,8 +73,8 @@ pub fn resolve_and_announce_winners(
     let is_epic_battle = present_monster_factions.len() >= 2;
 
     // Collect unified vote protections across each seat's active EndgameModifiers:
-    let mut vote_immune: HashSet<usize> = HashSet::new();
-    let mut hunter_shielded: HashSet<usize> = HashSet::new();
+    let mut vote_immune = SeatSet::EMPTY;
+    let mut hunter_shielded = SeatSet::EMPTY;
     let mut death_announcements: Vec<Text> = Vec::new();
     for seat in 0..n {
         for modifier in board.seat_endgame_modifiers(seat) {
@@ -95,36 +95,31 @@ pub fn resolve_and_announce_winners(
     // Standard ONUW: highest vote count >= 2 among non-immune seats dies.
     // Epic Battle (>= 2 monster factions in play): BOTH most votes (>= 2) AND 2nd-most votes (>= 1)
     // die, unless 2+ players tied for most votes (in which case all tied for 1st die).
-    let max_killable_votes = tally
-        .iter()
-        .enumerate()
-        .filter(|(idx, _)| !vote_immune.contains(idx))
-        .map(|(_, &c)| c)
+    let killable_seats = roster.all_seats() - vote_immune;
+    let max_killable_votes = killable_seats
+        .into_iter()
+        .map(|idx| tally[idx])
         .max()
         .unwrap_or(0);
 
-    let mut dead: HashSet<usize> = HashSet::new();
+    let mut dead = SeatSet::EMPTY;
     if max_killable_votes >= 2 {
-        let top_tied: Vec<usize> = tally
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, &c)| {
-                (c == max_killable_votes && !vote_immune.contains(&idx)).then_some(idx)
-            })
+        let top_tied: SeatSet = killable_seats
+            .into_iter()
+            .filter(|&idx| tally[idx] == max_killable_votes)
             .collect();
-        dead.extend(&top_tied);
+        dead |= top_tied;
 
         if is_epic_battle && top_tied.len() == 1 {
-            let second_votes = tally
-                .iter()
-                .enumerate()
-                .filter(|(idx, &c)| !vote_immune.contains(idx) && c < max_killable_votes)
-                .map(|(_, &c)| c)
+            let runners_up = killable_seats - top_tied;
+            let second_votes = runners_up
+                .into_iter()
+                .map(|idx| tally[idx])
                 .max()
                 .unwrap_or(0);
             if second_votes >= 1 {
-                for (idx, &c) in tally.iter().enumerate() {
-                    if c == second_votes && !vote_immune.contains(&idx) {
+                for idx in runners_up {
+                    if tally[idx] == second_votes {
                         dead.insert(idx);
                     }
                 }
@@ -133,34 +128,31 @@ pub fn resolve_and_announce_winners(
     }
 
     // Fixpoint loop over `EndgameModifier::on_death` (`Hunter`, `Mark::Love`, etc.):
-    let mut processed_deaths: HashSet<usize> = HashSet::new();
+    let mut processed_deaths = SeatSet::EMPTY;
     loop {
-        let mut current_dead: Vec<usize> = dead.iter().copied().collect();
-        current_dead.sort_unstable();
-        let mut newly_killed = Vec::new();
-        for d in current_dead {
-            if processed_deaths.insert(d) {
-                for modifier in board.seat_endgame_modifiers(d) {
-                    for effect in modifier.on_death(d, &death_ctx) {
-                        let DeathEffect::Kill {
-                            seat: kill_seat,
-                            respects_protection,
-                            announcement,
-                        } = effect;
-                        let blocked = respects_protection && hunter_shielded.contains(&kill_seat);
-                        if !dead.contains(&kill_seat) && !newly_killed.contains(&kill_seat) && !blocked
-                        {
-                            newly_killed.push(kill_seat);
-                            death_announcements.push(announcement);
-                        }
+        let unprocessed = dead - processed_deaths;
+        if unprocessed.is_empty() {
+            break;
+        }
+        processed_deaths |= unprocessed;
+        let mut newly_killed = SeatSet::EMPTY;
+        for d in unprocessed {
+            for modifier in board.seat_endgame_modifiers(d) {
+                for effect in modifier.on_death(d, &death_ctx) {
+                    let DeathEffect::Kill {
+                        seat: kill_seat,
+                        respects_protection,
+                        announcement,
+                    } = effect;
+                    let blocked = respects_protection && hunter_shielded.contains(kill_seat);
+                    if !(dead | newly_killed).contains(kill_seat) && !blocked {
+                        newly_killed.insert(kill_seat);
+                        death_announcements.push(announcement);
                     }
                 }
             }
         }
-        if newly_killed.is_empty() {
-            break;
-        }
-        dead.extend(newly_killed);
+        dead |= newly_killed;
     }
 
     // Build the deferred `!reveal` record (center cards, compact per-seat roles, and Dusk & Night chronicle):
@@ -189,7 +181,7 @@ pub fn resolve_and_announce_winners(
         if let Some(art) = board.artifact(idx) {
             token_suffix.push_str(&format!(" {{{}}}", art.name()));
         }
-        if dead.contains(&idx) {
+        if dead.contains(idx) {
             token_suffix.push_str(" 💀");
         }
         let nick = roster.seats[idx].user.nick();
@@ -256,9 +248,7 @@ pub fn resolve_and_announce_winners(
     let outcome_span: Text = if dead.is_empty() {
         "Nobody died!".bold().green()
     } else {
-        let mut sorted_dead: Vec<usize> = dead.iter().copied().collect();
-        sorted_dead.sort_unstable();
-        let dead_nicks = roster.format_indices(&sorted_dead);
+        let dead_nicks = roster.format_seats(dead);
         irc_format!("{} {}", "Killed:".bold().red(), dead_nicks.as_str().bold())
     };
 
@@ -277,7 +267,7 @@ pub fn resolve_and_announce_winners(
         roster,
         board: &board,
         votes: &votes,
-        dead_seats: &dead,
+        dead_seats: dead,
     };
 
     // 4a. Special victories across each seat's active EndgameModifiers:
@@ -312,14 +302,14 @@ pub fn resolve_and_announce_winners(
     };
 
     // 4b. Multi-faction & Epic Battle victory evaluation (`Village` vs `Werewolf` / `Vampire` / `Alien` / `SuperVillain`):
-    let threats_of = |team: Team| -> &[usize] {
+    let threats_of = |team: Team| -> SeatSet {
         threats_by_faction
             .iter()
             .find(|(t, _)| *t == team)
-            .map(|(_, seats)| seats.as_slice())
-            .unwrap_or(&[])
+            .map(|(_, seats)| *seats)
+            .unwrap_or(SeatSet::EMPTY)
     };
-    let minions_for = |team: Team| -> Vec<usize> {
+    let minions_for = |team: Team| -> SeatSet {
         (0..n)
             .filter(|&i| {
                 board.effective_team(i) == team && board.player_card(i).effective_role().is_minion()
@@ -335,7 +325,7 @@ pub fn resolve_and_announce_winners(
             !blocked_teams.contains(&Team::Village)
                 && present_monster_factions
                     .iter()
-                    .all(|&f| threats_of(f).iter().any(|s| dead.contains(s)))
+                    .all(|&f| threats_of(f).intersects(dead))
         } else {
             !blocked_teams.contains(&Team::Village) && dead.is_empty()
         };
@@ -350,11 +340,11 @@ pub fn resolve_and_announce_winners(
             let threats = threats_of(team);
             let minions = minions_for(team);
             if !threats.is_empty() {
-                let all_own_survive = threats.iter().all(|s| !dead.contains(s));
+                let all_own_survive = threats.is_disjoint(dead);
                 let won = if is_epic_battle {
-                    let rival_killed = present_monster_factions.iter().any(|&other| {
-                        other != team && threats_of(other).iter().any(|s| dead.contains(s))
-                    });
+                    let rival_killed = present_monster_factions
+                        .iter()
+                        .any(|&other| other != team && threats_of(other).intersects(dead));
                     all_own_survive && rival_killed
                 } else {
                     all_own_survive
@@ -365,8 +355,8 @@ pub fn resolve_and_announce_winners(
             } else {
                 // Minion with 0 primary threats in play wins individually if they survive
                 // AND another player dies (and the team is not blocked by Tanner/etc.):
-                for m in minions {
-                    if !dead.contains(&m) && dead.iter().any(|&d| d != m) {
+                for m in minions - dead {
+                    if !dead.without(m).is_empty() {
                         winners.insert(m, team.win_label());
                     }
                 }
@@ -397,7 +387,7 @@ pub fn resolve_and_announce_winners(
             roster,
             board: &board,
             votes: &votes,
-            dead_seats: &dead,
+            dead_seats: dead,
             blocked_teams: &blocked_teams,
             casemap: room.casemap(),
             day_channel_log,

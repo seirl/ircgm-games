@@ -2,7 +2,7 @@
 
 use ircgm::prelude::*;
 
-use crate::board::{format_role_slice_styled, BoardCards, Card, Roster, SeatInfo};
+use crate::board::{format_role_slice_styled, BoardCards, Card, Roster, SeatInfo, SeatSet};
 use crate::role::Role;
 use crate::roles::base::villager::VILLAGER;
 use crate::roles::{find_role, ALL_ROLES};
@@ -163,6 +163,12 @@ impl DeckSpec {
         &self,
         player_count: usize,
     ) -> std::result::Result<Vec<&'static dyn Role>, String> {
+        if player_count > SeatSet::MAX_SEATS {
+            return Err(format!(
+                "Too many players ({player_count}) — at most {} players are supported.",
+                SeatSet::MAX_SEATS
+            ));
+        }
         let target = player_count + 3;
         if self.added.len() > target {
             return Err(format!(

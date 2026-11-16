@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::alien::ALIEN_PACK_STEP;
-use crate::board::BoardCards;
+use crate::board::{BoardCards, SeatSet};
 use crate::role::{
     EffectiveAlignment, GameSet, GroupEffect, GroupPromptCtx, NightFaction, Role, RoleInfo,
     SpecialVictory, Team, VictoryCtx, WakeStep,
@@ -62,17 +62,16 @@ impl Role for Groob {
             return None;
         }
         ctx.active_holders(&ZERB)
-            .into_iter()
-            .any(|z| ctx.is_dead(z))
+            .intersects(ctx.dead_seats)
             .then_some(SpecialVictory::independent())
     }
 }
 
 impl Groob {
-    async fn wake_group(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let zerb_seats = ctx.seats_with_role(&ZERB);
         let zerb_info = if zerb_seats.is_empty() {
-            for &s in &active_seats {
+            for s in active_seats {
                 ctx.dm(
                     s,
                     "👾 Groob: Zerb is in the center — you are on the regular Alien team tonight!",
@@ -80,8 +79,8 @@ impl Groob {
             }
             "in the center".to_owned()
         } else {
-            let names = ctx.roster.format_indices(&zerb_seats);
-            for &s in &active_seats {
+            let names = ctx.roster.format_seats(zerb_seats);
+            for s in active_seats {
                 ctx.dm(
                     s,
                     irc_format!(
@@ -93,7 +92,7 @@ impl Groob {
             names
         };
         Ok(GroupEffect::new(move |_board, rctx| {
-            let names = rctx.roster.format_indices(&active_seats);
+            let names = rctx.roster.format_seats(active_seats);
             rctx.record(irc_format!(
                 "👾 {} ({}) spotted nemesis Zerb ({}).",
                 GROOB.info().styled_name(),
@@ -149,17 +148,16 @@ impl Role for Zerb {
             return None;
         }
         ctx.active_holders(&GROOB)
-            .into_iter()
-            .any(|g| ctx.is_dead(g))
+            .intersects(ctx.dead_seats)
             .then_some(SpecialVictory::independent())
     }
 }
 
 impl Zerb {
-    async fn wake_group(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let groob_seats = ctx.seats_with_role(&GROOB);
         let groob_info = if groob_seats.is_empty() {
-            for &s in &active_seats {
+            for s in active_seats {
                 ctx.dm(
                     s,
                     "👾 Zerb: Groob is in the center — you are on the regular Alien team tonight!",
@@ -167,8 +165,8 @@ impl Zerb {
             }
             "in the center".to_owned()
         } else {
-            let names = ctx.roster.format_indices(&groob_seats);
-            for &s in &active_seats {
+            let names = ctx.roster.format_seats(groob_seats);
+            for s in active_seats {
                 ctx.dm(
                     s,
                     irc_format!(
@@ -180,7 +178,7 @@ impl Zerb {
             names
         };
         Ok(GroupEffect::new(move |_board, rctx| {
-            let names = rctx.roster.format_indices(&active_seats);
+            let names = rctx.roster.format_seats(active_seats);
             rctx.record(irc_format!(
                 "👾 {} ({}) spotted nemesis Groob ({}).",
                 ZERB.info().styled_name(),

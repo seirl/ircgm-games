@@ -6,7 +6,7 @@
 
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardMut};
+use crate::board::{BoardAccess, BoardMut, SeatSet};
 use crate::marks::Mark;
 use crate::role::{
     GameSet, GroupEffect, GroupPromptCtx, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep,
@@ -43,11 +43,9 @@ impl Role for Vampire {
 }
 
 impl Vampire {
-    async fn huddle(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    async fn huddle(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let full_coven = ctx.seats_with_faction(NightFaction::Vampire);
-        let non_vampires: Vec<usize> = (0..ctx.roster.len())
-            .filter(|s| !full_coven.contains(s))
-            .collect();
+        let non_vampires = ctx.roster.all_seats() - full_coven;
 
         if non_vampires.is_empty() {
             return Ok(GroupEffect::noop());
@@ -56,14 +54,14 @@ impl Vampire {
         let coven_cfg = AskConfig::new()
             .reply_deadline(ctx.deadline)
             .no_timeout_message();
-        let mut coven = ctx.huddle("Coven".red().bold(), &active_seats).await?;
+        let mut coven = ctx.huddle("Coven".red().bold(), active_seats).await?;
 
         let chosen = if coven.is_empty() {
-            non_vampires[fastrand::usize(..non_vampires.len())]
+            non_vampires.choose_random().expect("non_vampires non-empty")
         } else {
             let solo_coven = coven.len() == 1;
-            let coven_names = ctx.roster.format_indices(&full_coven);
-            let non_vamps_str = ctx.roster.format_indices(&non_vampires);
+            let coven_names = ctx.roster.format_seats(full_coven);
+            let non_vamps_str = ctx.roster.format_seats(non_vampires);
             let prompt = irc_format!(
                 "{} {} — Whisper here to coordinate, or type {} to turn a non-Vampire! Non-Vampires: {non_vamps_str}",
                 "🧛 Vampire Coven:".bold().red(),
@@ -71,7 +69,6 @@ impl Vampire {
                 "!mark <nick>".bold(),
             );
 
-            let valid_targets = non_vampires.clone();
             let roster = ctx.roster;
             let ans = coven
                 .ask(prompt, move |m| {
@@ -86,7 +83,7 @@ impl Vampire {
                     };
 
                     match roster.resolve_nick(arg) {
-                        Some(idx) if valid_targets.contains(&idx) => AskMatch::accept_say(
+                        Some(idx) if non_vampires.contains(idx) => AskMatch::accept_say(
                             idx,
                             irc_format!(
                                 "🧛 {} bestowed the {} upon {}!",
@@ -105,7 +102,7 @@ impl Vampire {
             match ans {
                 Answer::Ok(idx) => idx,
                 Answer::TimedOut | Answer::Left { .. } | Answer::Unreachable { .. } => {
-                    let auto = non_vampires[fastrand::usize(..non_vampires.len())];
+                    let auto = non_vampires.choose_random().expect("non_vampires non-empty");
                     let _ = coven.say(format!(
                         "⏳ Time expired — randomly marked {}!",
                         ctx.nick(auto)
@@ -120,18 +117,18 @@ impl Vampire {
         }
         drop(coven);
         Ok(GroupEffect::new(move |board, rctx| {
-            Self::resolve(&active_seats, chosen, board, rctx);
+            Self::resolve(active_seats, chosen, board, rctx);
         }))
     }
 
     fn resolve(
-        active_seats: &[usize],
+        active_seats: SeatSet,
         target: usize,
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         board.set_mark(target, Mark::Vampire);
-        let actors = ctx.roster.format_indices(active_seats);
+        let actors = ctx.roster.format_seats(active_seats);
         ctx.record(irc_format!(
             "🧛 Vampire Coven ({}) bestowed {} on {}.",
             actors.bold().red(),

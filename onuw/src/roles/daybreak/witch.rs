@@ -65,9 +65,7 @@ impl Witch {
             seen_center.display_for_peek()
         ));
 
-        let unshielded: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| !ctx.is_shielded(i))
-            .collect();
+        let unshielded = ctx.roster.all_seats() - ctx.shielded_seats();
         if unshielded.is_empty() {
             return Ok(SeatEffect::noop());
         }
@@ -101,10 +99,10 @@ impl Witch {
         let target = match step2 {
             Answer::Ok(idx) => idx,
             Answer::TimedOut | Answer::Left { .. } | Answer::Unreachable { .. } => {
-                let auto = if !ctx.is_shielded(seat) {
+                let auto = if unshielded.contains(seat) {
                     seat
                 } else {
-                    unshielded[fastrand::usize(..unshielded.len())]
+                    unshielded.choose_random().expect("unshielded non-empty")
                 };
                 ctx.say(format!(
                     "🧙‍♀️ Time expired—swapped Center #{} with {}!",

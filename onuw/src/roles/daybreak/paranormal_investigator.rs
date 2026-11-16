@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::board::{BoardAccess, BoardMut, Roster, SeatSet};
 use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct ParanormalInvestigator;
@@ -40,11 +40,11 @@ impl Role for ParanormalInvestigator {
 
 impl ParanormalInvestigator {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let mut peeked: Vec<usize> = Vec::new();
+        let mut peeked: Vec<usize> = Vec::with_capacity(2);
+        let mut already = SeatSet::EMPTY;
         let mut became: Option<&'static dyn Role> = None;
 
         for step in 1..=2 {
-            let already = peeked.clone();
             let players_str = ctx.format_visible_players();
             let view = ctx.view();
             let prompt = irc_format!(
@@ -62,7 +62,7 @@ impl ParanormalInvestigator {
                         Some(idx) if idx == seat => {
                             AskMatch::reject("You cannot inspect your own card!".yellow())
                         }
-                        Some(idx) if already.contains(&idx) => AskMatch::reject(
+                        Some(idx) if already.contains(idx) => AskMatch::reject(
                             "You already inspected that player—pick someone else or pass!".yellow(),
                         ),
                         Some(idx) if view.is_shielded(idx) => {
@@ -78,6 +78,7 @@ impl ParanormalInvestigator {
                 break;
             };
             peeked.push(target);
+            already.insert(target);
 
             let seen_card = ctx.peek_player_card(target);
             let face_role = seen_card.face_role();
@@ -125,7 +126,7 @@ impl ParanormalInvestigator {
         if !peeked.is_empty() {
             board.record_prompt_peek(seat);
         }
-        let inspected = ctx.roster.format_indices(peeked);
+        let inspected = ctx.roster.format_seats(peeked.iter().copied());
         if let Some(new_role) = became {
             board.transform_in_place(seat, new_role);
             ctx.record(irc_format!(

@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::groob_zerb::{both_groob_and_zerb_in_play, GROOB, ZERB};
-use crate::board::BoardCards;
+use crate::board::{BoardCards, SeatSet};
 use crate::role::{
     EffectiveAlignment, GameSet, GroupEffect, GroupPromptCtx, NightFaction, Role, RoleInfo,
     SpecialVictory, Team, VictoryCtx, WakeStep,
@@ -43,19 +43,20 @@ impl Role for Leader {
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         if both_groob_and_zerb_in_play(ctx.board) {
-            let gz_survive = ctx
-                .active_holders(&GROOB)
-                .into_iter()
-                .chain(ctx.active_holders(&ZERB))
-                .all(|i| !ctx.is_dead(i));
+            let gz_survive =
+                (ctx.active_holders(&GROOB) | ctx.active_holders(&ZERB)).is_disjoint(ctx.dead_seats);
             return gz_survive.then_some(SpecialVictory::independent());
         }
 
-        let alien_threats: Vec<usize> = (0..ctx.roster.len())
+        let alien_threats: SeatSet = ctx
+            .roster
+            .all_seats()
+            .into_iter()
             .filter(|&i| ctx.board.is_monster_threat_for(i, Team::Alien))
             .collect();
 
-        if !alien_threats.is_empty() && alien_threats.iter().all(|&a| ctx.votes[a] == Some(seat)) {
+        if !alien_threats.is_empty() && alien_threats.into_iter().all(|a| ctx.votes[a] == Some(seat))
+        {
             Some(SpecialVictory::force_team(
                 Team::Alien,
                 format!(
@@ -72,19 +73,17 @@ impl Role for Leader {
 }
 
 impl Leader {
-    async fn wake_group(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let aliens = ctx.seats_with_faction(NightFaction::Alien);
         let groobs = ctx.seats_with_role(&GROOB);
         let zerbs = ctx.seats_with_role(&ZERB);
-        let mut gz_seats = Vec::new();
-        if !groobs.is_empty() && !zerbs.is_empty() {
-            gz_seats.extend(groobs);
-            gz_seats.extend(zerbs);
-            gz_seats.sort_unstable();
-            gz_seats.dedup();
-        }
+        let gz_seats = if !groobs.is_empty() && !zerbs.is_empty() {
+            groobs | zerbs
+        } else {
+            SeatSet::EMPTY
+        };
 
-        for &s in &active_seats {
+        for s in active_seats {
             if aliens.is_empty() {
                 ctx.dm(s, "🫡 Leader: No Aliens are held by players tonight!");
             } else {
@@ -92,7 +91,7 @@ impl Leader {
                     s,
                     irc_format!(
                         "🫡 Leader: The Aliens are {} — stay hidden so they don't all vote for you!",
-                        ctx.roster.format_indices(&aliens).bold().red(),
+                        ctx.roster.format_seats(aliens).bold().red(),
                     ),
                 );
             }
@@ -101,13 +100,13 @@ impl Leader {
                     s,
                     irc_format!(
                         "👾 Leader Intel: Groob & Zerb are pointing at each other ({}) — you ONLY win if NEITHER Groob nor Zerb dies!",
-                        ctx.roster.format_indices(&gz_seats).bold().orange(),
+                        ctx.roster.format_seats(gz_seats).bold().orange(),
                     ),
                 );
             }
         }
         Ok(GroupEffect::new(move |_board, rctx| {
-            let leaders = rctx.roster.format_indices(&active_seats);
+            let leaders = rctx.roster.format_seats(active_seats);
             let styled = LEADER.info().styled_name();
             if aliens.is_empty() {
                 rctx.record(irc_format!(
@@ -115,7 +114,7 @@ impl Leader {
                     leaders.bold(),
                 ));
             } else {
-                let alien_nicks = rctx.roster.format_indices(&aliens);
+                let alien_nicks = rctx.roster.format_seats(aliens);
                 rctx.record(irc_format!(
                     "🫡 {styled} ({}) identified Aliens: {}.",
                     leaders.bold(),

@@ -5,13 +5,13 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use ircgm::prelude::*;
 use ircgm::{CaseMap, IntoAskMatch};
 use tokio::time::Instant;
 
-use crate::board::{BoardAccess, BoardCards, BoardKey, BoardMut, Card, PromptBoard, Roster};
+use crate::board::{BoardAccess, BoardCards, BoardKey, BoardMut, Card, PromptBoard, Roster, SeatSet};
 use crate::marks::Mark;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -341,7 +341,7 @@ impl GroupEffect {
 
 pub type SoloPromptFn = for<'a> fn(usize, PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>>;
 pub type GroupPromptFn =
-    for<'a> fn(Vec<usize>, GroupPromptCtx<'a>) -> BoxFuture<'a, Result<GroupEffect>>;
+    for<'a> fn(SeatSet, GroupPromptCtx<'a>) -> BoxFuture<'a, Result<GroupEffect>>;
 pub type PassiveWakeFn = fn(usize, &str, &mut BoardMut<'_>, &mut ResolveCtx<'_>);
 
 #[derive(Clone, Copy)]
@@ -565,7 +565,7 @@ impl WakeStep {
 fn seats_with_faction_in(
     waking_roles: &[&'static dyn Role],
     faction: NightFaction,
-) -> Vec<usize> {
+) -> SeatSet {
     waking_roles
         .iter()
         .enumerate()
@@ -583,7 +583,7 @@ pub struct PromptCtx<'a> {
     pub roster: &'a Roster,
     pub ask_cfg: &'a AskConfig,
     pub deadline: Instant,
-    feared_seats: &'a HashSet<usize>,
+    feared_seats: SeatSet,
     waking_roles: &'a [&'static dyn Role],
     board: PromptBoard<'a>,
     saw_visible_table: AtomicBool,
@@ -618,6 +618,11 @@ impl<'a> PromptView<'a> {
         self.board.raw().is_shielded(seat)
     }
 
+    pub fn shielded_seats(self) -> SeatSet {
+        self.check_read(BoardAccess::SHIELDS, "SHIELDS");
+        self.board.raw().shielded_seats()
+    }
+
     pub fn has_artifact(self, seat: usize) -> bool {
         self.check_read(BoardAccess::ARTIFACTS, "ARTIFACTS");
         self.board.raw().artifact(seat).is_some()
@@ -640,7 +645,7 @@ impl<'a> PromptCtx<'a> {
         roster: &'a Roster,
         ask_cfg: &'a AskConfig,
         deadline: Instant,
-        feared_seats: &'a HashSet<usize>,
+        feared_seats: SeatSet,
         waking_roles: &'a [&'static dyn Role],
         board: PromptBoard<'a>,
     ) -> Self {
@@ -732,6 +737,11 @@ impl<'a> PromptCtx<'a> {
         self.board.raw().is_shielded(seat)
     }
 
+    pub fn shielded_seats(&self) -> SeatSet {
+        self.check_read(BoardAccess::SHIELDS, "SHIELDS");
+        self.board.raw().shielded_seats()
+    }
+
     pub fn has_artifact(&self, seat: usize) -> bool {
         self.check_read(BoardAccess::ARTIFACTS, "ARTIFACTS");
         self.board.raw().artifact(seat).is_some()
@@ -744,10 +754,10 @@ impl<'a> PromptCtx<'a> {
         self.board.raw().format_visible_players(self.roster)
     }
 
-    /// Formats `indices` with inline visible tabletop markers (`🛡`, `[🔦 Role]`, `🏺`).
-    pub fn format_visible_indices(&self, indices: &[usize]) -> String {
+    /// Formats `seats` with inline visible tabletop markers (`🛡`, `[🔦 Role]`, `🏺`).
+    pub fn format_visible_seats(&self, seats: SeatSet) -> String {
         self.check_read(BoardAccess::VISIBLE_TABLE, "VISIBLE_TABLE");
-        self.board.raw().format_visible_indices(self.roster, indices)
+        self.board.raw().format_visible_seats(self.roster, seats)
     }
 
     /// Reads `players[seat]` mid-prompt (`Paranormal Investigator`).
@@ -778,30 +788,25 @@ impl<'a> PromptCtx<'a> {
     }
 
     /// All seats holding `faction` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
-    pub fn seats_with_faction(&self, faction: NightFaction) -> Vec<usize> {
+    pub fn seats_with_faction(&self, faction: NightFaction) -> SeatSet {
         seats_with_faction_in(self.waking_roles, faction)
     }
 
     /// Waking seats holding `faction` (excluding seats suppressed by `Mark::Fear`).
-    pub fn waking_seats_with_faction(&self, faction: NightFaction) -> Vec<usize> {
-        self.seats_with_faction(faction)
-            .into_iter()
-            .filter(|s| !self.feared_seats.contains(s))
-            .collect()
+    pub fn waking_seats_with_faction(&self, faction: NightFaction) -> SeatSet {
+        self.seats_with_faction(faction) - self.feared_seats
     }
 
     /// Packmates known to `self.seat` at the time of this prompt:
     /// - After the pack huddle (`OnRoleTurn`), all waking members of `faction`.
     /// - Before the pack huddle (`DoppelgangerImmediate` at `#1`), only `self.seat` and the player
     ///   card she just copied (so unrevealed Werewolves are not leaked before `#2`).
-    pub fn known_pack_mates(&self, faction: NightFaction) -> Vec<usize> {
+    pub fn known_pack_mates(&self, faction: NightFaction) -> SeatSet {
         if self.is_immediate_copy {
-            let mut known = vec![self.seat];
+            let mut known = SeatSet::single(self.seat);
             if let Some(src) = self.board.raw().copied_from(self.seat) {
-                known.push(src);
+                known.insert(src);
             }
-            known.sort_unstable();
-            known.dedup();
             known
         } else {
             self.waking_seats_with_faction(faction)
@@ -818,9 +823,9 @@ pub struct GroupPromptCtx<'a> {
     pub ask_cfg: &'a AskConfig,
     pub deadline: Instant,
     pub waking_roles: &'a [&'static dyn Role],
-    feared_seats: &'a HashSet<usize>,
+    feared_seats: SeatSet,
     board: PromptBoard<'a>,
-    notified_table_seats: AtomicU16,
+    notified_table_seats: AtomicU64,
 }
 
 impl<'a> GroupPromptCtx<'a> {
@@ -834,7 +839,7 @@ impl<'a> GroupPromptCtx<'a> {
         ask_cfg: &'a AskConfig,
         deadline: Instant,
         waking_roles: &'a [&'static dyn Role],
-        feared_seats: &'a HashSet<usize>,
+        feared_seats: SeatSet,
         board: PromptBoard<'a>,
     ) -> Self {
         Self {
@@ -848,7 +853,7 @@ impl<'a> GroupPromptCtx<'a> {
             waking_roles,
             feared_seats,
             board,
-            notified_table_seats: AtomicU16::new(0),
+            notified_table_seats: AtomicU64::new(0),
         }
     }
 
@@ -862,10 +867,10 @@ impl<'a> GroupPromptCtx<'a> {
     }
 
     fn maybe_emit_table_summary_to(&self, seat: usize) {
-        if !self.eyes_open || seat >= 16 {
+        if !self.eyes_open || seat >= SeatSet::MAX_SEATS {
             return;
         }
-        let bit = 1u16 << seat;
+        let bit = 1u64 << seat;
         if (self.notified_table_seats.fetch_or(bit, Ordering::Relaxed) & bit) == 0 {
             if let Some(summary) = self.board.raw().visible_table_summary(self.roster) {
                 let _ = self.roster.seats[seat].user.say(summary);
@@ -898,20 +903,20 @@ impl<'a> GroupPromptCtx<'a> {
     }
 
     /// Opens a drop-out-tolerant DM [`Huddle`] across `seats` using [`Bot::huddle_available`].
-    pub async fn huddle(&self, name: impl Into<Text>, seats: &[usize]) -> Result<Huddle> {
-        for &s in seats {
+    pub async fn huddle(&self, name: impl Into<Text>, seats: SeatSet) -> Result<Huddle> {
+        for s in seats {
             self.maybe_emit_table_summary_to(s);
         }
         let users: Vec<User> = seats
-            .iter()
-            .map(|&s| self.roster.seats[s].user.clone())
+            .into_iter()
+            .map(|s| self.roster.seats[s].user.clone())
             .collect();
         self.bot.huddle_available(name, &users).await
     }
 
     /// Opens a drop-out-tolerant DM [`Huddle`] across `seats` and keeps its pump-dispatched
     /// relay active until the tier deadline.
-    pub async fn relay_huddle(&self, name: impl Into<Text>, seats: &[usize]) -> Result<()> {
+    pub async fn relay_huddle(&self, name: impl Into<Text>, seats: SeatSet) -> Result<()> {
         let _huddle = self.huddle(name, seats).await?;
         tokio::time::sleep_until(self.deadline).await;
         Ok(())
@@ -926,26 +931,28 @@ impl<'a> GroupPromptCtx<'a> {
         self.board.raw().is_shielded(seat)
     }
 
-    pub fn format_visible_indices(&self, indices: &[usize]) -> String {
+    pub fn shielded_seats(&self) -> SeatSet {
+        self.check_read(BoardAccess::SHIELDS, "SHIELDS");
+        self.board.raw().shielded_seats()
+    }
+
+    pub fn format_visible_seats(&self, seats: SeatSet) -> String {
         self.check_read(BoardAccess::VISIBLE_TABLE, "VISIBLE_TABLE");
-        self.board.raw().format_visible_indices(self.roster, indices)
+        self.board.raw().format_visible_seats(self.roster, seats)
     }
 
     /// All seats holding `faction` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
-    pub fn seats_with_faction(&self, faction: NightFaction) -> Vec<usize> {
+    pub fn seats_with_faction(&self, faction: NightFaction) -> SeatSet {
         seats_with_faction_in(self.waking_roles, faction)
     }
 
     /// Waking seats holding `faction` (excluding seats suppressed by `Mark::Fear`).
-    pub fn waking_seats_with_faction(&self, faction: NightFaction) -> Vec<usize> {
-        self.seats_with_faction(faction)
-            .into_iter()
-            .filter(|s| !self.feared_seats.contains(s))
-            .collect()
+    pub fn waking_seats_with_faction(&self, faction: NightFaction) -> SeatSet {
+        self.seats_with_faction(faction) - self.feared_seats
     }
 
     /// All seats holding `role` (initial role or copied by `Copycat` / `Doppelgänger`).
-    pub fn seats_with_role(&self, role: &'static dyn Role) -> Vec<usize> {
+    pub fn seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
         let target_id = role.id();
         self.waking_roles
             .iter()
@@ -1016,16 +1023,16 @@ pub struct VictoryCtx<'a> {
     pub roster: &'a Roster,
     pub board: &'a BoardCards,
     pub votes: &'a [Option<usize>],
-    pub dead_seats: &'a HashSet<usize>,
+    pub dead_seats: SeatSet,
 }
 
 impl<'a> VictoryCtx<'a> {
     pub fn is_dead(&self, seat: usize) -> bool {
-        self.dead_seats.contains(&seat)
+        self.dead_seats.contains(seat)
     }
 
     /// Seats currently holding `role` un-overridden by role-replacing `Artifact`s or `Mark::Vampire`.
-    pub fn active_holders(&self, role: &'static dyn Role) -> Vec<usize> {
+    pub fn active_holders(&self, role: &'static dyn Role) -> SeatSet {
         self.board.active_holders(role)
     }
 }
@@ -1068,7 +1075,7 @@ pub struct WinnerFilterCtx<'a> {
     pub roster: &'a Roster,
     pub board: &'a BoardCards,
     pub votes: &'a [Option<usize>],
-    pub dead_seats: &'a HashSet<usize>,
+    pub dead_seats: SeatSet,
     pub blocked_teams: &'a HashSet<Team>,
     pub casemap: CaseMap,
     pub day_channel_log: &'a [ChatMessage],

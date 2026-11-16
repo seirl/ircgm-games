@@ -1,5 +1,6 @@
 use ircgm::prelude::*;
 
+use crate::board::SeatSet;
 use crate::role::{GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, Team, WakeStep};
 
 pub struct Mason;
@@ -27,12 +28,12 @@ impl Role for Mason {
 }
 
 impl Mason {
-    async fn wake_group(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let total_masons = ctx.seats_with_role(&MASON).len();
-        if active_seats.len() == 1 {
+        if let Some(solo) = active_seats.only() {
             if total_masons > 1 {
                 ctx.dm(
-                    active_seats[0],
+                    solo,
                     irc_format!(
                         "🧱 Mason: You woke {} (your fellow Mason could not wake up tonight!).",
                         "alone".bold().light_cyan()
@@ -40,7 +41,7 @@ impl Mason {
                 );
             } else {
                 ctx.dm(
-                    active_seats[0],
+                    solo,
                     irc_format!(
                         "🧱 Mason: You are the {} in play (the other Mason card is in the center!).",
                         "ONLY Mason".bold().light_cyan()
@@ -48,24 +49,20 @@ impl Mason {
                 );
             }
         } else {
-            for &seat in &active_seats {
-                let others: Vec<usize> = active_seats
-                    .iter()
-                    .copied()
-                    .filter(|&o| o != seat)
-                    .collect();
+            for seat in active_seats {
+                let others = active_seats.without(seat);
                 ctx.dm(
                     seat,
                     irc_format!(
                         "🧱 Fellow Mason(s): {}",
-                        ctx.roster.format_indices(&others).bold().light_cyan()
+                        ctx.roster.format_seats(others).bold().light_cyan()
                     ),
                 );
             }
         }
 
         Ok(GroupEffect::new(move |_board, rctx| {
-            if active_seats.len() == 1 {
+            if let Some(solo) = active_seats.only() {
                 let reason = if total_masons > 1 {
                     "fellow Mason feared"
                 } else {
@@ -74,10 +71,10 @@ impl Mason {
                 rctx.record(irc_format!(
                     "🧱 {} ({}) woke alone ({reason}).",
                     MASON.info().styled_name(),
-                    rctx.nick(active_seats[0]).bold(),
+                    rctx.nick(solo).bold(),
                 ));
             } else {
-                let names = rctx.roster.format_indices(&active_seats);
+                let names = rctx.roster.format_seats(active_seats);
                 rctx.record(irc_format!(
                     "🧱 Masons ({}) recognized each other.",
                     names.bold().light_cyan(),

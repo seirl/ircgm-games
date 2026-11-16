@@ -55,29 +55,22 @@ impl Temptress {
         let roster = ctx.roster;
         let view = ctx.view();
         let villains = ctx.waking_seats_with_faction(NightFaction::SuperVillain);
-        let non_villains: Vec<usize> = (0..roster.len())
-            .filter(|&i| i != seat && !villains.contains(&i))
-            .collect();
-        let valid_targets: Vec<usize> = non_villains
-            .iter()
-            .copied()
-            .filter(|&i| !view.is_shielded(i))
-            .collect();
+        let non_villains = roster.all_seats().without(seat) - villains;
+        let valid_targets = non_villains - view.shielded_seats();
 
         if valid_targets.is_empty() {
             ctx.say("💋 Temptress: No valid non-Villain targets available!");
             return Ok(SeatEffect::noop());
         }
 
-        let non_villains_str = ctx.format_visible_indices(&non_villains);
+        let non_villains_str = ctx.format_visible_seats(non_villains);
         let prompt = irc_format!(
             "💋 Temptress: You MUST plant the extra Villain card on a non-Villain player ({})! Non-Villains: {non_villains_str}",
             "<nick>".bold(),
         );
-        let valid_for_match = valid_targets.clone();
         let ans = ctx
             .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
-                Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
+                Some(idx) if valid_targets.contains(idx) => AskMatch::accept_say(
                     idx,
                     irc_format!(
                         "💋 Lured {} into Villainy!",
@@ -94,10 +87,10 @@ impl Temptress {
 
         let (chosen, timed_out) = match ans.ok() {
             Some(idx) => (idx, false),
-            None => {
-                let idx = valid_targets[fastrand::usize(..valid_targets.len())];
-                (idx, true)
-            }
+            None => (
+                valid_targets.choose_random().expect("valid_targets non-empty"),
+                true,
+            ),
         };
 
         Ok(SeatEffect::new(move |label, board, rctx| {

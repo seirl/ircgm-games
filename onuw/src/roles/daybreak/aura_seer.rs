@@ -38,7 +38,7 @@ impl AuraSeer {
                 actor_nick.bold(),
             ));
         } else {
-            let names_str = ctx.roster.format_indices(&active);
+            let names_str = ctx.roster.format_seats(active);
             ctx.dm(
                 seat,
                 irc_format!(

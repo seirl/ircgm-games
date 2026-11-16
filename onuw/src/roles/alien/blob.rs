@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardMut, Roster};
+use crate::board::{BoardMut, Roster, SeatSet};
 use crate::role::{
     GameSet, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx, WakeStep,
 };
@@ -8,15 +8,13 @@ use crate::role::{
 pub struct Blob;
 pub static BLOB: Blob = Blob;
 
-fn blob_seats_around(roster: &Roster, seat: usize) -> Vec<usize> {
+fn blob_seats_around(roster: &Roster, seat: usize) -> SeatSet {
     let (left, right) = roster.neighbors(seat);
-    let mut list = vec![seat, left];
+    let mut set = SeatSet::from([seat, left]);
     if roster.len() >= 6 {
-        list.push(right);
+        set.insert(right);
     }
-    list.sort_unstable();
-    list.dedup();
-    list
+    set
 }
 
 impl Role for Blob {
@@ -37,8 +35,7 @@ impl Role for Blob {
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         let absorbed = blob_seats_around(ctx.roster, seat);
         absorbed
-            .into_iter()
-            .all(|s| !ctx.is_dead(s))
+            .is_disjoint(ctx.dead_seats)
             .then_some(SpecialVictory::independent())
     }
 }
@@ -46,7 +43,7 @@ impl Role for Blob {
 impl Blob {
     fn inspect(seat: usize, actor_label: &str, _board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
         let absorbed = blob_seats_around(ctx.roster, seat);
-        let names = ctx.roster.format_indices(&absorbed);
+        let names = ctx.roster.format_seats(absorbed);
         ctx.dm(
             seat,
             irc_format!(

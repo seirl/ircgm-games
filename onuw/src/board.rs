@@ -2,7 +2,7 @@
 //! [`BoardMut`] resolve mutator, [`BoardKey`] typed blackboard, and [`Roster`] player ring.
 
 use std::any::{Any, TypeId};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 
 use ircgm::prelude::*;
@@ -10,6 +10,7 @@ use ircgm::prelude::*;
 use crate::artifacts::Artifact;
 use crate::marks::Mark;
 use crate::role::{EffectiveAlignment, EndgameModifier, NightFaction, ResolveCtx, Role, Team};
+pub use crate::seat_set::{SeatIter, SeatSet};
 
 /// Bitmask tracking which tabletop zones a [`crate::role::WakeStep`] reads during its prompt
 /// or mutates at resolution time.
@@ -156,7 +157,11 @@ impl Roster {
         self.seats.is_empty()
     }
 
-    pub fn initial_holders(&self, role: &'static dyn Role) -> Vec<usize> {
+    pub fn all_seats(&self) -> SeatSet {
+        SeatSet::all(self.seats.len())
+    }
+
+    pub fn initial_holders(&self, role: &'static dyn Role) -> SeatSet {
         self.seats
             .iter()
             .enumerate()
@@ -184,10 +189,10 @@ impl Roster {
         format!("{chain} (wraps)")
     }
 
-    pub fn format_indices(&self, indices: &[usize]) -> String {
-        indices
-            .iter()
-            .map(|&i| self.seats[i].user.nick())
+    pub fn format_seats(&self, seats: impl IntoIterator<Item = usize>) -> String {
+        seats
+            .into_iter()
+            .map(|i| self.seats[i].user.nick())
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -345,10 +350,10 @@ pub fn format_role_slice_styled(roles: &[&'static dyn Role]) -> Text {
 pub struct BoardCards {
     players: Vec<Card>,
     center: [Card; 3],
-    shielded: HashSet<usize>,
+    shielded: SeatSet,
     marks: Vec<Mark>,
-    artifacts: HashMap<usize, Artifact>,
-    viewed_or_moved_actors: HashSet<usize>,
+    artifacts: Vec<Option<Artifact>>,
+    viewed_or_moved_actors: SeatSet,
     copied_from: Vec<Option<usize>>,
     blackboard: HashMap<TypeId, Box<dyn BlackboardValue>>,
 }
@@ -363,10 +368,10 @@ impl Clone for BoardCards {
         Self {
             players: self.players.clone(),
             center: self.center,
-            shielded: self.shielded.clone(),
+            shielded: self.shielded,
             marks: self.marks.clone(),
             artifacts: self.artifacts.clone(),
-            viewed_or_moved_actors: self.viewed_or_moved_actors.clone(),
+            viewed_or_moved_actors: self.viewed_or_moved_actors,
             copied_from: self.copied_from.clone(),
             blackboard,
         }
@@ -390,13 +395,18 @@ impl fmt::Debug for BoardCards {
 impl BoardCards {
     pub fn new(players: Vec<Card>, center: [Card; 3]) -> Self {
         let n = players.len();
+        assert!(
+            n <= SeatSet::MAX_SEATS,
+            "BoardCards supports at most {} players (got {n})",
+            SeatSet::MAX_SEATS
+        );
         Self {
             players,
             center,
-            shielded: HashSet::new(),
+            shielded: SeatSet::EMPTY,
             marks: vec![Mark::Clarity; n],
-            artifacts: HashMap::new(),
-            viewed_or_moved_actors: HashSet::new(),
+            artifacts: vec![None; n],
+            viewed_or_moved_actors: SeatSet::EMPTY,
             copied_from: vec![None; n],
             blackboard: HashMap::new(),
         }
@@ -427,23 +437,23 @@ impl BoardCards {
     }
 
     pub fn artifact(&self, seat: usize) -> Option<Artifact> {
-        self.artifacts.get(&seat).copied()
+        self.artifacts[seat]
     }
 
-    pub fn shielded_seats(&self) -> Vec<usize> {
-        let mut s: Vec<usize> = self.shielded.iter().copied().collect();
-        s.sort_unstable();
-        s
+    pub fn shielded_seats(&self) -> SeatSet {
+        self.shielded
     }
 
-    pub fn artifact_seats(&self) -> Vec<usize> {
-        let mut a: Vec<usize> = self.artifacts.keys().copied().collect();
-        a.sort_unstable();
-        a
+    pub fn artifact_seats(&self) -> SeatSet {
+        self.artifacts
+            .iter()
+            .enumerate()
+            .filter_map(|(i, a)| a.map(|_| i))
+            .collect()
     }
 
     pub fn is_shielded(&self, seat: usize) -> bool {
-        self.shielded.contains(&seat)
+        self.shielded.contains(seat)
     }
 
     pub fn is_player_face_up(&self, seat: usize) -> bool {
@@ -477,13 +487,13 @@ impl BoardCards {
 
     fn format_seat_visible(&self, roster: &Roster, seat: usize) -> String {
         let mut s = roster.seats[seat].user.nick();
-        if self.shielded.contains(&seat) {
+        if self.shielded.contains(seat) {
             s.push('🛡');
         }
         if self.players[seat].face_up {
             s.push_str(&format!(" [🔦 {}]", self.players[seat].face.name()));
         }
-        if self.artifacts.contains_key(&seat) {
+        if self.artifacts[seat].is_some() {
             s.push('🏺');
         }
         s
@@ -496,10 +506,10 @@ impl BoardCards {
             .join(", ")
     }
 
-    pub(crate) fn format_visible_indices(&self, roster: &Roster, indices: &[usize]) -> String {
-        indices
-            .iter()
-            .map(|&i| self.format_seat_visible(roster, i))
+    pub(crate) fn format_visible_seats(&self, roster: &Roster, seats: SeatSet) -> String {
+        seats
+            .into_iter()
+            .map(|i| self.format_seat_visible(roster, i))
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -509,9 +519,9 @@ impl BoardCards {
     pub(crate) fn visible_table_summary(&self, roster: &Roster) -> Option<Text> {
         let mut items: Vec<String> = Vec::new();
         for i in 0..roster.len() {
-            let has_marker = self.shielded.contains(&i)
+            let has_marker = self.shielded.contains(i)
                 || self.players[i].face_up
-                || self.artifacts.contains_key(&i);
+                || self.artifacts[i].is_some();
             if has_marker {
                 items.push(self.format_seat_visible(roster, i));
             }
@@ -530,13 +540,11 @@ impl BoardCards {
     /// True if `seat` holds a role-changing `Artifact` (`Claw`, `Brand`, `Cudgel`), which overrides
     /// both Dusk `Mark`s and printed/copied Voting role abilities.
     pub fn has_role_override_artifact(&self, seat: usize) -> bool {
-        self.artifacts
-            .get(&seat)
-            .is_some_and(|tok| tok.replaces_role_card())
+        self.artifacts[seat].is_some_and(|tok| tok.replaces_role_card())
     }
 
     /// Seats currently holding `role` un-overridden by role-changing `Artifact`s or `Mark::Vampire`.
-    pub fn active_holders(&self, role: &'static dyn Role) -> Vec<usize> {
+    pub fn active_holders(&self, role: &'static dyn Role) -> SeatSet {
         let target_id = role.id();
         (0..self.players.len())
             .filter(|&i| {
@@ -555,7 +563,7 @@ impl BoardCards {
             out.push(self.players[seat].effective_role_ref());
         }
         out.push(&self.marks[seat]);
-        if let Some(art) = self.artifacts.get(&seat) {
+        if let Some(art) = &self.artifacts[seat] {
             out.push(art);
         }
         out
@@ -570,7 +578,7 @@ impl BoardCards {
         };
         align = role_ref.adjust_alignment(seat, self, align);
         align = self.marks[seat].adjust_alignment(seat, self, align);
-        if let Some(art) = self.artifacts.get(&seat) {
+        if let Some(art) = &self.artifacts[seat] {
             align = art.adjust_alignment(seat, self, align);
         }
         align
@@ -590,7 +598,7 @@ impl BoardCards {
             threat_team: role.threat_team(),
         };
         align = self.marks[seat].adjust_alignment(seat, self, align);
-        if let Some(art) = self.artifacts.get(&seat) {
+        if let Some(art) = &self.artifacts[seat] {
             align = art.adjust_alignment(seat, self, align);
         }
         align.threat_team == Some(monster_team)
@@ -603,7 +611,7 @@ impl BoardCards {
 
     #[cfg(test)]
     pub(crate) fn insert_artifact_for_test(&mut self, seat: usize, artifact: Artifact) {
-        self.artifacts.insert(seat, artifact);
+        self.artifacts[seat] = Some(artifact);
     }
 
     #[cfg(test)]
@@ -678,14 +686,12 @@ impl<'a> BoardMut<'a> {
 
     pub fn is_shielded(&self, seat: usize) -> bool {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
-        self.inner.shielded.contains(&seat)
+        self.inner.shielded.contains(seat)
     }
 
-    pub fn unshielded_other_seats(&self, actor: usize) -> Vec<usize> {
+    pub fn unshielded_other_seats(&self, actor: usize) -> SeatSet {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
-        (0..self.inner.players.len())
-            .filter(|&i| i != actor && !self.inner.shielded.contains(&i))
-            .collect()
+        SeatSet::all(self.inner.players.len()).without(actor) - self.inner.shielded
     }
 
     pub fn mark_at(&self, seat: usize) -> Mark {
@@ -696,16 +702,8 @@ impl<'a> BoardMut<'a> {
         self.inner.players[seat].effective_role().night_faction() == Some(faction)
     }
 
-    pub fn aura_actors_excluding(&self, seat: usize) -> Vec<usize> {
-        let mut active: Vec<usize> = self
-            .inner
-            .viewed_or_moved_actors
-            .iter()
-            .copied()
-            .filter(|&s| s != seat)
-            .collect();
-        active.sort_unstable();
-        active
+    pub fn aura_actors_excluding(&self, seat: usize) -> SeatSet {
+        self.inner.viewed_or_moved_actors.without(seat)
     }
 
     pub fn get_key<K: BoardKey>(&self) -> K {
@@ -730,7 +728,7 @@ impl<'a> BoardMut<'a> {
     /// Peeks `target`'s card if unshielded, automatically recording `actor` for `Aura Seer`.
     pub fn peek_player(&mut self, actor: usize, target: usize) -> Option<Card> {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
-        if self.inner.shielded.contains(&target) {
+        if self.inner.shielded.contains(target) {
             return None;
         }
         self.inner.viewed_or_moved_actors.insert(actor);
@@ -747,7 +745,7 @@ impl<'a> BoardMut<'a> {
     pub fn swap_players(&mut self, actor: usize, a: usize, b: usize) -> Option<(Card, Card)> {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
         self.check_write(BoardAccess::PLAYER_FACES, "PLAYER_FACES");
-        if self.inner.shielded.contains(&a) || self.inner.shielded.contains(&b) {
+        if self.inner.shielded.contains(a) || self.inner.shielded.contains(b) {
             return None;
         }
         self.inner.viewed_or_moved_actors.insert(actor);
@@ -769,7 +767,7 @@ impl<'a> BoardMut<'a> {
             BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES,
             "PLAYER_FACES | CENTER_FACES",
         );
-        if self.inner.shielded.contains(&seat) {
+        if self.inner.shielded.contains(seat) {
             return None;
         }
         self.inner.viewed_or_moved_actors.insert(actor);
@@ -797,7 +795,7 @@ impl<'a> BoardMut<'a> {
             BoardAccess::PLAYER_FACES | K::ACCESS,
             "PLAYER_FACES | K::ACCESS",
         );
-        if self.inner.shielded.contains(&target) {
+        if self.inner.shielded.contains(target) {
             return None;
         }
         self.inner.viewed_or_moved_actors.insert(actor);
@@ -816,9 +814,7 @@ impl<'a> BoardMut<'a> {
     pub fn rotate_other_unshielded(&mut self, actor: usize, rotate_right: bool) -> usize {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
         self.check_write(BoardAccess::PLAYER_FACES, "PLAYER_FACES");
-        let ring: Vec<usize> = (0..self.inner.players.len())
-            .filter(|&i| i != actor && !self.inner.shielded.contains(&i))
-            .collect();
+        let ring: Vec<usize> = self.unshielded_other_seats(actor).into_iter().collect();
         if ring.len() >= 2 {
             self.inner.viewed_or_moved_actors.insert(actor);
             let snapshot: Vec<Card> = ring.iter().map(|&i| self.inner.players[i]).collect();
@@ -856,7 +852,7 @@ impl<'a> BoardMut<'a> {
             BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES,
             "PLAYER_BECAME | WAKING_ROLES",
         );
-        if self.inner.shielded.contains(&target) {
+        if self.inner.shielded.contains(target) {
             return None;
         }
         let copied = self.inner.players[target].effective_role();
@@ -897,7 +893,7 @@ impl<'a> BoardMut<'a> {
     pub fn reveal_player_if_village(&mut self, actor: usize, target: usize) -> Option<(Card, bool)> {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
         self.check_write(BoardAccess::FACE_UP, "FACE_UP");
-        if self.inner.shielded.contains(&target) {
+        if self.inner.shielded.contains(target) {
             return None;
         }
         self.inner.viewed_or_moved_actors.insert(actor);
@@ -917,11 +913,11 @@ impl<'a> BoardMut<'a> {
             "SHIELDS | ARTIFACTS",
         );
         self.check_write(BoardAccess::ARTIFACTS, "ARTIFACTS");
-        if self.inner.shielded.contains(&target) || self.inner.artifacts.contains_key(&target) {
+        if self.inner.shielded.contains(target) || self.inner.artifacts[target].is_some() {
             return None;
         }
         let art = Artifact::random_unused(&self.inner.artifacts);
-        self.inner.artifacts.insert(target, art);
+        self.inner.artifacts[target] = Some(art);
         Some(art)
     }
 

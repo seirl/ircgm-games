@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::vampire::VAMPIRE_PACK_STEP;
-use crate::board::{BoardAccess, BoardMut};
+use crate::board::{BoardAccess, BoardMut, SeatSet};
 use crate::marks::Mark;
 use crate::role::{
     GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
@@ -41,23 +41,23 @@ impl Role for Count {
 impl Count {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let card_vamps = ctx.seats_with_faction(NightFaction::Vampire);
-        let valid_targets: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| i != seat && !card_vamps.contains(&i) && ctx.mark_at(i) != Mark::Vampire)
+        let valid_targets: SeatSet = (ctx.roster.all_seats().without(seat) - card_vamps)
+            .into_iter()
+            .filter(|&i| ctx.mark_at(i) != Mark::Vampire)
             .collect();
         if valid_targets.is_empty() {
             return Ok(SeatEffect::noop());
         }
 
-        let non_vamps_str = ctx.format_visible_indices(&valid_targets);
+        let non_vamps_str = ctx.format_visible_seats(valid_targets);
         let view = ctx.view();
-        let valid_for_match = valid_targets.clone();
         let prompt = irc_format!(
             "🦇 The Count: You MUST reply {} to place the Mark of Fear on a non-Vampire (suppressing their Night wake)! Non-Vampires: {non_vamps_str}",
             "<nick>".bold(),
         );
         let ans = ctx
             .ask(prompt, move |m| match view.resolve_nick(&m.text) {
-                Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
+                Some(idx) if valid_targets.contains(idx) => AskMatch::accept_say(
                     idx,
                     irc_format!(
                         "🦇 Placed {} on {}!",
@@ -72,7 +72,7 @@ impl Count {
 
         let target = ans
             .ok()
-            .unwrap_or_else(|| valid_targets[fastrand::usize(..valid_targets.len())]);
+            .unwrap_or_else(|| valid_targets.choose_random().expect("valid_targets non-empty"));
 
         Ok(SeatEffect::new(move |label, board, rctx| {
             Self::resolve(seat, label, target, board, rctx);

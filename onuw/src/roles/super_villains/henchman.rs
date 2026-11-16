@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::evilometer::EVILOMETER;
-use crate::board::BoardMut;
+use crate::board::{BoardMut, SeatSet};
 use crate::role::{
     GameSet, GroupEffect, GroupPromptCtx, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep,
 };
@@ -34,11 +34,11 @@ impl Role for Henchman {
 }
 
 impl Henchman {
-    async fn huddle(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    async fn huddle(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let evilometers = ctx.seats_with_role(&EVILOMETER);
-        let evilometer_list = ctx.roster.format_indices(&evilometers);
+        let evilometer_list = ctx.roster.format_seats(evilometers);
 
-        for &v_seat in &active_seats {
+        for v_seat in active_seats {
             if !evilometers.is_empty() {
                 ctx.dm(
                     v_seat,
@@ -50,47 +50,42 @@ impl Henchman {
             }
         }
 
-        if active_seats.len() >= 2 {
-            for &v_seat in &active_seats {
-                let partners: Vec<usize> = active_seats
-                    .iter()
-                    .copied()
-                    .filter(|&o| o != v_seat)
-                    .collect();
+        if let Some(solo) = active_seats.only() {
+            ctx.dm(
+                solo,
+                "🦹‍♂️ Evil Syndicate: You are the sole waking Super Villain tonight!",
+            );
+        } else {
+            for v_seat in active_seats {
+                let partners = active_seats.without(v_seat);
                 ctx.dm(
                     v_seat,
                     irc_format!(
                         "🦹‍♂️ Evil Syndicate: Fellow Super Villains: {} (chat here to coordinate!)",
-                        ctx.roster.format_indices(&partners).bold().red(),
+                        ctx.roster.format_seats(partners).bold().red(),
                     ),
                 );
             }
-            ctx.relay_huddle("Syndicate".red().bold(), &active_seats)
+            ctx.relay_huddle("Syndicate".red().bold(), active_seats)
                 .await?;
-        } else {
-            ctx.dm(
-                active_seats[0],
-                "🦹‍♂️ Evil Syndicate: You are the sole waking Super Villain tonight!",
-            );
         }
 
         Ok(GroupEffect::new(move |board, rctx| {
-            Self::resolve(&active_seats, board, rctx);
+            Self::resolve(active_seats, board, rctx);
         }))
     }
 
-    fn resolve(active_seats: &[usize], _board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
-        if active_seats.len() >= 2 {
-            let names = ctx.roster.format_indices(active_seats);
+    fn resolve(active_seats: SeatSet, _board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
+        if let Some(solo) = active_seats.only() {
+            ctx.record(irc_format!(
+                "🦹‍♂️ Solo Super Villain {} woke in the Evil Lair.",
+                ctx.nick(solo).bold(),
+            ));
+        } else {
+            let names = ctx.roster.format_seats(active_seats);
             ctx.record(irc_format!(
                 "🦹‍♂️ Super Villains ({}) assembled in the Evil Lair.",
                 names.bold().red(),
-            ));
-        } else {
-            let seat = active_seats[0];
-            ctx.record(irc_format!(
-                "🦹‍♂️ Solo Super Villain {} woke in the Evil Lair.",
-                ctx.nick(seat).bold(),
             ));
         }
     }

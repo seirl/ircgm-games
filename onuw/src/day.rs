@@ -1,13 +1,12 @@
 //! Timed **Day Discussion** and public **Voting Phase** (`!ready`, `!time`, `!vote <nick>`).
 
-use std::collections::HashSet;
 use std::convert::Infallible;
 use std::time::Duration;
 
 use ircgm::prelude::*;
 use tokio::time::Instant;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardCards, Roster, SeatSet};
 
 pub(crate) fn is_active_in_room(room: &Room, user: &User) -> bool {
     user.is_online() && room.has_user(user)
@@ -24,7 +23,7 @@ pub async fn run_day_phase(
         room.say(irc_format!(
             "🛡️ {}: {}",
             "Shield Token rests on".bold(),
-            roster.format_indices(&shielded).bold().light_cyan(),
+            roster.format_seats(shielded).bold().light_cyan(),
         ))?;
     }
 
@@ -33,7 +32,7 @@ pub async fn run_day_phase(
         room.say(irc_format!(
             "🏺 {}: {}",
             "Artifact Token rests on".bold(),
-            roster.format_indices(&artifacts).bold().yellow(),
+            roster.format_seats(artifacts).bold().yellow(),
         ))?;
     }
 
@@ -81,7 +80,7 @@ pub async fn run_day_phase(
     }
 
     let enrolled: Vec<User> = roster.seats.iter().map(|s| s.user.clone()).collect();
-    let mut ready_seats: HashSet<usize> = HashSet::new();
+    let mut ready_seats = SeatSet::EMPTY;
 
     let answers = room
         .ask_many(prompt, |msg| {
@@ -101,16 +100,14 @@ pub async fn run_day_phase(
                 return AskMatch::ignore();
             }
             ready_seats.insert(seat_idx);
-            let mut active_total = 0usize;
-            let mut ready_count = 0usize;
-            for (i, seat) in roster.seats.iter().enumerate() {
-                if is_active_in_room(room, &seat.user) {
-                    active_total += 1;
-                    if ready_seats.contains(&i) {
-                        ready_count += 1;
-                    }
-                }
-            }
+            let active_seats: SeatSet = roster
+                .seats
+                .iter()
+                .enumerate()
+                .filter_map(|(i, seat)| is_active_in_room(room, &seat.user).then_some(i))
+                .collect();
+            let active_total = active_seats.len();
+            let ready_count = (active_seats & ready_seats).len();
             AskMatch::accept_say(
                 (),
                 irc_format!(

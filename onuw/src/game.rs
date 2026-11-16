@@ -1,12 +1,11 @@
 //! Thin single-game orchestrator wiring together `lobby`, `deck`, `night`, `day`, and `voting`.
 
-use std::collections::HashSet;
 use std::convert::Infallible;
 use std::time::Duration;
 
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardCards, Roster, SeatSet};
 use crate::voting::{resolve_and_announce_winners, GameReveal};
 use crate::day::{run_day_phase, run_voting_phase};
 use crate::deck::DeckSpec;
@@ -83,7 +82,7 @@ pub struct GameSummary {
     pub final_board: BoardCards,
     pub chronicle: Vec<Text>,
     pub votes: Vec<Option<usize>>,
-    pub dead_seats: HashSet<usize>,
+    pub dead_seats: SeatSet,
     pub winners: Vec<(usize, &'static str)>,
     pub reveal: GameReveal,
 }

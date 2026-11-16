@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardCards, BoardMut};
+use crate::board::{BoardAccess, BoardCards, BoardMut, SeatSet};
 use crate::marks::Mark;
 use crate::role::{
     EffectiveAlignment, GameSet, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep,
@@ -45,13 +45,19 @@ impl Role for Renfield {
 
 impl Renfield {
     fn inspect(seat: usize, actor_label: &str, board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
-        let card_vamps: Vec<usize> = (0..ctx.roster.len())
+        let card_vamps: SeatSet = ctx
+            .roster
+            .all_seats()
+            .into_iter()
             .filter(|&i| {
                 ctx.waking_role(i).night_faction() == Some(NightFaction::Vampire)
                     || board.card_has_night_faction(i, NightFaction::Vampire)
             })
             .collect();
-        let marked_vamps: Vec<usize> = (0..ctx.roster.len())
+        let marked_vamps: SeatSet = ctx
+            .roster
+            .all_seats()
+            .into_iter()
             .filter(|&i| board.mark_at(i) == Mark::Vampire)
             .collect();
 
@@ -67,12 +73,12 @@ impl Renfield {
             let vamps_str = if card_vamps.is_empty() {
                 "none".to_owned()
             } else {
-                ctx.roster.format_indices(&card_vamps)
+                ctx.roster.format_seats(card_vamps)
             };
             let thrall_str = if marked_vamps.is_empty() {
                 "none".to_owned()
             } else {
-                ctx.roster.format_indices(&marked_vamps)
+                ctx.roster.format_seats(marked_vamps)
             };
             ctx.dm(
                 seat,

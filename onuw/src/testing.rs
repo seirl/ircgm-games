@@ -387,8 +387,8 @@ impl VotingReport {
     pub fn dead_nicks(&self, roster: &Roster) -> HashSet<String> {
         self.summary
             .dead_seats
-            .iter()
-            .map(|&idx| roster.seats[idx].user.nick())
+            .into_iter()
+            .map(|idx| roster.seats[idx].user.nick())
             .collect()
     }
 

@@ -37,9 +37,7 @@ impl DrPeeker {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let roster = ctx.roster;
         let view = ctx.view();
-        let valid_targets: Vec<usize> = (0..roster.len())
-            .filter(|&i| i != seat && !view.is_shielded(i))
-            .collect();
+        let valid_targets = roster.all_seats().without(seat) - view.shielded_seats();
 
         if valid_targets.is_empty() {
             return Ok(SeatEffect::noop());
@@ -57,7 +55,7 @@ impl DrPeeker {
                     return AskMatch::accept_say(None, "🔬 Passed — not X-raying anyone.");
                 }
                 match roster.resolve_nick(&m.text) {
-                    Some(idx) if valid_targets.contains(&idx) => AskMatch::accept_say(
+                    Some(idx) if valid_targets.contains(idx) => AskMatch::accept_say(
                         Some(idx),
                         irc_format!(
                             "🔬 Locked in X-raying {} — result arrives when the phase ends!",

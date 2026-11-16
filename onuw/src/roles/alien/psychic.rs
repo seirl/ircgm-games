@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::oracle::{OracleOmen, ORACLE};
-use crate::board::{BoardKey, BoardMut, Roster};
+use crate::board::{BoardKey, BoardMut, Roster, SeatSet};
 use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Psychic;
@@ -41,17 +41,12 @@ impl Psychic {
         let view = ctx.view();
         let (left, right) = roster.neighbors(seat);
 
-        let targets: Vec<usize> = if omen == OracleOmen::AmplifiedSignals {
-            let mut v = vec![left, right];
-            v.dedup();
-            v
+        let targets: SeatSet = if omen == OracleOmen::AmplifiedSignals {
+            SeatSet::from([left, right])
         } else {
-            let unshielded: Vec<usize> = [left, right]
-                .into_iter()
-                .filter(|&s| !view.is_shielded(s))
-                .collect();
+            let unshielded = SeatSet::from([left, right]) - view.shielded_seats();
             if unshielded.is_empty() {
-                Vec::new()
+                SeatSet::EMPTY
             } else {
                 let left_nick = roster.seats[left].user.nick();
                 let right_nick = roster.seats[right].user.nick();
@@ -89,32 +84,30 @@ impl Psychic {
                     })
                     .await?;
                 let fallback = match omen {
-                    OracleOmen::QuantumStatic if !view.is_shielded(right) => right,
-                    _ if !view.is_shielded(left) => left,
-                    _ => unshielded[0],
+                    OracleOmen::QuantumStatic if unshielded.contains(right) => right,
+                    _ if unshielded.contains(left) => left,
+                    _ => unshielded.first().expect("unshielded non-empty"),
                 };
-                vec![ans.ok().unwrap_or(fallback)]
+                SeatSet::single(ans.ok().unwrap_or(fallback))
             }
         };
 
         Ok(SeatEffect::new(move |label, board, rctx| {
-            Self::resolve(seat, label, &targets, board, rctx);
+            Self::resolve(seat, label, targets, board, rctx);
         }))
     }
 
     fn resolve(
         seat: usize,
         actor_label: &str,
-        targets: &[usize],
+        targets: SeatSet,
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let actor_nick = ctx.nick(seat);
-        let mut unique_targets = targets.to_vec();
-        unique_targets.dedup();
 
         let mut seen_parts = Vec::new();
-        for target in unique_targets {
+        for target in targets {
             if let Some(seen) = board.peek_player(seat, target) {
                 let target_nick = ctx.nick(target);
                 ctx.dm(

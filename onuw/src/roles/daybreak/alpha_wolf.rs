@@ -53,30 +53,23 @@ impl Role for AlphaWolf {
 impl AlphaWolf {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let wolves = ctx.known_pack_mates(NightFaction::Werewolf);
-        let non_wolves: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| i != seat && !wolves.contains(&i))
-            .collect();
-        let valid_targets: Vec<usize> = non_wolves
-            .iter()
-            .copied()
-            .filter(|&i| !ctx.is_shielded(i))
-            .collect();
+        let non_wolves = ctx.roster.all_seats().without(seat) - wolves;
+        let valid_targets = non_wolves - ctx.shielded_seats();
 
         if valid_targets.is_empty() {
             ctx.say("🐺 Alpha Wolf: No valid non-Wolf targets exist tonight!");
             return Ok(SeatEffect::noop());
         }
 
-        let non_wolves_str = ctx.format_visible_indices(&non_wolves);
+        let non_wolves_str = ctx.format_visible_seats(non_wolves);
         let view = ctx.view();
         let prompt = irc_format!(
             "🐺 Alpha Wolf: You MUST swap the center Werewolf card onto a non-Wolf player ({})! Non-Wolves: {non_wolves_str}",
             "<nick>".bold(),
         );
-        let valid_for_match = valid_targets.clone();
         let ans = ctx
             .ask(prompt, move |m| match view.resolve_nick(&m.text) {
-                Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
+                Some(idx) if valid_targets.contains(idx) => AskMatch::accept_say(
                     idx,
                     irc_format!(
                         "🐺 Swapped the center Wolf card with {}'s card!",
@@ -94,7 +87,7 @@ impl AlphaWolf {
         let chosen = match ans {
             Answer::Ok(idx) => idx,
             Answer::TimedOut | Answer::Left { .. } | Answer::Unreachable { .. } => {
-                let auto = valid_targets[fastrand::usize(..valid_targets.len())];
+                let auto = valid_targets.choose_random().expect("valid_targets non-empty");
                 ctx.say(format!(
                     "🐺 Randomly swapped the center Wolf card with {}'s card!",
                     ctx.nick(auto)

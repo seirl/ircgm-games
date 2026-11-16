@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::Roster;
+use crate::board::{Roster, SeatSet};
 use crate::role::{
     GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx,
     WakeStep,
@@ -70,16 +70,16 @@ impl Role for Intern {
         let won = if scientists.is_empty() {
             ctx.is_dead(seat)
         } else {
-            scientists.into_iter().any(|m| ctx.is_dead(m))
+            scientists.intersects(ctx.dead_seats)
         };
         won.then_some(SpecialVictory::independent_blocking(ALL_TEAMS))
     }
 }
 
 impl Intern {
-    async fn wake_group(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let scientists = ctx.seats_with_role(&MAD_SCIENTIST);
-        for &s in &active_seats {
+        for s in active_seats {
             if scientists.is_empty() {
                 ctx.dm(
                     s,
@@ -90,13 +90,13 @@ impl Intern {
                     s,
                     irc_format!(
                         "🥽 Intern: The Mad Scientist is {} — help them get killed so you both win!",
-                        ctx.roster.format_indices(&scientists).bold().orange(),
+                        ctx.roster.format_seats(scientists).bold().orange(),
                     ),
                 );
             }
         }
         Ok(GroupEffect::new(move |_board, rctx| {
-            let interns = rctx.roster.format_indices(&active_seats);
+            let interns = rctx.roster.format_seats(active_seats);
             let styled = INTERN.info().styled_name();
             if scientists.is_empty() {
                 rctx.record(irc_format!(
@@ -104,7 +104,7 @@ impl Intern {
                     interns.bold(),
                 ));
             } else {
-                let sci_names = rctx.roster.format_indices(&scientists);
+                let sci_names = rctx.roster.format_seats(scientists);
                 rctx.record(irc_format!(
                     "🥽 {styled} ({}) spotted Mad Scientist {}.",
                     interns.bold(),

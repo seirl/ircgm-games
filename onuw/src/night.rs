@@ -7,14 +7,13 @@
 //!   unconditionally waits until `origin + tier.end_offset` (`tokio::time::sleep_until`) before
 //!   committing mutations, sending passive/third-party DMs, or advancing to the next tier.
 
-use std::collections::HashSet;
 use std::time::Duration;
 
 use futures::future::try_join_all;
 use ircgm::prelude::*;
 use tokio::time::{sleep_until, Instant};
 
-use crate::board::{BoardAccess, BoardCards, BoardMut, PromptBoard, Roster};
+use crate::board::{BoardAccess, BoardCards, BoardMut, PromptBoard, Roster, SeatSet};
 use crate::marks::Mark;
 pub use crate::role::Phase as TierPhase;
 use crate::role::{
@@ -316,8 +315,8 @@ pub async fn run_night_phase(
         .iter()
         .map(|s| s.initial_role.name().to_owned())
         .collect();
-    let mut doppelganger_seats: HashSet<usize> = HashSet::new();
-    let mut acted_immediately: HashSet<usize> = HashSet::new();
+    let mut doppelganger_seats = SeatSet::EMPTY;
+    let mut acted_immediately = SeatSet::EMPTY;
 
     let schedule = build_deck_schedule(&roster.deck, timings);
     if schedule.is_empty() {
@@ -328,7 +327,7 @@ pub async fn run_night_phase(
     let origin = Instant::now();
     let total_tiers = schedule.len();
     let mut current_phase: Option<Phase> = None;
-    let mut feared_seats: HashSet<usize> = HashSet::new();
+    let mut feared_seats = SeatSet::EMPTY;
     let mut dusk_finalized = false;
 
     for (tier_idx, tier) in schedule.iter().enumerate() {
@@ -336,7 +335,7 @@ pub async fn run_night_phase(
             Mark::finalize_dusk_boundary(
                 roster,
                 &waking_roles,
-                &acted_immediately,
+                acted_immediately,
                 &board,
                 &mut feared_seats,
                 &mut all_chronicle,
@@ -371,20 +370,16 @@ pub async fn run_night_phase(
 
         match &tier.kind {
             TierKind::DoppelgangerImmediate(_) => {
-                let mut immediate_seats: Vec<usize> = doppelganger_seats
-                    .iter()
-                    .copied()
-                    .filter(|&s| {
-                        !feared_seats.contains(&s) && waking_roles[s].doppelganger_acts_immediately()
-                    })
+                let immediate_seats: SeatSet = (doppelganger_seats - feared_seats)
+                    .into_iter()
+                    .filter(|&s| waking_roles[s].doppelganger_acts_immediately())
                     .collect();
-                immediate_seats.sort_unstable();
 
                 let board_snap = PromptBoard::new(&board);
-                let feared_snap = &feared_seats;
+                let feared_snap = feared_seats;
                 let waking_snap = waking_roles.as_slice();
                 let cfg_ref = &tier_cfg;
-                let futs = immediate_seats.iter().map(|&seat| async move {
+                let futs = immediate_seats.into_iter().map(|seat| async move {
                     let step = waking_snap[seat]
                         .immediate_copy_step()
                         .expect("immediate copied role has immediate step");
@@ -447,8 +442,8 @@ pub async fn run_night_phase(
                     step,
                     &waking_roles,
                     &waking_labels,
-                    &acted_immediately,
-                    &feared_seats,
+                    acted_immediately,
+                    feared_seats,
                 );
                 let slot_actors: &[(usize, String)] = if *slot_idx + 1 < *total_slots {
                     all_actors.get(*slot_idx..=*slot_idx).unwrap_or(&[])
@@ -457,7 +452,7 @@ pub async fn run_night_phase(
                 };
 
                 let board_snap = PromptBoard::new(&board);
-                let feared_snap = &feared_seats;
+                let feared_snap = feared_seats;
                 let waking_snap = waking_roles.as_slice();
                 let cfg_ref = &tier_cfg;
 
@@ -517,16 +512,15 @@ pub async fn run_night_phase(
 
             TierKind::Steps(steps) => {
                 if steps.iter().any(|st| st.is_doppelganger) {
-                    doppelganger_seats = (0..roster.len())
-                        .filter(|&s| {
-                            waking_roles[s].is_doppelganger() && !feared_seats.contains(&s)
-                        })
+                    doppelganger_seats = (roster.all_seats() - feared_seats)
+                        .into_iter()
+                        .filter(|&s| waking_roles[s].is_doppelganger())
                         .collect();
                 }
 
                 let board_snap = PromptBoard::new(&board);
                 let waking_snap = waking_roles.as_slice();
-                let feared_snap = &feared_seats;
+                let feared_snap = feared_seats;
                 let cfg_ref = &tier_cfg;
 
                 let mut futs: Vec<BoxFuture<'_, Result<StepTierResolution>>> = Vec::new();
@@ -562,7 +556,7 @@ pub async fn run_night_phase(
                                 step,
                                 waking_snap,
                                 &waking_labels,
-                                &acted_immediately,
+                                acted_immediately,
                                 feared_snap,
                             ) {
                                 futs.push(Box::pin(async move {
@@ -581,7 +575,7 @@ pub async fn run_night_phase(
                                 step,
                                 waking_snap,
                                 &waking_labels,
-                                &acted_immediately,
+                                acted_immediately,
                                 feared_snap,
                             ) {
                                 futs.push(Box::pin(async move {
@@ -674,7 +668,7 @@ pub async fn run_night_phase(
         Mark::finalize_dusk_boundary(
             roster,
             &waking_roles,
-            &acted_immediately,
+            acted_immediately,
             &board,
             &mut feared_seats,
             &mut all_chronicle,
@@ -691,23 +685,19 @@ fn collect_solo_or_passive_actors(
     step: &'static WakeStep,
     waking_roles: &[&'static dyn Role],
     waking_labels: &[String],
-    acted_immediately: &HashSet<usize>,
-    feared_seats: &HashSet<usize>,
+    acted_immediately: SeatSet,
+    feared_seats: SeatSet,
 ) -> Vec<(usize, String)> {
-    let is_eligible = |s: usize| {
-        waking_roles[s].has_step(step)
-            && !acted_immediately.contains(&s)
-            && !feared_seats.contains(&s)
-    };
+    let eligible = roster.all_seats() - acted_immediately - feared_seats;
 
     let mut actors: Vec<(usize, String)> = Vec::new();
-    for s in 0..roster.len() {
-        if is_eligible(s) && roster.seats[s].initial_role.has_step(step) {
+    for s in eligible {
+        if waking_roles[s].has_step(step) && roster.seats[s].initial_role.has_step(step) {
             actors.push((s, waking_labels[s].clone()));
         }
     }
-    for s in 0..roster.len() {
-        if is_eligible(s) && !roster.seats[s].initial_role.has_step(step) {
+    for s in eligible {
+        if waking_roles[s].has_step(step) && !roster.seats[s].initial_role.has_step(step) {
             actors.push((s, waking_labels[s].clone()));
         }
     }
@@ -717,12 +707,12 @@ fn collect_solo_or_passive_actors(
 fn compute_group_active_seats(
     step: &'static WakeStep,
     waking_roles: &[&'static dyn Role],
-    feared_seats: &HashSet<usize>,
-) -> Vec<usize> {
+    feared_seats: SeatSet,
+) -> SeatSet {
     waking_roles
         .iter()
         .enumerate()
-        .filter_map(|(s, r)| (!feared_seats.contains(&s) && r.has_step(step)).then_some(s))
+        .filter_map(|(s, r)| (!feared_seats.contains(s) && r.has_step(step)).then_some(s))
         .collect()
 }
 
