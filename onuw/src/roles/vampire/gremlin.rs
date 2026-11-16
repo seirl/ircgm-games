@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Gremlin;
 pub static GREMLIN: Gremlin = Gremlin;
@@ -34,20 +34,20 @@ impl Role for Gremlin {
         }
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(176, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
-                .mutates()
-                .follow_on_copy(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&GREMLIN, 176, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .writes(BoardAccess::PLAYER_FACES | BoardAccess::MARKS)]
+        }
     }
 }
 
 impl Gremlin {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let roster = ctx.roster;
+        let view = ctx.view();
         let has_marks = roster.deck_has_marks();
-        let players_str = roster.format_players_marking_shields(shielded);
+        let players_str = ctx.format_visible_players();
         let prompt = if has_marks {
             irc_format!(
                 "👺 Gremlin: Reply {} OR {} (any two players, including yourself), or {}. Players: {players_str}",
@@ -121,7 +121,7 @@ impl Gremlin {
                 if a == b {
                     return AskMatch::reject("Pick TWO distinct players!".yellow());
                 }
-                if swap_cards && (shielded.contains(&a) || shielded.contains(&b)) {
+                if swap_cards && (view.is_shielded(a) || view.is_shielded(b)) {
                     let msg = if has_marks {
                         "🛡️ Shielded cards cannot be swapped (though Marks can)!"
                     } else {
@@ -160,7 +160,7 @@ impl Gremlin {
         seat: usize,
         actor_label: &str,
         ans: Answer<GremlinChoice>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let actor_nick = ctx.nick(seat);
@@ -179,29 +179,27 @@ impl Gremlin {
                 }
             }
             GremlinChoice::SwapCards(a, b) => {
-                if board.is_shielded(a) || board.is_shielded(b) {
+                let Some((old_a, old_b)) = board.swap_players(seat, a, b) else {
                     return;
-                }
-                board.record_card_interaction(seat);
-                let card_a = board.players[a].display_for_peek();
-                let card_b = board.players[b].display_for_peek();
-                board.players.swap(a, b);
+                };
                 ctx.record(irc_format!(
-                    "👺 {actor_label} ({}) swapped {}'s card ({card_a}) and {}'s card ({card_b}).",
+                    "👺 {actor_label} ({}) swapped {}'s card ({}) and {}'s card ({}).",
                     actor_nick.bold(),
                     ctx.nick(a).bold(),
+                    old_a.display_for_peek(),
                     ctx.nick(b).bold(),
+                    old_b.display_for_peek(),
                 ));
             }
             GremlinChoice::SwapMarks(a, b) => {
-                let mark_a = board.marks[a].styled();
-                let mark_b = board.marks[b].styled();
-                board.marks.swap(a, b);
+                let (old_a, old_b) = board.swap_marks(a, b);
                 ctx.record(irc_format!(
-                    "👺 {actor_label} ({}) swapped {}'s Mark ({mark_a}) and {}'s Mark ({mark_b}).",
+                    "👺 {actor_label} ({}) swapped {}'s Mark ({}) and {}'s Mark ({}).",
                     actor_nick.bold(),
                     ctx.nick(a).bold(),
+                    old_a.styled(),
                     ctx.nick(b).bold(),
+                    old_b.styled(),
                 ));
             }
         }

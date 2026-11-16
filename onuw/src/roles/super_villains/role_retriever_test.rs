@@ -5,7 +5,6 @@ use crate::roles::super_villains::{
     annoying_lad::ANNOYING_LAD,
     dr_peeker::DR_PEEKER,
     evilometer::EVILOMETER,
-    henchman::HENCHMAN,
     mad_scientist_intern::{INTERN, MAD_SCIENTIST},
     rapscallion::RAPSCALLION,
     role_retriever::ROLE_RETRIEVER,
@@ -69,7 +68,7 @@ async fn role_retriever_runs_after_robber_and_dawn_withholds_chronicle_from_chan
 
 #[tokio::test(start_paused = true)]
 async fn temptress_dr_peeker_evilometer_role_retriever_and_annoying_lad_work() {
-    let mut h = OnuwTestHarness::with_extra_evil(
+    let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &TEMPTRESS),
             ("Bob", &ROLE_RETRIEVER),
@@ -78,7 +77,6 @@ async fn temptress_dr_peeker_evilometer_role_retriever_and_annoying_lad_work() {
             ("Eve", &ANNOYING_LAD),
         ],
         [&VILLAGER, &VILLAGER, &VILLAGER],
-        &HENCHMAN,
     )
     .await;
 

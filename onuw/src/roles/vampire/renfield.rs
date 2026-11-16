@@ -1,8 +1,10 @@
 use ircgm::prelude::*;
 
-use crate::board::BoardCards;
+use crate::board::{BoardAccess, BoardCards, BoardMut};
 use crate::marks::Mark;
-use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, RoleTag, Team, Wake};
+use crate::role::{
+    EffectiveAlignment, GameSet, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep,
+};
 
 pub struct Renfield;
 pub static RENFIELD: Renfield = Renfield;
@@ -17,36 +19,44 @@ impl Role for Renfield {
             "Wake in Dusk to see all Vampires and whoever received the Mark of the Vampire, then give yourself the Mark of the Bat! If no Vampires are in play, you are on the Village team.",
         )
         .minion()
-        .tags(&[RoleTag::PlacesMarks])
+        .places_marks()
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(32, Self::inspect).dusk().mutates())
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::passive(&RENFIELD, 32, Self::inspect)
+                .dusk()
+                .writes(BoardAccess::MARKS)]
+        }
+    }
+
+    fn adjust_alignment(
+        &self,
+        _seat: usize,
+        board: &BoardCards,
+        mut cur: EffectiveAlignment,
+    ) -> EffectiveAlignment {
+        if !(0..board.player_count()).any(|i| board.is_monster_threat_for(i, Team::Vampire)) {
+            cur.team = Team::Village;
+        }
+        cur
     }
 }
 
 impl Renfield {
-    fn inspect(
-        seat: usize,
-        actor_label: &str,
-        board: &mut BoardCards,
-        ctx: &mut ResolveCtx<'_>,
-    ) {
+    fn inspect(seat: usize, actor_label: &str, board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
         let card_vamps: Vec<usize> = (0..ctx.roster.len())
             .filter(|&i| {
-                ctx.waking_roles[i].tags().contains(&RoleTag::VampirePack)
-                    || board.players[i]
-                        .effective_role()
-                        .tags()
-                        .contains(&RoleTag::VampirePack)
+                ctx.waking_role(i).night_faction() == Some(NightFaction::Vampire)
+                    || board.card_has_night_faction(i, NightFaction::Vampire)
             })
             .collect();
         let marked_vamps: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| board.marks[i] == Mark::Vampire)
+            .filter(|&i| board.mark_at(i) == Mark::Vampire)
             .collect();
 
         // Renfield places Mark of the Bat on himself at #-6C (overwriting any Mark::Vampire or Mark::Fear placed on him):
-        board.marks[seat] = Mark::Bat;
+        board.set_mark(seat, Mark::Bat);
 
         if card_vamps.is_empty() && marked_vamps.is_empty() {
             ctx.dm(

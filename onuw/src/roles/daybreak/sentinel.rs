@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Sentinel;
 pub static SENTINEL: Sentinel = Sentinel;
@@ -17,26 +17,30 @@ impl Role for Sentinel {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(100, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).shields())
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&SENTINEL, 100, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .immediate_copy()
+                .writes(BoardAccess::SHIELDS)]
+        }
     }
 }
 
 impl Sentinel {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let roster = ctx.roster;
+        let players_str = ctx.format_visible_players();
+        let view = ctx.view();
         let prompt = irc_format!(
-            "🛡️ Sentinel: Reply with {} to place a Shield token on another player's card, or {}. Players: {}",
+            "🛡️ Sentinel: Reply with {} to place a Shield token on another player's card, or {}. Players: {players_str}",
             "<nick>".bold(),
             "pass".bold(),
-            roster.format_players(),
         );
         let ans = ctx
             .ask(prompt, move |m| {
                 if Roster::is_pass(&m.text) {
                     return AskMatch::accept_say(None, "🛡️ Passed — placed no Shield token.");
                 }
-                match roster.resolve_nick(&m.text) {
+                match view.resolve_nick(&m.text) {
                     Some(idx) if idx == seat => AskMatch::reject(
                         "You cannot shield your own card! Pick another player or pass.".yellow(),
                     ),
@@ -44,7 +48,7 @@ impl Sentinel {
                         Some(idx),
                         irc_format!(
                             "🛡️ Placed a Shield token on {}'s card!",
-                            roster.seats[idx].user.nick().bold(),
+                            view.roster.seats[idx].user.nick().bold(),
                         ),
                     ),
                     None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
@@ -61,12 +65,12 @@ impl Sentinel {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let actor_nick = ctx.nick(seat);
         if let Answer::Ok(Some(target)) = ans {
-            board.shielded.insert(target);
+            board.place_shield(target);
             ctx.record(irc_format!(
                 "🛡️ {actor_label} ({}) placed a Shield token on {}'s card.",
                 actor_nick.bold(),

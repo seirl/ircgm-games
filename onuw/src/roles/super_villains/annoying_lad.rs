@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::Roster;
-use crate::role::{GameSet, PromptCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::role::{GameSet, PromptCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct AnnoyingLad;
 pub static ANNOYING_LAD: AnnoyingLad = AnnoyingLad;
@@ -18,8 +18,13 @@ impl Role for AnnoyingLad {
         .aliases(&["lad", "annoying"])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(142, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).follow_on_copy())
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                WakeStep::solo(&ANNOYING_LAD, 142, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                    .immediate_copy(),
+            ]
+        }
     }
 }
 

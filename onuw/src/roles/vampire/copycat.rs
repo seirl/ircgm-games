@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{
-    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
-};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Copycat;
 pub static COPYCAT: Copycat = Copycat;
@@ -20,14 +18,13 @@ impl Role for Copycat {
         .aliases(&["cc"])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(8, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&COPYCAT, 8, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
-                .mutates()
-                .reads_board()
-                .short_budget(),
-        )
+                .short_budget()
+                .writes(BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES)]
+        }
     }
 }
 
@@ -62,7 +59,7 @@ impl Copycat {
     fn resolve(
         seat: usize,
         chosen: Option<usize>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let (c_idx, was_random) = match chosen {
@@ -70,9 +67,7 @@ impl Copycat {
             None => (fastrand::usize(0..3), true),
         };
 
-        let copied = board.center[c_idx].effective_role();
-        board.record_card_interaction(seat);
-        ctx.become_role(seat, copied, format!("Copycat-{}", copied.name()), board);
+        let copied = board.copy_from_center(seat, c_idx, "Copycat", ctx);
 
         let actor_nick = ctx.nick(seat);
         let self_styled = COPYCAT.info().styled_name();
@@ -102,16 +97,7 @@ impl Copycat {
                 copied.styled_name(),
             ),
         );
-        let wakes_later = copied.wake().is_some_and(|w| w.order > 8)
-            || copied.tags().iter().any(|t| {
-                matches!(
-                    t,
-                    RoleTag::WolfPack
-                        | RoleTag::VampirePack
-                        | RoleTag::AlienPack
-                        | RoleTag::VillainPack
-                )
-            });
+        let wakes_later = copied.steps().iter().any(|st| st.order > 8);
         if wakes_later {
             ctx.dm(
                 seat,

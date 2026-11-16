@@ -1,4 +1,4 @@
-use crate::role::{GameSet, Role, RoleInfo, RoleTag, Team};
+use crate::role::{GameSet, NightFaction, Role, RoleInfo, Team};
 
 pub struct DreamWolf;
 pub static DREAM_WOLF: DreamWolf = DreamWolf;
@@ -13,6 +13,6 @@ impl Role for DreamWolf {
             "You sleep through the night, but put out your thumb so waking Werewolves and the Minion know who you are!",
         )
         .aliases(&["dw"])
-        .tags(&[RoleTag::DreamWolfThumb])
+        .night_faction(NightFaction::Werewolf)
     }
 }

@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Witch;
 pub static WITCH: Witch = Witch;
@@ -17,12 +17,13 @@ impl Role for Witch {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(165, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
-                .reads_board()
-                .mutates(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&WITCH, 165, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .immediate_copy()
+                .reads(BoardAccess::CENTER_FACES)
+                .writes(BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES)]
+        }
     }
 }
 
@@ -58,7 +59,7 @@ impl Witch {
             }));
         };
 
-        let seen_center = ctx.board().center[c_idx];
+        let seen_center = ctx.peek_center_card(c_idx);
         ctx.say(irc_format!(
             "🧙‍♀️ Center #{} is {}!",
             c_idx + 1,
@@ -66,23 +67,23 @@ impl Witch {
         ));
 
         let unshielded: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| !ctx.shielded.contains(&i))
+            .filter(|&i| !ctx.is_shielded(i))
             .collect();
         if unshielded.is_empty() {
             return Ok(SeatEffect::noop());
         }
 
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let players_str = ctx.format_visible_players();
+        let view = ctx.view();
         let step2 = ctx
             .ask(
                 irc_format!(
-                    "🧙‍♀️ Give Center #{} to which player ({}, including yourself)? Players: {}",
+                    "🧙‍♀️ Give Center #{} to which player ({}, including yourself)? Players: {players_str}",
                     c_idx + 1,
                     "<nick>".bold(),
-                    roster.format_players_marking_shields(shielded),
                 ),
-                move |m| match roster.resolve_nick(&m.text) {
-                    Some(idx) if shielded.contains(&idx) => {
+                move |m| match view.resolve_nick(&m.text) {
+                    Some(idx) if view.is_shielded(idx) => {
                         AskMatch::reject("🛡️ That player is shielded!".yellow())
                     }
                     Some(idx) => AskMatch::accept_say(
@@ -90,7 +91,7 @@ impl Witch {
                         irc_format!(
                             "🧙‍♀️ Swapped Center #{} onto {}!",
                             c_idx + 1,
-                            roster.seats[idx].user.nick().bold(),
+                            view.roster.seats[idx].user.nick().bold(),
                         ),
                     ),
                     None => AskMatch::reject("Unknown player nickname.".yellow()),
@@ -101,7 +102,7 @@ impl Witch {
         let target = match step2 {
             Answer::Ok(idx) => idx,
             Answer::TimedOut | Answer::Left { .. } | Answer::Unreachable { .. } => {
-                let auto = if !ctx.shielded.contains(&seat) {
+                let auto = if !ctx.is_shielded(seat) {
                     seat
                 } else {
                     unshielded[fastrand::usize(..unshielded.len())]
@@ -125,14 +126,12 @@ impl Witch {
         actor_label: &str,
         c_idx: usize,
         target: usize,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        if !board.is_shielded(target) {
-            board.record_card_interaction(seat);
-            let center_card = board.center[c_idx];
-            let old_player_card = board.players[target];
-            std::mem::swap(&mut board.center[c_idx], &mut board.players[target]);
+        if let Some((old_player_card, center_card)) =
+            board.swap_player_with_center(seat, target, c_idx)
+        {
             ctx.record(irc_format!(
                 "🧙‍♀️ {actor_label} ({}) peeked Center #{} ({}) and swapped it onto {} (moving {} into Center #{}).",
                 ctx.nick(seat).bold(),

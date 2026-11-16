@@ -1,9 +1,27 @@
 use ircgm::prelude::*;
 
-use crate::board::BoardCards;
+use super::henchman::{HENCHMAN, VILLAIN_PACK_STEP};
+use crate::board::{BoardAccess, BoardKey, BoardMut, Card};
 use crate::role::{
-    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
+
+#[derive(Clone, Copy, Debug)]
+struct ExtraVillainCard(Card);
+
+impl BoardKey for ExtraVillainCard {
+    const ACCESS: u16 = BoardAccess::CUSTOM_1;
+
+    fn init() -> Self {
+        Self(Card::new(&HENCHMAN))
+    }
+}
+
+impl AsMut<Card> for ExtraVillainCard {
+    fn as_mut(&mut self) -> &mut Card {
+        &mut self.0
+    }
+}
 
 pub struct Temptress;
 pub static TEMPTRESS: Temptress = Temptress;
@@ -17,28 +35,32 @@ impl Role for Temptress {
             Team::SuperVillain,
             "Wake with the Super Villains, then MUST swap the extra Villain card onto a non-Villain player!",
         )
-        .tags(&[RoleTag::VillainPack])
+        .night_faction(NightFaction::SuperVillain)
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(128, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
-                .mutates()
-                .follow_on_copy(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                VILLAIN_PACK_STEP,
+                WakeStep::solo(&TEMPTRESS, 128, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                    .writes(BoardAccess::PLAYER_FACES | ExtraVillainCard::ACCESS),
+            ]
+        }
     }
 }
 
 impl Temptress {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let villains = ctx.waking_seats_with_tag(RoleTag::VillainPack);
-        let non_villains: Vec<usize> = (0..ctx.roster.len())
+        let roster = ctx.roster;
+        let view = ctx.view();
+        let villains = ctx.waking_seats_with_faction(NightFaction::SuperVillain);
+        let non_villains: Vec<usize> = (0..roster.len())
             .filter(|&i| i != seat && !villains.contains(&i))
             .collect();
         let valid_targets: Vec<usize> = non_villains
             .iter()
             .copied()
-            .filter(|i| !ctx.shielded.contains(i))
+            .filter(|&i| !view.is_shielded(i))
             .collect();
 
         if valid_targets.is_empty() {
@@ -46,11 +68,10 @@ impl Temptress {
             return Ok(SeatEffect::noop());
         }
 
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let non_villains_str = ctx.format_visible_indices(&non_villains);
         let prompt = irc_format!(
-            "💋 Temptress: You MUST plant the extra Villain card on a non-Villain player ({})! Non-Villains: {}",
+            "💋 Temptress: You MUST plant the extra Villain card on a non-Villain player ({})! Non-Villains: {non_villains_str}",
             "<nick>".bold(),
-            roster.format_indices_marking_shields(&non_villains, shielded),
         );
         let valid_for_match = valid_targets.clone();
         let ans = ctx
@@ -62,7 +83,7 @@ impl Temptress {
                         roster.seats[idx].user.nick().bold().red(),
                     ),
                 ),
-                Some(idx) if shielded.contains(&idx) => {
+                Some(idx) if view.is_shielded(idx) => {
                     AskMatch::reject("🛡️ That player is shielded!".yellow())
                 }
                 Some(_) => AskMatch::reject("Pick a non-Villain player!".yellow()),
@@ -88,14 +109,12 @@ impl Temptress {
         actor_label: &str,
         target: usize,
         timed_out: bool,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        if !board.is_shielded(target) {
-            board.record_card_interaction(seat);
-            let old_card = board.players[target];
-            let planted = board.extra_villain_card;
-            std::mem::swap(&mut board.players[target], &mut board.extra_villain_card);
+        if let Some((old_card, planted)) =
+            board.swap_player_with_extra::<ExtraVillainCard>(seat, target)
+        {
             if timed_out {
                 ctx.dm(
                     seat,

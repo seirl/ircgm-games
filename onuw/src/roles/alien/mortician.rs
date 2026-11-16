@@ -2,7 +2,7 @@ use ircgm::prelude::*;
 
 use crate::board::Roster;
 use crate::role::{
-    GameSet, PromptCtx, Role, RoleInfo, SeatEffect, SpecialVictory, Team, VictoryCtx, Wake,
+    GameSet, PromptCtx, Role, RoleInfo, SeatEffect, SpecialVictory, Team, VictoryCtx, WakeStep,
 };
 
 pub struct Mortician;
@@ -19,8 +19,8 @@ impl Role for Mortician {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(197, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).follow_on_copy())
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[WakeStep::solo(&MORTICIAN, 197, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
@@ -34,11 +34,12 @@ impl Role for Mortician {
 
 impl Mortician {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let roster = ctx.roster;
+        let view = ctx.view();
         let (left, right) = roster.neighbors(seat);
         let candidates: Vec<usize> = [left, right, seat]
             .into_iter()
-            .filter(|s| !shielded.contains(s))
+            .filter(|&s| !view.is_shielded(s))
             .collect();
 
         let chosen = if candidates.is_empty() {
@@ -72,7 +73,7 @@ impl Mortician {
                             .filter(|&i| i == left || i == right || i == seat),
                     };
                     match target {
-                        Some(t) if shielded.contains(&t) => {
+                        Some(t) if view.is_shielded(t) => {
                             AskMatch::reject("🛡️ That card is shielded!".yellow())
                         }
                         Some(t) if t == seat => AskMatch::accept_say(
@@ -95,10 +96,8 @@ impl Mortician {
 
         Ok(SeatEffect::new(move |label, board, rctx| {
             let actor_nick = rctx.nick(seat);
-            match chosen {
-                Some(target) if !board.is_shielded(target) => {
-                    board.record_card_interaction(seat);
-                    let seen = board.players[target];
+            if let Some(target) = chosen {
+                if let Some(seen) = board.peek_player(seat, target) {
                     if target == seat {
                         rctx.dm(
                             seat,
@@ -129,14 +128,13 @@ impl Mortician {
                             seen.display_for_peek(),
                         ));
                     }
-                }
-                _ => {
-                    rctx.record(irc_format!(
-                        "⚰️ {label} ({}) did not peek at any card.",
-                        actor_nick.bold(),
-                    ));
+                    return;
                 }
             }
+            rctx.record(irc_format!(
+                "⚰️ {label} ({}) did not peek at any card.",
+                actor_nick.bold(),
+            ));
         }))
     }
 }

@@ -1,9 +1,10 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardMut, Roster};
 use crate::role::{
-    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
+use crate::roles::base::werewolf::WOLF_PACK_STEP;
 
 pub struct MysticWolf;
 pub static MYSTIC_WOLF: MysticWolf = MysticWolf;
@@ -18,42 +19,45 @@ impl Role for MysticWolf {
             "Wake with the Werewolves, then look at 1 other player's card!",
         )
         .aliases(&["mw", "mystic"])
-        .tags(&[RoleTag::WolfPack])
+        .night_faction(NightFaction::Werewolf)
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(123, |seat, ctx| {
-            Box::pin(Self::prompt(seat, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                WOLF_PACK_STEP,
+                WakeStep::solo(&MYSTIC_WOLF, 123, |s, ctx| Box::pin(Self::prompt(s, ctx))),
+            ]
+        }
     }
 }
 
 impl MysticWolf {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let players_str = ctx.format_visible_players();
+        let view = ctx.view();
         let prompt = irc_format!(
-            "🐺🔮 Mystic Wolf: Reply {} to inspect another player's card, or {}. Players: {}",
+            "🐺🔮 Mystic Wolf: Reply {} to inspect another player's card, or {}. Players: {players_str}",
             "<nick>".bold(),
             "pass".bold(),
-            roster.format_players_marking_shields(shielded),
         );
         let ans = ctx
             .ask(prompt, move |m| {
                 if Roster::is_pass(&m.text) {
                     return AskMatch::accept_say(None, "🐺🔮 Passed — not inspecting anyone.");
                 }
-                match roster.resolve_nick(&m.text) {
+                match view.resolve_nick(&m.text) {
                     Some(idx) if idx == seat => {
                         AskMatch::reject("Pick ANOTHER player, not yourself!".yellow())
                     }
-                    Some(idx) if shielded.contains(&idx) => AskMatch::reject(
+                    Some(idx) if view.is_shielded(idx) => AskMatch::reject(
                         "🛡️ That player's card is shielded by the Sentinel!".yellow(),
                     ),
                     Some(idx) => AskMatch::accept_say(
                         Some(idx),
                         irc_format!(
                             "🐺🔮 Locked in inspecting {} — card reveals when the phase ends!",
-                            roster.seats[idx].user.nick().bold(),
+                            view.roster.seats[idx].user.nick().bold(),
                         ),
                     ),
                     None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
@@ -70,30 +74,27 @@ impl MysticWolf {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            if board.is_shielded(target) {
-                return;
+            if let Some(card) = board.peek_player(seat, target) {
+                let target_nick = ctx.nick(target);
+                ctx.dm(
+                    seat,
+                    irc_format!(
+                        "🐺🔮 {}'s card is: {}",
+                        target_nick.as_str().bold(),
+                        card.display_for_peek()
+                    ),
+                );
+                ctx.record(irc_format!(
+                    "🐺🔮 {actor_label} ({}) viewed {}'s card ({}).",
+                    ctx.nick(seat).bold(),
+                    target_nick.bold(),
+                    card.display_for_peek(),
+                ));
             }
-            board.record_card_interaction(seat);
-            let card = board.players[target];
-            let target_nick = ctx.nick(target);
-            ctx.dm(
-                seat,
-                irc_format!(
-                    "🐺🔮 {}'s card is: {}",
-                    target_nick.as_str().bold(),
-                    card.display_for_peek()
-                ),
-            );
-            ctx.record(irc_format!(
-                "🐺🔮 {actor_label} ({}) viewed {}'s card ({}).",
-                ctx.nick(seat).bold(),
-                target_nick.bold(),
-                card.display_for_peek(),
-            ));
         }
     }
 }

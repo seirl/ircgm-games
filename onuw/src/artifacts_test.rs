@@ -26,8 +26,7 @@ async fn token_of_mute_allows_gestures_and_punctuation_while_words_forfeit_perso
     let mut report = h.finish_night(night).await;
     report
         .board
-        .artifacts
-        .insert(h.seat_of("Bob"), Artifact::TokenOfMute);
+        .insert_artifact_for_test(h.seat_of("Bob"), Artifact::TokenOfMute);
 
     h.day_chat("Bob", "...").await;
     h.day_chat("Bob", "?!").await;
@@ -69,8 +68,7 @@ async fn token_of_mute_allows_gestures_and_punctuation_while_words_forfeit_perso
     let mut report2 = h2.finish_night(night2).await;
     report2
         .board
-        .artifacts
-        .insert(h2.seat_of("Bob"), Artifact::TokenOfMute);
+        .insert_artifact_for_test(h2.seat_of("Bob"), Artifact::TokenOfMute);
 
     h2.day_action("Bob", "points at Carol because wolf").await;
     let dawn2 = h2
@@ -112,8 +110,7 @@ async fn shroud_of_shame_enforces_turning_around_and_no_player_nicks_with_word_b
     let mut report = h.finish_night(night).await;
     report
         .board
-        .artifacts
-        .insert(h.seat_of("Rob"), Artifact::ShroudOfShame);
+        .insert_artifact_for_test(h.seat_of("Rob"), Artifact::ShroudOfShame);
 
     h.day_action("Rob", "turns around").await;
     h.day_chat(
@@ -152,8 +149,7 @@ async fn shroud_of_shame_enforces_turning_around_and_no_player_nicks_with_word_b
     let mut report2 = h2.finish_night(night2).await;
     report2
         .board
-        .artifacts
-        .insert(h2.seat_of("Rob"), Artifact::ShroudOfShame);
+        .insert_artifact_for_test(h2.seat_of("Rob"), Artifact::ShroudOfShame);
 
     h2.day_action("Rob", "turns around").await;
     h2.day_chat("Rob", "Carol: what role were you?").await;
@@ -189,8 +185,7 @@ async fn shroud_of_shame_enforces_turning_around_and_no_player_nicks_with_word_b
     let mut report3 = h3.finish_night(night3).await;
     report3
         .board
-        .artifacts
-        .insert(h3.seat_of("Rob"), Artifact::ShroudOfShame);
+        .insert_artifact_for_test(h3.seat_of("Rob"), Artifact::ShroudOfShame);
 
     let dawn3 = h3
         .resolve_dawn(
@@ -269,12 +264,10 @@ async fn public_channel_voting_works_and_exempts_shroud_of_shame_and_token_of_mu
     let mut report = h.finish_night(night).await;
     report
         .board
-        .artifacts
-        .insert(h.seat_of("Alice"), Artifact::TokenOfMute);
+        .insert_artifact_for_test(h.seat_of("Alice"), Artifact::TokenOfMute);
     report
         .board
-        .artifacts
-        .insert(h.seat_of("Bob"), Artifact::ShroudOfShame);
+        .insert_artifact_for_test(h.seat_of("Bob"), Artifact::ShroudOfShame);
 
     // Bob faces the wall during Day; Alice stays silent:
     h.day_action("Bob", "turns around").await;

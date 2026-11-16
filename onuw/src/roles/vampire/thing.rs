@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Thing;
 pub static THING: Thing = Thing;
@@ -18,10 +18,8 @@ impl Role for Thing {
         .aliases(&["the thing"])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(141, |seat, ctx| {
-            Box::pin(Self::prompt(seat, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[WakeStep::solo(&THING, 141, |s, ctx| Box::pin(Self::prompt(s, ctx))).immediate_copy()] }
     }
 }
 
@@ -73,7 +71,7 @@ impl Thing {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        _board: &mut BoardCards,
+        _board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {

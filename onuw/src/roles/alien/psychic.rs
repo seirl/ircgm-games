@@ -1,8 +1,8 @@
 use ircgm::prelude::*;
 
-use super::oracle::ORACLE;
-use crate::board::{BoardCards, OracleOmen, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use super::oracle::{OracleOmen, ORACLE};
+use crate::board::{BoardKey, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Psychic;
 pub static PSYCHIC: Psychic = Psychic;
@@ -26,19 +26,20 @@ impl Role for Psychic {
         }
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(159, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
-                .reads_board()
-                .immediate_on_copy(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&PSYCHIC, 159, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .immediate_copy()
+                .reads(OracleOmen::ACCESS)]
+        }
     }
 }
 
 impl Psychic {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let omen = ctx.board().oracle_omen;
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let omen = ctx.get_key::<OracleOmen>();
+        let roster = ctx.roster;
+        let view = ctx.view();
         let (left, right) = roster.neighbors(seat);
 
         let targets: Vec<usize> = if omen == OracleOmen::AmplifiedSignals {
@@ -48,7 +49,7 @@ impl Psychic {
         } else {
             let unshielded: Vec<usize> = [left, right]
                 .into_iter()
-                .filter(|s| !shielded.contains(s))
+                .filter(|&s| !view.is_shielded(s))
                 .collect();
             if unshielded.is_empty() {
                 Vec::new()
@@ -74,7 +75,7 @@ impl Psychic {
                                 .filter(|&i| i == left || i == right),
                         };
                         match picked {
-                            Some(t) if shielded.contains(&t) => {
+                            Some(t) if view.is_shielded(t) => {
                                 AskMatch::reject("🛡️ That neighbor's mind is shielded!".yellow())
                             }
                             Some(t) => AskMatch::accept_say(
@@ -89,8 +90,8 @@ impl Psychic {
                     })
                     .await?;
                 let fallback = match omen {
-                    OracleOmen::QuantumStatic if !shielded.contains(&right) => right,
-                    _ if !shielded.contains(&left) => left,
+                    OracleOmen::QuantumStatic if !view.is_shielded(right) => right,
+                    _ if !view.is_shielded(left) => left,
                     _ => unshielded[0],
                 };
                 vec![ans.ok().unwrap_or(fallback)]
@@ -106,49 +107,45 @@ impl Psychic {
         seat: usize,
         actor_label: &str,
         targets: &[usize],
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let actor_nick = ctx.nick(seat);
-        let mut candidates: Vec<usize> = targets
-            .iter()
-            .copied()
-            .filter(|&s| !board.is_shielded(s))
-            .collect();
-        candidates.dedup();
+        let mut unique_targets = targets.to_vec();
+        unique_targets.dedup();
 
-        if candidates.is_empty() {
+        let mut seen_parts = Vec::new();
+        for target in unique_targets {
+            if let Some(seen) = board.peek_player(seat, target) {
+                let target_nick = ctx.nick(target);
+                ctx.dm(
+                    seat,
+                    irc_format!(
+                        "🧠 Psychic Vision: {} holds {}!",
+                        target_nick.as_str().bold(),
+                        seen.display_for_peek(),
+                    ),
+                );
+                seen_parts.push(irc_format!(
+                    "{} ({})",
+                    target_nick.bold(),
+                    seen.display_for_peek()
+                ));
+            }
+        }
+
+        if seen_parts.is_empty() {
             ctx.dm(seat, "🧠 Psychic: Neighboring minds were shielded tonight!");
             ctx.record(irc_format!(
                 "🧠 {actor_label} ({}) found neighboring cards shielded.",
                 actor_nick.bold(),
             ));
-            return;
-        }
-
-        board.record_card_interaction(seat);
-        let mut seen_parts = Vec::new();
-        for &target in &candidates {
-            let seen = board.players[target];
-            let target_nick = ctx.nick(target);
-            ctx.dm(
-                seat,
-                irc_format!(
-                    "🧠 Psychic Vision: {} holds {}!",
-                    target_nick.as_str().bold(),
-                    seen.display_for_peek(),
-                ),
-            );
-            seen_parts.push(irc_format!(
-                "{} ({})",
-                target_nick.bold(),
-                seen.display_for_peek()
+        } else {
+            ctx.record(irc_format!(
+                "🧠 {actor_label} ({}) psychically read {}.",
+                actor_nick.bold(),
+                Text::join(seen_parts, ", "),
             ));
         }
-        ctx.record(irc_format!(
-            "🧠 {actor_label} ({}) psychically read {}.",
-            actor_nick.bold(),
-            Text::join(seen_parts, ", "),
-        ));
     }
 }

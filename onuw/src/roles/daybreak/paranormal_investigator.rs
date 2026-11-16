@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct ParanormalInvestigator;
 pub static PARANORMAL_INVESTIGATOR: ParanormalInvestigator = ParanormalInvestigator;
@@ -25,12 +25,17 @@ impl Role for ParanormalInvestigator {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(155, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
-                .reads_board()
-                .mutates(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                WakeStep::solo(&PARANORMAL_INVESTIGATOR, 155, |s, ctx| {
+                    Box::pin(Self::prompt(s, ctx))
+                })
+                .immediate_copy()
+                .reads(BoardAccess::PLAYER_FACES)
+                .writes(BoardAccess::PLAYER_BECAME),
+            ]
+        }
     }
 }
 
@@ -41,12 +46,12 @@ impl ParanormalInvestigator {
 
         for step in 1..=2 {
             let already = peeked.clone();
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
+            let players_str = ctx.format_visible_players();
+            let view = ctx.view();
             let prompt = irc_format!(
-                "🕵️ Paranormal Investigator (peek {step}/2): Reply {} to inspect, or {}. Players: {}",
+                "🕵️ Paranormal Investigator (peek {step}/2): Reply {} to inspect, or {}. Players: {players_str}",
                 "<nick>".bold(),
                 "pass".bold(),
-                roster.format_players_marking_shields(shielded),
             );
             let ans = ctx
                 .ask(prompt, move |m| {
@@ -54,14 +59,14 @@ impl ParanormalInvestigator {
                     if Roster::is_pass(t) || t.eq_ignore_ascii_case("stop") {
                         return AskMatch::accept_say(None, "🕵️ Stopped investigating.");
                     }
-                    match roster.resolve_nick(t) {
+                    match view.resolve_nick(t) {
                         Some(idx) if idx == seat => {
                             AskMatch::reject("You cannot inspect your own card!".yellow())
                         }
                         Some(idx) if already.contains(&idx) => AskMatch::reject(
                             "You already inspected that player—pick someone else or pass!".yellow(),
                         ),
-                        Some(idx) if shielded.contains(&idx) => {
+                        Some(idx) if view.is_shielded(idx) => {
                             AskMatch::reject("🛡️ That card is shielded by the Sentinel!".yellow())
                         }
                         Some(idx) => AskMatch::accept(Some(idx)),
@@ -75,7 +80,7 @@ impl ParanormalInvestigator {
             };
             peeked.push(target);
 
-            let seen_card = ctx.board().players[target];
+            let seen_card = ctx.peek_player_card(target);
             let face_role = seen_card.face_role();
             let target_nick = ctx.nick(target);
 
@@ -114,16 +119,16 @@ impl ParanormalInvestigator {
         actor_label: &str,
         peeked: &[usize],
         became: Option<&'static dyn Role>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let actor_nick = ctx.nick(seat);
         if !peeked.is_empty() {
-            board.record_card_interaction(seat);
+            board.record_prompt_peek(seat);
         }
         let inspected = ctx.roster.format_indices(peeked);
         if let Some(new_role) = became {
-            board.players[seat].transform(new_role);
+            board.transform_in_place(seat, new_role);
             ctx.record(irc_format!(
                 "🕵️ {actor_label} ({}) inspected {} and transformed into {}!",
                 actor_nick.bold(),

@@ -6,8 +6,11 @@ use std::collections::{HashMap, HashSet};
 use ircgm::prelude::*;
 use ircgm::CaseMap;
 
-use crate::board::Roster;
-use crate::role::{Team, VictoryCtx};
+use crate::board::{BoardCards, Roster};
+use crate::role::{
+    EffectiveAlignment, EndgameModifier, SpecialVictory, Team, VictoryCtx, WinnerFilterCtx,
+    WinnerMap,
+};
 
 /// Daybreak `Curator` Artifacts placed face-down on a player's card.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -139,43 +142,13 @@ impl Artifact {
 }
 
 impl Artifact {
-    pub fn team_override(self) -> Option<Team> {
-        match self {
-            Artifact::ClawOfTheWerewolf => Some(Team::Werewolf),
-            Artifact::BrandOfTheVillager => Some(Team::Village),
-            Artifact::CudgelOfTheTanner => Some(Team::Independent),
-            Artifact::TokenOfMute | Artifact::ShroudOfShame | Artifact::VoidOfNothingness => None,
-        }
-    }
-
-    pub fn wolf_threat_override(self) -> Option<bool> {
-        match self {
-            Artifact::ClawOfTheWerewolf => Some(true),
-            Artifact::BrandOfTheVillager | Artifact::CudgelOfTheTanner => Some(false),
-            Artifact::TokenOfMute | Artifact::ShroudOfShame | Artifact::VoidOfNothingness => None,
-        }
-    }
-
-    pub fn vampire_threat_override(self) -> Option<bool> {
-        match self {
+    pub fn replaces_role_card(self) -> bool {
+        matches!(
+            self,
             Artifact::ClawOfTheWerewolf
-            | Artifact::BrandOfTheVillager
-            | Artifact::CudgelOfTheTanner => Some(false),
-            Artifact::TokenOfMute | Artifact::ShroudOfShame | Artifact::VoidOfNothingness => None,
-        }
-    }
-
-    pub fn check_independent_win(
-        self,
-        seat: usize,
-        ctx: &VictoryCtx<'_>,
-    ) -> Option<(&'static str, &'static [Team])> {
-        match self {
-            Artifact::CudgelOfTheTanner if ctx.is_dead(seat) => {
-                Some(("Cudgel of the Tanner", TANNER_BLOCKED_TEAMS))
-            }
-            _ => None,
-        }
+                | Artifact::BrandOfTheVillager
+                | Artifact::CudgelOfTheTanner
+        )
     }
 
     pub fn check_day_conduct_forfeit(
@@ -205,6 +178,58 @@ impl Artifact {
                 )
             }),
             _ => None,
+        }
+    }
+}
+
+impl EndgameModifier for Artifact {
+    fn modifier_name(&self) -> &'static str {
+        self.name()
+    }
+
+    fn adjust_alignment(
+        &self,
+        _seat: usize,
+        _board: &BoardCards,
+        cur: EffectiveAlignment,
+    ) -> EffectiveAlignment {
+        match self {
+            Artifact::ClawOfTheWerewolf => EffectiveAlignment {
+                team: Team::Werewolf,
+                threat_team: Some(Team::Werewolf),
+            },
+            Artifact::BrandOfTheVillager => EffectiveAlignment {
+                team: Team::Village,
+                threat_team: None,
+            },
+            Artifact::CudgelOfTheTanner => EffectiveAlignment {
+                team: Team::Independent,
+                threat_team: None,
+            },
+            Artifact::TokenOfMute | Artifact::ShroudOfShame | Artifact::VoidOfNothingness => cur,
+        }
+    }
+
+    fn victory_claim(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+        match self {
+            Artifact::CudgelOfTheTanner if ctx.is_dead(seat) => {
+                Some(SpecialVictory::independent_blocking(TANNER_BLOCKED_TEAMS))
+            }
+            _ => None,
+        }
+    }
+
+    fn apply_forfeits(
+        &self,
+        holder: usize,
+        ctx: &mut WinnerFilterCtx<'_>,
+        winners: &mut WinnerMap,
+    ) {
+        if let Some(forfeit_msg) =
+            self.check_day_conduct_forfeit(holder, ctx.roster, ctx.casemap, ctx.day_channel_log)
+        {
+            winners.remove(&holder);
+            ctx.announcements.push(forfeit_msg);
         }
     }
 }

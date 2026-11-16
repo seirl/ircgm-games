@@ -1,8 +1,8 @@
 use ircgm::prelude::*;
 
-use crate::board::BoardCards;
+use crate::board::BoardMut;
 use crate::marks::Mark;
-use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, RoleTag, Team, Wake};
+use crate::role::{GameSet, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep};
 
 pub struct Cow;
 pub static COW: Cow = Cow;
@@ -18,22 +18,17 @@ impl Role for Cow {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(113, Self::inspect))
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[WakeStep::passive(&COW, 113, Self::inspect).eyes_closed()] }
     }
 }
 
 impl Cow {
-    fn inspect(
-        seat: usize,
-        actor_label: &str,
-        board: &mut BoardCards,
-        ctx: &mut ResolveCtx<'_>,
-    ) {
+    fn inspect(seat: usize, actor_label: &str, board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
         let (left, right) = ctx.roster.neighbors(seat);
         let neighbor_alien = [left, right].into_iter().any(|n| {
-            ctx.waking_roles[n].tags().contains(&RoleTag::AlienPack)
-                && board.marks[n] != Mark::Fear
+            ctx.waking_role(n).night_faction() == Some(NightFaction::Alien)
+                && board.mark_at(n) != Mark::Fear
         });
 
         let actor_nick = ctx.nick(seat);

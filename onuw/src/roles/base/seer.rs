@@ -1,9 +1,9 @@
-use std::collections::HashSet;
-
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardMut, Roster};
+use crate::role::{
+    GameSet, PromptCtx, PromptView, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
+};
 
 pub struct Seer;
 pub static SEER: Seer = Seer;
@@ -26,28 +26,24 @@ impl Role for Seer {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(150, |seat, ctx| {
-            Box::pin(Self::prompt(seat, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[WakeStep::solo(&SEER, 150, |s, ctx| Box::pin(Self::prompt(s, ctx))).immediate_copy()] }
     }
 }
 
 impl Seer {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let players_str = ctx.format_visible_players();
+        let view = ctx.view();
         let prompt = irc_format!(
-            "🔮 Seer: Reply {} (or {}) OR {}, or {}. Players: {}",
+            "🔮 Seer: Reply {} (or {}) OR {}, or {}. Players: {players_str}",
             "player <nick>".bold(),
             "<nick>".bold(),
             "center <1-3> <1-3>".bold(),
             "pass".bold(),
-            roster.format_players_marking_shields(shielded),
         );
         let ans = ctx
-            .ask(prompt, move |m| {
-                parse_seer_choice(roster, shielded, seat, &m.text)
-            })
+            .ask(prompt, move |m| parse_seer_choice(view, seat, &m.text))
             .await?;
 
         Ok(SeatEffect::new(move |label, board, rctx| {
@@ -59,33 +55,33 @@ impl Seer {
         seat: usize,
         actor_label: &str,
         ans: Answer<SeerChoice>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let actor_nick = ctx.nick(seat);
         match ans {
-            Answer::Ok(SeerChoice::Player(idx)) if !board.is_shielded(idx) => {
-                board.record_card_interaction(seat);
-                let card = board.players[idx];
-                let target_nick = ctx.nick(idx);
-                ctx.dm(
-                    seat,
-                    irc_format!(
-                        "🔮 {}'s card is: {}",
-                        target_nick.as_str().bold(),
-                        card.display_for_peek()
-                    ),
-                );
-                ctx.record(irc_format!(
-                    "🔮 {actor_label} ({}) viewed {}'s card ({}).",
-                    actor_nick.bold(),
-                    target_nick.bold(),
-                    card.display_for_peek(),
-                ));
+            Answer::Ok(SeerChoice::Player(idx)) => {
+                if let Some(card) = board.peek_player(seat, idx) {
+                    let target_nick = ctx.nick(idx);
+                    ctx.dm(
+                        seat,
+                        irc_format!(
+                            "🔮 {}'s card is: {}",
+                            target_nick.as_str().bold(),
+                            card.display_for_peek()
+                        ),
+                    );
+                    ctx.record(irc_format!(
+                        "🔮 {actor_label} ({}) viewed {}'s card ({}).",
+                        actor_nick.bold(),
+                        target_nick.bold(),
+                        card.display_for_peek(),
+                    ));
+                }
             }
             Answer::Ok(SeerChoice::Center(a, b)) => {
-                board.record_card_interaction(seat);
-                let (ca, cb) = (board.center[a], board.center[b]);
+                let ca = board.peek_center(seat, a);
+                let cb = board.peek_center(seat, b);
                 ctx.dm(
                     seat,
                     irc_format!(
@@ -113,12 +109,7 @@ impl Seer {
     }
 }
 
-fn parse_seer_choice(
-    roster: &Roster,
-    shielded: &HashSet<usize>,
-    actor_seat: usize,
-    raw: &str,
-) -> AskMatch<SeerChoice> {
+fn parse_seer_choice(view: PromptView<'_>, actor_seat: usize, raw: &str) -> AskMatch<SeerChoice> {
     if Roster::is_pass(raw) {
         return AskMatch::accept_say(SeerChoice::Pass, "🔮 Passed — not viewing any cards.");
     }
@@ -186,18 +177,18 @@ fn parse_seer_choice(
         );
     };
 
-    match roster.resolve_nick(token) {
+    match view.resolve_nick(token) {
         Some(idx) if idx == actor_seat => {
             AskMatch::reject("You cannot look at your own card!".yellow())
         }
-        Some(idx) if shielded.contains(&idx) => AskMatch::reject(
+        Some(idx) if view.is_shielded(idx) => AskMatch::reject(
             "🛡️ That player's card has a Shield token and cannot be viewed!".yellow(),
         ),
         Some(idx) => AskMatch::accept_say(
             SeerChoice::Player(idx),
             irc_format!(
                 "🔮 Locked in viewing {}'s card — reveals when the phase ends!",
-                roster.seats[idx].user.nick().bold(),
+                view.roster.seats[idx].user.nick().bold(),
             ),
         ),
         None => AskMatch::reject("Unknown player nickname.".yellow()),

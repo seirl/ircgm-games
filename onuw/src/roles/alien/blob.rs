@@ -1,7 +1,9 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx, Wake};
+use crate::board::{BoardMut, Roster};
+use crate::role::{
+    GameSet, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx, WakeStep,
+};
 
 pub struct Blob;
 pub static BLOB: Blob = Blob;
@@ -28,8 +30,8 @@ impl Role for Blob {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(196, Self::wake_passive).follow_on_copy())
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[WakeStep::passive(&BLOB, 196, Self::inspect)] }
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
@@ -42,12 +44,7 @@ impl Role for Blob {
 }
 
 impl Blob {
-    fn wake_passive(
-        seat: usize,
-        actor_label: &str,
-        _board: &mut BoardCards,
-        ctx: &mut ResolveCtx<'_>,
-    ) {
+    fn inspect(seat: usize, actor_label: &str, _board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
         let absorbed = blob_seats_around(ctx.roster, seat);
         let names = ctx.roster.format_indices(&absorbed);
         ctx.dm(

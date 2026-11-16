@@ -378,7 +378,7 @@ pub fn send_roles_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) -> R
 }
 
 pub fn send_single_role_info(reply_to: &ChatMessage, role: &'static dyn Role) -> Result<()> {
-    let wake_str = match role.wake() {
+    let wake_str = match role.steps().last() {
         None => "Sleeps".to_owned(),
         Some(w) => match w.phase {
             Phase::Dusk => format!("Dusk #{}", w.order),
@@ -396,7 +396,7 @@ pub fn send_single_role_info(reply_to: &ChatMessage, role: &'static dyn Role) ->
         sep,
         wake_str.grey(),
         "—".grey(),
-        role.night_summary(),
+        role.info().summary,
     ))
 }
 

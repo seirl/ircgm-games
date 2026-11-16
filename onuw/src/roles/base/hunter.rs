@@ -22,6 +22,7 @@ impl Role for Hunter {
         let target_nick = ctx.roster.seats[target_seat].user.nick();
         Some(DeathEffect::Kill {
             seat: target_seat,
+            respects_protection: true,
             announcement: irc_format!(
                 "{} {} died as Hunter and took down {}!",
                 "🏹 HUNTER SHOT!".bold().orange(),

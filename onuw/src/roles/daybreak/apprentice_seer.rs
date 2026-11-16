@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct ApprenticeSeer;
 pub static APPRENTICE_SEER: ApprenticeSeer = ApprenticeSeer;
@@ -18,10 +18,13 @@ impl Role for ApprenticeSeer {
         .aliases(&["aseer", "appseer"])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(152, |seat, ctx| {
-            Box::pin(Self::prompt(seat, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                WakeStep::solo(&APPRENTICE_SEER, 152, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                    .immediate_copy(),
+            ]
+        }
     }
 }
 
@@ -63,12 +66,11 @@ impl ApprenticeSeer {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(c_idx)) = ans {
-            board.record_card_interaction(seat);
-            let seen = board.center[c_idx];
+            let seen = board.peek_center(seat, c_idx);
             ctx.dm(
                 seat,
                 irc_format!("🔮 Center #{} is: {}", c_idx + 1, seen.display_for_peek()),

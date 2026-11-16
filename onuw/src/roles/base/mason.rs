@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::role::{GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, Team, Wake};
+use crate::role::{GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, Team, WakeStep};
 
 pub struct Mason;
 pub static MASON: Mason = Mason;
@@ -17,10 +17,12 @@ impl Role for Mason {
         .paired()
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(140, |seats, ctx| {
-            Box::pin(Self::wake_group(seats, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::group(&MASON, 140, |seats, ctx| {
+                Box::pin(Self::wake_group(seats, ctx))
+            })]
+        }
     }
 }
 

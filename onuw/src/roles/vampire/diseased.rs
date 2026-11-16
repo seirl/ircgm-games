@@ -1,9 +1,10 @@
 use ircgm::prelude::*;
 
-use crate::board::BoardCards;
+use crate::board::{BoardAccess, BoardMut};
 use crate::marks::Mark;
 use crate::role::{
-    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep, WinnerFilterCtx,
+    WinnerMap,
 };
 
 pub struct Diseased;
@@ -18,15 +19,28 @@ impl Role for Diseased {
             Team::Village,
             "Place the Mark of Disease on your left or right neighbor in Dusk; anyone who votes for you or the marked player cannot win!",
         )
-        .tags(&[RoleTag::PlacesMarks])
+        .places_marks()
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(34, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&DISEASED, 34, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
-                .mutates(),
-        )
+                .writes(BoardAccess::MARKS)]
+        }
+    }
+
+    fn apply_forfeits(
+        &self,
+        holder: usize,
+        ctx: &mut WinnerFilterCtx<'_>,
+        winners: &mut WinnerMap,
+    ) {
+        for voter in 0..ctx.roster.len() {
+            if ctx.votes[voter] == Some(holder) {
+                winners.remove(&voter);
+            }
+        }
     }
 }
 
@@ -76,7 +90,7 @@ impl Diseased {
         seat: usize,
         actor_label: &str,
         ans: Answer<usize>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let target = match ans {
@@ -86,7 +100,7 @@ impl Diseased {
                 if fastrand::bool() { left } else { right }
             }
         };
-        board.marks[target] = Mark::Disease;
+        board.set_mark(target, Mark::Disease);
         ctx.record(irc_format!(
             "🤢 {actor_label} ({}) placed {} on {}.",
             ctx.nick(seat).bold(),

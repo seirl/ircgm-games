@@ -6,14 +6,22 @@
 
 use ircgm::prelude::*;
 
-use crate::board::BoardCards;
+use crate::board::{BoardAccess, BoardMut};
 use crate::marks::Mark;
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, Team, Wake,
+    GameSet, GroupEffect, GroupPromptCtx, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep,
 };
 
 pub struct Vampire;
 pub static VAMPIRE: Vampire = Vampire;
+
+pub(crate) const VAMPIRE_PACK_STEP: WakeStep = WakeStep::pack(
+    NightFaction::Vampire,
+    25,
+    |seats, ctx| Box::pin(Vampire::huddle(seats, ctx)),
+)
+.dusk()
+.writes(BoardAccess::MARKS);
 
 impl Role for Vampire {
     fn info(&self) -> RoleInfo {
@@ -25,23 +33,18 @@ impl Role for Vampire {
             "Wake in Dusk with the Vampire coven and bestow the Mark of the Vampire on a non-Vampire player!",
         )
         .aliases(&["vamp"])
-        .tags(&[RoleTag::VampirePack, RoleTag::PlacesMarks])
+        .night_faction(NightFaction::Vampire)
+        .places_marks()
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::pack(25, RoleTag::VampirePack, |seats, ctx| {
-                Box::pin(Self::huddle(seats, ctx))
-            })
-            .dusk()
-            .mutates(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[VAMPIRE_PACK_STEP] }
     }
 }
 
 impl Vampire {
     async fn huddle(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let full_coven = ctx.seats_with_tag(RoleTag::VampirePack);
+        let full_coven = ctx.seats_with_faction(NightFaction::Vampire);
         let non_vampires: Vec<usize> = (0..ctx.roster.len())
             .filter(|s| !full_coven.contains(s))
             .collect();
@@ -124,10 +127,10 @@ impl Vampire {
     fn resolve(
         active_seats: &[usize],
         target: usize,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        board.marks[target] = Mark::Vampire;
+        board.set_mark(target, Mark::Vampire);
         let actors = ctx.roster.format_indices(active_seats);
         ctx.record(irc_format!(
             "🧛 Vampire Coven ({}) bestowed {} on {}.",

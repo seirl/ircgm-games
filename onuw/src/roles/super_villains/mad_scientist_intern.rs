@@ -1,9 +1,9 @@
 use ircgm::prelude::*;
 
 use crate::board::Roster;
-use crate::marks::Mark;
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx, Wake,
+    GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx,
+    WakeStep,
 };
 
 pub struct MadScientist;
@@ -57,20 +57,16 @@ impl Role for Intern {
         }
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(132, |seats, ctx| {
-            Box::pin(Self::wake_group(seats, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::group(&INTERN, 132, |seats, ctx| {
+                Box::pin(Self::wake_group(seats, ctx))
+            })]
+        }
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        let scientists: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| {
-                !ctx.board.has_role_override_artifact(i)
-                    && ctx.board.marks[i] != Mark::Vampire
-                    && ctx.board.players[i].effective_role().id() == "mad_scientist"
-            })
-            .collect();
+        let scientists = ctx.active_holders(&MAD_SCIENTIST);
         let won = if scientists.is_empty() {
             ctx.is_dead(seat)
         } else {

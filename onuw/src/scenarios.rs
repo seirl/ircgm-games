@@ -17,12 +17,9 @@ pub mod vampire;
 
 use ircgm::prelude::*;
 
-use crate::board::{format_role_slice_styled, Card};
+use crate::board::format_role_slice_styled;
 use crate::role::Role;
-use crate::roles::{
-    base::{villager::VILLAGER, werewolf::WEREWOLF},
-    super_villains::henchman::HENCHMAN,
-};
+use crate::roles::base::villager::VILLAGER;
 
 /// Logical expansion-pack ordering for browsing and filtering preset scenarios.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -112,13 +109,6 @@ impl ScenarioPack {
             .iter()
             .find(|s| s.supports_player_count(clamped))
             .expect("every ScenarioPack covers 3..=10 players")
-    }
-
-    pub fn default_extra_evil_card(self) -> Card {
-        match self {
-            Self::SuperVillains => Card::new(&HENCHMAN),
-            _ => Card::new(&WEREWOLF),
-        }
     }
 }
 
@@ -376,7 +366,7 @@ fn deal_anarchy_deck(
 ) -> Vec<&'static dyn Role> {
     let mut bundles: Vec<Vec<&'static dyn Role>> = Vec::new();
     let mut pending_pair: Option<&'static dyn Role> = None;
-    let mut pending_groob_zerb: Option<&'static dyn Role> = None;
+    let mut pending_group: Vec<(&'static str, &'static dyn Role)> = Vec::new();
 
     for &role in pool {
         if role.requires_pair_in_deck() {
@@ -388,15 +378,16 @@ fn deal_anarchy_deck(
                 }
             }
             pending_pair = Some(role);
-        } else if matches!(role.id(), "groob" | "zerb") {
-            if let Some(prev) = pending_groob_zerb {
-                if prev.id() != role.id() {
-                    bundles.push(vec![prev, role]);
-                    pending_groob_zerb = None;
-                    continue;
-                }
+        } else if let Some(group_key) = role.anarchy_bundle() {
+            if let Some(pos) = pending_group
+                .iter()
+                .position(|(k, prev)| *k == group_key && prev.id() != role.id())
+            {
+                let (_, prev) = pending_group.remove(pos);
+                bundles.push(vec![prev, role]);
+            } else {
+                pending_group.push((group_key, role));
             }
-            pending_groob_zerb = Some(role);
         } else {
             bundles.push(vec![role]);
         }

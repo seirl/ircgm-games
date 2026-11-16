@@ -1,8 +1,9 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use super::henchman::VILLAIN_PACK_STEP;
+use crate::board::{BoardMut, Roster};
 use crate::role::{
-    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
 
 pub struct Rapscallion;
@@ -17,11 +18,16 @@ impl Role for Rapscallion {
             Team::SuperVillain,
             "Wake with the Super Villains, then may view 1 center card!",
         )
-        .tags(&[RoleTag::VillainPack])
+        .night_faction(NightFaction::SuperVillain)
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(127, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).follow_on_copy())
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                VILLAIN_PACK_STEP,
+                WakeStep::solo(&RAPSCALLION, 127, |s, ctx| Box::pin(Self::prompt(s, ctx))),
+            ]
+        }
     }
 }
 
@@ -61,12 +67,11 @@ impl Rapscallion {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(c_idx)) = ans {
-            board.record_card_interaction(seat);
-            let seen = board.center[c_idx];
+            let seen = board.peek_center(seat, c_idx);
             ctx.dm(
                 seat,
                 irc_format!(

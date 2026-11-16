@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Marksman;
 pub static MARKSMAN: Marksman = Marksman;
@@ -33,18 +33,19 @@ impl Role for Marksman {
         }
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(158, |seat, ctx| {
-            Box::pin(Self::prompt(seat, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&MARKSMAN, 158, |s, ctx| Box::pin(Self::prompt(s, ctx))).immediate_copy()]
+        }
     }
 }
 
 impl Marksman {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let roster = ctx.roster;
+        let view = ctx.view();
         let has_marks = roster.deck_has_marks();
-        let players_str = roster.format_players_marking_shields(shielded);
+        let players_str = ctx.format_visible_players();
         let prompt = if has_marks {
             irc_format!(
                 "🎯 Marksman: Reply {} (two DIFFERENT other players), {}, {}, or {}. Players: {players_str}",
@@ -97,7 +98,7 @@ impl Marksman {
                     if idx == seat {
                         return AskMatch::reject("You cannot inspect your own card!".yellow());
                     }
-                    if shielded.contains(&idx) {
+                    if view.is_shielded(idx) {
                         return AskMatch::reject(
                             "🛡️ That card is shielded by the Sentinel!".yellow(),
                         );
@@ -160,18 +161,16 @@ impl Marksman {
         seat: usize,
         actor_label: &str,
         ans: Answer<MarksmanChoice>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let actor_nick = ctx.nick(seat);
         match ans.ok().unwrap_or(MarksmanChoice::Pass) {
             MarksmanChoice::Pass => {}
             MarksmanChoice::CardOnly(card_idx) => {
-                if board.is_shielded(card_idx) {
+                let Some(seen_card) = board.peek_player(seat, card_idx) else {
                     return;
-                }
-                board.record_card_interaction(seat);
-                let seen_card = board.players[card_idx];
+                };
                 let target_nick = ctx.nick(card_idx);
                 ctx.dm(
                     seat,
@@ -188,7 +187,7 @@ impl Marksman {
                 ));
             }
             MarksmanChoice::MarkOnly(mark_idx) => {
-                let seen_mark = board.marks[mark_idx];
+                let seen_mark = board.mark_at(mark_idx);
                 let mark_nick = ctx.nick(mark_idx);
                 ctx.dm(
                     seat,
@@ -206,12 +205,10 @@ impl Marksman {
                 ));
             }
             MarksmanChoice::CardAndMark(card_idx, mark_idx) => {
-                if board.is_shielded(card_idx) {
+                let Some(seen_card) = board.peek_player(seat, card_idx) else {
                     return;
-                }
-                board.record_card_interaction(seat);
-                let seen_card = board.players[card_idx];
-                let seen_mark = board.marks[mark_idx];
+                };
+                let seen_mark = board.mark_at(mark_idx);
                 let card_nick = ctx.nick(card_idx);
                 let mark_nick = ctx.nick(mark_idx);
                 ctx.dm(

@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Drunk;
 pub static DRUNK: Drunk = Drunk;
@@ -17,8 +17,12 @@ impl Role for Drunk {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(180, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).mutates())
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&DRUNK, 180, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .immediate_copy()
+                .writes(BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES)]
+        }
     }
 }
 
@@ -51,7 +55,7 @@ impl Drunk {
         seat: usize,
         actor_label: &str,
         ans: Answer<usize>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let c_idx = match ans {
@@ -65,14 +69,10 @@ impl Drunk {
                 auto
             }
         };
-        if board.is_shielded(seat) {
+        let Some((old_self, new_self)) = board.swap_player_with_center(seat, seat, c_idx) else {
             ctx.dm(seat, "🛡️ Your card was shielded—Drunk swap prevented!".yellow());
             return;
-        }
-        board.record_card_interaction(seat);
-        let old_self = board.players[seat];
-        let new_self = board.center[c_idx];
-        std::mem::swap(&mut board.players[seat], &mut board.center[c_idx]);
+        };
         ctx.record(irc_format!(
             "🍺 {actor_label} ({}) swapped {} with Center #{} ({}).",
             ctx.nick(seat).bold(),

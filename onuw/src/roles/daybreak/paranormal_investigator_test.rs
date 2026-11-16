@@ -153,16 +153,15 @@ async fn dream_wolf_suppresses_lone_wolf_and_minion_does_not_trigger_pi_or_revea
     h.reply_dm("Dave", "Alice").await;
     // Eve (Revealer) flips Carol (Minion -> stays face-up because Minion is not Werewolf/Tanner!):
     h.reply_dm("Eve", "Carol").await;
-    // Frank (Curator) tries to place an Artifact on face-up Carol (rejected!), then places on Bob:
-    h.reply_dm("Frank", "Carol").await;
-    let reject = h.wait_for_new_dm("Frank").await;
-    assert!(reject.contains("Face-up"));
-    h.send_dm("Frank", "Bob").await;
+    // Frank (Curator) sees Carol's face-up Minion card on the table and places an Artifact on Carol:
+    let curator_prompt = h.wait_for_new_dm("Frank").await;
+    assert!(curator_prompt.contains("Carol [🔦 Minion]"));
+    h.send_dm("Frank", "Carol").await;
 
     let report = h.finish_night(night).await;
     assert!(report.dms_to("Alice").contains("Dream Wolf Bob"));
     assert!(!report.dms_to("Alice").contains("LONE WOLF"));
     assert_eq!(report.effective_role_at(&h.roster, "Dave"), "Werewolf");
     assert!(report.board.is_player_face_up(h.seat_of("Carol")));
-    assert!(report.board.artifacts.contains_key(&h.seat_of("Bob")));
+    assert!(report.artifact_at(&h.roster, "Carol").is_some());
 }

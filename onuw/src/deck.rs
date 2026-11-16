@@ -4,7 +4,7 @@ use ircgm::prelude::*;
 
 use crate::board::{format_role_slice_styled, BoardCards, Card, Roster, SeatInfo};
 use crate::role::Role;
-use crate::roles::base::{villager::VILLAGER, werewolf::WEREWOLF};
+use crate::roles::base::villager::VILLAGER;
 use crate::roles::{find_role, ALL_ROLES};
 use crate::scenarios::{find_scenario, Scenario, ScenarioPack};
 
@@ -95,14 +95,6 @@ impl DeckSpec {
         match self.base {
             DeckBase::Scenario(scen) => scen.player_range,
             DeckBase::Pack(_) | DeckBase::Custom => (3, 10),
-        }
-    }
-
-    pub fn default_extra_evil_card(&self) -> Card {
-        match self.base {
-            DeckBase::Pack(pack) => pack.default_extra_evil_card(),
-            DeckBase::Scenario(scen) => scen.pack.default_extra_evil_card(),
-            DeckBase::Custom => Card::new(&WEREWOLF),
         }
     }
 
@@ -279,12 +271,7 @@ impl DeckSpec {
             .collect();
 
         let roster = Roster { seats, deck };
-        let board = BoardCards::with_extra_cards(
-            player_cards,
-            center,
-            Card::new(&WEREWOLF),
-            Card::new(&crate::roles::super_villains::henchman::HENCHMAN),
-        );
+        let board = BoardCards::new(player_cards, center);
         Ok((roster, board))
     }
 }

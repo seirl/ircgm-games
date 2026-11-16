@@ -1,10 +1,8 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardAccess, BoardMut, Roster};
 use crate::marks::Mark;
-use crate::role::{
-    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Instigator;
 pub static INSTIGATOR: Instigator = Instigator;
@@ -18,26 +16,26 @@ impl Role for Instigator {
             Team::Village,
             "Wake in Dusk to optionally give ANY player (including yourself) the Mark of the Traitor, flipping their Village/Evil team!",
         )
-        .tags(&[RoleTag::PlacesMarks])
+        .places_marks()
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(38, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&INSTIGATOR, 38, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
-                .mutates(),
-        )
+                .writes(BoardAccess::MARKS)]
+        }
     }
 }
 
 impl Instigator {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let roster = ctx.roster;
+        let players_str = ctx.format_visible_players();
         let prompt = irc_format!(
-            "🐍 Instigator: Reply {} to bestow the Mark of the Traitor (including yourself), or {}. Players: {}",
+            "🐍 Instigator: Reply {} to bestow the Mark of the Traitor (including yourself), or {}. Players: {players_str}",
             "<nick>".bold(),
             "pass".bold(),
-            roster.format_players(),
         );
         let ans = ctx
             .ask(prompt, move |m| {
@@ -70,11 +68,11 @@ impl Instigator {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            board.marks[target] = Mark::Traitor;
+            board.set_mark(target, Mark::Traitor);
             ctx.record(irc_format!(
                 "🐍 {actor_label} ({}) placed {} on {}.",
                 ctx.nick(seat).bold(),

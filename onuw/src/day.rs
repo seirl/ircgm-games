@@ -19,23 +19,21 @@ pub async fn run_day_phase(
     board: &BoardCards,
     day_duration: Duration,
 ) -> Result<()> {
-    if !board.shielded.is_empty() {
-        let mut s: Vec<usize> = board.shielded.iter().copied().collect();
-        s.sort_unstable();
+    let shielded = board.shielded_seats();
+    if !shielded.is_empty() {
         room.say(irc_format!(
             "🛡️ {}: {}",
             "Shield Token rests on".bold(),
-            roster.format_indices(&s).bold().light_cyan(),
+            roster.format_indices(&shielded).bold().light_cyan(),
         ))?;
     }
 
-    if !board.artifacts.is_empty() {
-        let mut a: Vec<usize> = board.artifacts.keys().copied().collect();
-        a.sort_unstable();
+    let artifacts = board.artifact_seats();
+    if !artifacts.is_empty() {
         room.say(irc_format!(
             "🏺 {}: {}",
             "Artifact Token rests on".bold(),
-            roster.format_indices(&a).bold().yellow(),
+            roster.format_indices(&artifacts).bold().yellow(),
         ))?;
     }
 
@@ -45,7 +43,7 @@ pub async fn run_day_phase(
                 "{} {}'s card is publicly {}!",
                 "🔦 FACE-UP CARD:".bold().yellow(),
                 roster.seats[seat].user.nick().bold(),
-                board.players[seat].display_for_peek(),
+                board.player_card(seat).display_for_peek(),
             ))?;
         }
     }
@@ -55,7 +53,7 @@ pub async fn run_day_phase(
             room.say(irc_format!(
                 "🔦 {}: {}",
                 format!("FACE-UP CENTER #{}", c_idx + 1).bold().yellow(),
-                board.center[c_idx].display_for_peek(),
+                board.center_card(c_idx).display_for_peek(),
             ))?;
         }
     }

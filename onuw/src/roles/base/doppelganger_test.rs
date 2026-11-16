@@ -1,7 +1,8 @@
 use crate::roles::base::{
-    doppelganger::DOPPELGANGER, insomniac::INSOMNIAC, minion::MINION, robber::ROBBER,
+    doppelganger::DOPPELGANGER, insomniac::INSOMNIAC, minion::MINION, robber::ROBBER, seer::SEER,
     villager::VILLAGER, werewolf::WEREWOLF,
 };
+use crate::roles::daybreak::mystic_wolf::MYSTIC_WOLF;
 use crate::testing::OnuwTestHarness;
 
 #[tokio::test(start_paused = true)]
@@ -84,4 +85,44 @@ async fn doppelganger_werewolf_joins_pack_wake_and_is_seen_by_minion() {
     assert!(report
         .dms_to("Carol")
         .contains("The Werewolves are Alice, Bob"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn doppelganger_mystic_wolf_wakes_with_pack_first_then_peeks_on_mystic_wolf_turn() {
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &MYSTIC_WOLF),
+            ("Carol", &SEER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night = h.spawn_night();
+    // Alice (Doppelgänger) copies Bob (Mystic Wolf):
+    // Because Mystic Wolf uses `CopyTiming::OnRoleTurn` (#2C), Alice does NOT peek blind in the
+    // immediate window — instead Alice joins Bob in the Werewolf pack huddle (#2) first, and BOTH
+    // Mystic Wolves peek in the post-pack tier (#2C)!
+    h.reply_dm("Alice", "Bob").await;
+    // In the Mystic Wolf tier (#2C), Bob peeks Carol and Alice (Doppelgänger-Mystic Wolf) also peeks Carol;
+    // Carol (Seer, #5A) runs concurrently in the same tier and peeks Bob:
+    h.reply_dm("Bob", "Carol").await;
+    h.reply_dm("Alice", "Carol").await;
+    h.reply_dm("Carol", "Bob").await;
+
+    let report = h.finish_night(night).await;
+    let alice_plain = report.dms_to("Alice");
+    let pack_pos = alice_plain
+        .find("Fellow Werewolf pack: Bob")
+        .expect("Alice woke in Werewolf pack huddle");
+    let peek_pos = alice_plain
+        .find("Mystic Wolf: Reply")
+        .expect("Alice got Mystic Wolf solo peek prompt");
+    assert!(
+        pack_pos < peek_pos,
+        "Doppelgänger-Mystic Wolf must see packmates before being prompted for Mystic Wolf peek"
+    );
+    assert!(alice_plain.contains("Carol's card is: Seer"));
+    assert!(report.has_chronicle_substr("Doppelgänger-Mystic Wolf (Alice) viewed Carol's card (Seer)."));
 }

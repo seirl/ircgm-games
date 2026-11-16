@@ -1,10 +1,10 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardAccess, BoardKey, BoardMut, Roster};
 use crate::marks::Mark;
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag,
-    SeatEffect, SpecialVictory, Team, VictoryCtx, Wake,
+    GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect,
+    SpecialVictory, Team, VictoryCtx, WakeStep,
 };
 
 pub struct Assassin;
@@ -12,6 +12,17 @@ pub static ASSASSIN: Assassin = Assassin;
 
 pub struct ApprenticeAssassin;
 pub static APPRENTICE_ASSASSIN: ApprenticeAssassin = ApprenticeAssassin;
+
+#[derive(Clone, Copy, Debug)]
+struct ApprenticeSoloMark(bool);
+
+impl BoardKey for ApprenticeSoloMark {
+    const ACCESS: u16 = BoardAccess::CUSTOM_1;
+
+    fn init() -> Self {
+        Self(false)
+    }
+}
 
 impl Role for Assassin {
     fn info(&self) -> RoleInfo {
@@ -22,40 +33,40 @@ impl Role for Assassin {
             Team::Independent,
             "Place the Mark of the Assassin on any player (including yourself) in Dusk. You win ONLY if the player holding that Mark dies!",
         )
-        .tags(&[RoleTag::PlacesMarks])
+        .places_marks()
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(44, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&ASSASSIN, 44, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
-                .mutates(),
-        )
+                .writes(BoardAccess::MARKS)]
+        }
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         (0..ctx.roster.len())
-            .any(|s| ctx.board.marks[s] == Mark::Assassin && ctx.is_dead(s))
+            .any(|s| ctx.board.mark(s) == Mark::Assassin && ctx.is_dead(s))
             .then_some(SpecialVictory::independent())
     }
 }
 
 impl Assassin {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let roster = ctx.roster;
+        let players_str = ctx.format_visible_players();
+        let view = ctx.view();
         let prompt = irc_format!(
-            "🗡️ Assassin: Reply {} to place the Mark of the Assassin (any player, including yourself)! Players: {}",
+            "🗡️ Assassin: Reply {} to place the Mark of the Assassin (any player, including yourself)! Players: {players_str}",
             "<nick>".bold(),
-            roster.format_players(),
         );
         let ans = ctx
-            .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
+            .ask(prompt, move |m| match view.resolve_nick(&m.text) {
                 Some(idx) => AskMatch::accept_say(
                     idx,
                     irc_format!(
                         "🗡️ Placed {} on {}!",
                         Mark::Assassin.styled(),
-                        roster.seats[idx].user.nick().bold(),
+                        view.roster.seats[idx].user.nick().bold(),
                     ),
                 ),
                 None => AskMatch::reject("Unknown player nickname.".yellow()),
@@ -71,7 +82,7 @@ impl Assassin {
         seat: usize,
         actor_label: &str,
         ans: Answer<usize>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let target = match ans {
@@ -80,7 +91,7 @@ impl Assassin {
                 ctx.roster.neighbors(seat).1
             }
         };
-        board.marks[target] = Mark::Assassin;
+        board.set_mark(target, Mark::Assassin);
         ctx.record(irc_format!(
             "🗡️ {actor_label} ({}) placed {} on {}.",
             ctx.nick(seat).bold(),
@@ -100,7 +111,7 @@ impl Role for ApprenticeAssassin {
             "Wake in Dusk to see the Assassin (you win if the Assassin dies!). If no Assassin is in play, YOU place the Mark of the Assassin!",
         )
         .aliases(&["aa", "appassassin"])
-        .tags(&[RoleTag::PlacesMarks])
+        .places_marks()
     }
 
     fn summary_for_deck(&self, roster: &Roster) -> String {
@@ -111,24 +122,29 @@ impl Role for ApprenticeAssassin {
         }
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::group(46, |seats, ctx| Box::pin(Self::wake_group(seats, ctx)))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                WakeStep::group(&APPRENTICE_ASSASSIN, 46, |seats, ctx| {
+                    Box::pin(Self::wake_group(seats, ctx))
+                })
                 .dusk()
-                .mutates(),
-        )
+                .writes(BoardAccess::MARKS | ApprenticeSoloMark::ACCESS),
+            ]
+        }
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        let won = if ctx.board.apprentice_assassin_marked {
-            (0..ctx.roster.len()).any(|s| ctx.board.marks[s] == Mark::Assassin && ctx.is_dead(s))
+        let solo_marked = ctx.board.get_key::<ApprenticeSoloMark>().0;
+        let won = if solo_marked {
+            (0..ctx.roster.len()).any(|s| ctx.board.mark(s) == Mark::Assassin && ctx.is_dead(s))
         } else {
-            let assassins = ctx.find_seats(&ASSASSIN);
+            let assassins = ctx.active_holders(&ASSASSIN);
             if !assassins.is_empty() {
                 assassins.into_iter().any(|a| ctx.is_dead(a))
             } else {
                 (0..ctx.roster.len())
-                    .any(|s| ctx.board.marks[s] == Mark::Assassin && ctx.is_dead(s))
+                    .any(|s| ctx.board.mark(s) == Mark::Assassin && ctx.is_dead(s))
             }
         };
         won.then_some(SpecialVictory::independent())
@@ -193,8 +209,8 @@ impl ApprenticeAssassin {
         let target = ans.ok().unwrap_or_else(|| ctx.roster.neighbors(actor).1);
 
         Ok(GroupEffect::new(move |board, rctx| {
-            board.marks[target] = Mark::Assassin;
-            board.apprentice_assassin_marked = true;
+            board.set_mark(target, Mark::Assassin);
+            board.set_key(ApprenticeSoloMark(true));
             for &s in &active_seats[1..] {
                 rctx.dm(
                     s,

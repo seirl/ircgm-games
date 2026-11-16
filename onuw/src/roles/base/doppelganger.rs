@@ -2,8 +2,8 @@
 
 use ircgm::prelude::*;
 
-use crate::board::BoardCards;
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::BoardMut;
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Doppelganger;
 pub static DOPPELGANGER: Doppelganger = Doppelganger;
@@ -20,42 +20,40 @@ impl Role for Doppelganger {
         .aliases(&["dg", "doppel", "doppelgänger"])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::doppelganger(|seat, ctx| {
-            Box::pin(Self::prompt(seat, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[WakeStep::doppelganger(&DOPPELGANGER, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
     }
 }
 
 impl Doppelganger {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let candidates: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| i != seat && !ctx.shielded.contains(&i))
+            .filter(|&i| i != seat && !ctx.is_shielded(i))
             .collect();
         if candidates.is_empty() {
             return Ok(SeatEffect::noop());
         }
 
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
-        let players_str = roster.format_players_marking_shields(shielded);
+        let players_str = ctx.format_visible_players();
+        let view = ctx.view();
         let ans = ctx
             .ask(
                 irc_format!(
                     "🎭 Doppelgänger: Pick ONE other player ({}) to copy! Players: {players_str}",
                     "<nick>".bold(),
                 ),
-                move |m| match roster.resolve_nick(&m.text) {
+                move |m| match view.resolve_nick(&m.text) {
                     Some(idx) if idx == seat => {
                         AskMatch::reject("Pick ANOTHER player, not yourself!".yellow())
                     }
-                    Some(idx) if shielded.contains(&idx) => AskMatch::reject(
+                    Some(idx) if view.is_shielded(idx) => AskMatch::reject(
                         "🛡️ That player's card is shielded by the Sentinel!".yellow(),
                     ),
                     Some(idx) => AskMatch::accept_say(
                         idx,
                         irc_format!(
                             "🎭 Locked in copying {} — role reveals when the phase ends!",
-                            roster.seats[idx].user.nick().bold(),
+                            view.roster.seats[idx].user.nick().bold(),
                         ),
                     ),
                     None => AskMatch::reject("Unknown player nickname.".yellow()),
@@ -71,12 +69,10 @@ impl Doppelganger {
     fn resolve(
         seat: usize,
         chosen: Option<usize>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        let candidates: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| i != seat && !board.is_shielded(i))
-            .collect();
+        let candidates = board.unshielded_other_seats(seat);
         if candidates.is_empty() {
             return;
         }
@@ -86,14 +82,9 @@ impl Doppelganger {
             None => (candidates[fastrand::usize(..candidates.len())], true),
         };
 
-        let copied = board.players[target_idx].effective_role();
-        board.record_card_interaction(seat);
-        ctx.become_role(
-            seat,
-            copied,
-            format!("Doppelgänger-{}", copied.name()),
-            board,
-        );
+        let Some(copied) = board.copy_from_player(seat, target_idx, "Doppelgänger", ctx) else {
+            return;
+        };
 
         let actor_nick = ctx.nick(seat);
         let target_nick = ctx.nick(target_idx);

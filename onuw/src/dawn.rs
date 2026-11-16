@@ -7,7 +7,7 @@ use ircgm::prelude::*;
 use crate::board::{BoardCards, Roster};
 use crate::game::GameSummary;
 use crate::marks::Mark;
-use crate::role::{DeathCtx, DeathEffect, SpecialVictory, Team, VictoryCtx};
+use crate::role::{DeathCtx, DeathEffect, SpecialVictory, Team, VictoryCtx, WinnerFilterCtx, WinnerMap};
 
 /// Deferred full game record (center cards, Dusk/Night chronicle, and per-seat `start → end`
 /// roles/marks/artifacts) held back after Dawn until `!reveal` is run in channel.
@@ -72,26 +72,22 @@ pub fn resolve_and_announce_winners(
         .collect();
     let is_epic_battle = present_monster_factions.len() >= 2;
 
-    // Collect unified vote protections (`Bodyguard`, `Prince`, `The Master`), suppressed if overridden by a role-changing Artifact:
+    // Collect unified vote protections across each seat's active EndgameModifiers:
     let mut vote_immune: HashSet<usize> = HashSet::new();
     let mut hunter_shielded: HashSet<usize> = HashSet::new();
     let mut death_announcements: Vec<Text> = Vec::new();
     for seat in 0..n {
-        if board.has_role_override_artifact(seat) {
-            continue;
-        }
-        if let Some(prot) = board.players[seat]
-            .effective_role()
-            .vote_protection(seat, &death_ctx)
-        {
-            vote_immune.insert(prot.protected_seat);
-            if prot.blocks_hunter_shot {
-                hunter_shielded.insert(prot.protected_seat);
-            }
-            if tally[prot.protected_seat] >= 2
-                || (is_epic_battle && tally[prot.protected_seat] >= 1)
-            {
-                death_announcements.push(prot.announcement);
+        for modifier in board.seat_endgame_modifiers(seat) {
+            if let Some(prot) = modifier.vote_protection(seat, &death_ctx) {
+                vote_immune.insert(prot.protected_seat);
+                if prot.blocks_hunter_shot {
+                    hunter_shielded.insert(prot.protected_seat);
+                }
+                if tally[prot.protected_seat] >= 2
+                    || (is_epic_battle && tally[prot.protected_seat] >= 1)
+                {
+                    death_announcements.push(prot.announcement);
+                }
             }
         }
     }
@@ -136,7 +132,7 @@ pub fn resolve_and_announce_winners(
         }
     }
 
-    // Fixpoint loop over `Role::on_death` (`Hunter` kill) and `Mark::Love` heartbreak:
+    // Fixpoint loop over `EndgameModifier::on_death` (`Hunter`, `Mark::Love`, etc.):
     let mut processed_deaths: HashSet<usize> = HashSet::new();
     loop {
         let mut current_dead: Vec<usize> = dead.iter().copied().collect();
@@ -144,27 +140,18 @@ pub fn resolve_and_announce_winners(
         let mut newly_killed = Vec::new();
         for d in current_dead {
             if processed_deaths.insert(d) {
-                if !board.has_role_override_artifact(d) {
-                    if let Some(DeathEffect::Kill {
-                        seat: kill_seat,
-                        announcement,
-                    }) = board.players[d].effective_role().on_death(d, &death_ctx)
-                    {
-                        if !dead.contains(&kill_seat) && !hunter_shielded.contains(&kill_seat) {
+                for modifier in board.seat_endgame_modifiers(d) {
+                    for effect in modifier.on_death(d, &death_ctx) {
+                        let DeathEffect::Kill {
+                            seat: kill_seat,
+                            respects_protection,
+                            announcement,
+                        } = effect;
+                        let blocked = respects_protection && hunter_shielded.contains(&kill_seat);
+                        if !dead.contains(&kill_seat) && !newly_killed.contains(&kill_seat) && !blocked
+                        {
                             newly_killed.push(kill_seat);
                             death_announcements.push(announcement);
-                        }
-                    }
-                }
-                if board.marks[d] == Mark::Love {
-                    for other in 0..n {
-                        if other != d && board.marks[other] == Mark::Love && !dead.contains(&other)
-                        {
-                            newly_killed.push(other);
-                            death_announcements.push(irc_format!(
-                                "💔 {} died of heartbreak alongside their Lover!",
-                                roster.seats[other].user.nick().bold().red(),
-                            ));
                         }
                     }
                 }
@@ -183,40 +170,42 @@ pub fn resolve_and_announce_winners(
         "{} {} {}{}{} {}{}{} {}",
         "🌅 DAWN REVEAL — Center:".bold(),
         "#1".grey(),
-        board.center[0].display_reveal(),
+        board.center_card(0).display_reveal(),
         sep.clone(),
         "#2".grey(),
-        board.center[1].display_reveal(),
+        board.center_card(1).display_reveal(),
         sep.clone(),
         "#3".grey(),
-        board.center[2].display_reveal(),
+        board.center_card(2).display_reveal(),
     ));
 
     let mut role_items: Vec<Text> = Vec::with_capacity(n);
     for idx in 0..n {
         let mut token_suffix = String::new();
-        if board.marks[idx] != Mark::Clarity {
-            token_suffix.push_str(&format!(" [{}]", board.marks[idx].name()));
+        let seat_mark = board.mark(idx);
+        if seat_mark != Mark::Clarity {
+            token_suffix.push_str(&format!(" [{}]", seat_mark.name()));
         }
-        if let Some(art) = board.artifacts.get(&idx) {
+        if let Some(art) = board.artifact(idx) {
             token_suffix.push_str(&format!(" {{{}}}", art.name()));
         }
         if dead.contains(&idx) {
             token_suffix.push_str(" 💀");
         }
         let nick = roster.seats[idx].user.nick();
-        let item = if board.players[idx].face.id() == roster.seats[idx].initial_role.id() {
+        let card = board.player_card(idx);
+        let item = if card.face_role().id() == roster.seats[idx].initial_role.id() {
             irc_format!(
                 "{}: {}{token_suffix}",
                 nick.as_str().bold(),
-                board.players[idx].display_reveal(),
+                card.display_reveal(),
             )
         } else {
             irc_format!(
                 "{}: {} → {}{token_suffix}",
                 nick.as_str().bold(),
                 roster.seats[idx].initial_role.styled_name(),
-                board.players[idx].display_reveal(),
+                card.display_reveal(),
             )
         };
         role_items.push(item);
@@ -291,35 +280,26 @@ pub fn resolve_and_announce_winners(
         dead_seats: &dead,
     };
 
-    // 4a. Special role & artifact victories (`SpecialVictory` + `CudgelOfTheTanner`):
+    // 4a. Special victories across each seat's active EndgameModifiers:
     let mut forced_team_candidate: Option<(Team, Text)> = None;
     let mut blocked_teams: HashSet<Team> = HashSet::new();
-    let mut winners: HashMap<usize, &'static str> = HashMap::new();
+    let mut winners: WinnerMap = HashMap::new();
     for seat in 0..n {
-        if let Some(tok) = board.artifacts.get(&seat) {
-            if tok.team_override().is_some() {
-                if let Some((win_label, blocked)) = tok.check_independent_win(seat, &vctx) {
-                    winners.insert(seat, win_label);
-                    blocked_teams.extend(blocked.iter().copied());
+        for modifier in board.seat_endgame_modifiers(seat) {
+            match modifier.victory_claim(seat, &vctx) {
+                Some(SpecialVictory::ForceTeam { team, announcement })
+                    if forced_team_candidate.is_none() =>
+                {
+                    forced_team_candidate = Some((team, announcement));
                 }
-                continue;
+                Some(SpecialVictory::Independent { blocks })
+                    if board.effective_team(seat) == Team::Independent =>
+                {
+                    winners.insert(seat, modifier.modifier_name());
+                    blocked_teams.extend(blocks.iter().copied());
+                }
+                _ => {}
             }
-        }
-        let role = board.players[seat].effective_role();
-        match role.special_victory(seat, &vctx) {
-            Some(SpecialVictory::ForceTeam { team, announcement })
-                if forced_team_candidate.is_none()
-                    && board.effective_team(seat) == role.team() =>
-            {
-                forced_team_candidate = Some((team, announcement));
-            }
-            Some(SpecialVictory::Independent { blocks })
-                if board.effective_team(seat) == Team::Independent =>
-            {
-                winners.insert(seat, role.name());
-                blocked_teams.extend(blocks.iter().copied());
-            }
-            _ => {}
         }
     }
 
@@ -342,7 +322,7 @@ pub fn resolve_and_announce_winners(
     let minions_for = |team: Team| -> Vec<usize> {
         (0..n)
             .filter(|&i| {
-                board.effective_team(i) == team && board.players[i].effective_role().is_minion()
+                board.effective_team(i) == team && board.player_card(i).effective_role().is_minion()
             })
             .collect()
     };
@@ -410,48 +390,32 @@ pub fn resolve_and_announce_winners(
         }
     }
 
-    // 4c. `Mark::Traitor` override + individual win-forfeit penalties (`Diseased`, `Mark::Disease`, & `Artifact` conduct):
-    for seat in 0..n {
-        if !board.has_role_override_artifact(seat) && board.marks[seat] == Mark::Traitor {
-            let team = board.effective_team(seat);
-            if team != Team::Independent {
-                let teammates: Vec<usize> = (0..n)
-                    .filter(|&o| o != seat && board.effective_team(o) == team)
-                    .collect();
-                if !teammates.is_empty() {
-                    let traitor_won = !blocked_teams.contains(&team)
-                        && !dead.contains(&seat)
-                        && teammates.iter().any(|o| dead.contains(o));
-                    if traitor_won {
-                        winners.insert(seat, "Traitor");
-                    } else {
-                        winners.remove(&seat);
-                    }
-                }
+    // 4c. Win overrides (`Mark::Traitor`) followed by win-forfeit penalties (`Diseased`, `Mark::Disease`, `Artifact` conduct):
+    let mut forfeit_announcements = Vec::new();
+    {
+        let mut fctx = WinnerFilterCtx {
+            roster,
+            board: &board,
+            votes: &votes,
+            dead_seats: &dead,
+            blocked_teams: &blocked_teams,
+            casemap: room.casemap(),
+            day_channel_log,
+            announcements: &mut forfeit_announcements,
+        };
+        for seat in 0..n {
+            for modifier in board.seat_endgame_modifiers(seat) {
+                modifier.override_win(seat, &fctx, &mut winners);
+            }
+        }
+        for seat in 0..n {
+            for modifier in board.seat_endgame_modifiers(seat) {
+                modifier.apply_forfeits(seat, &mut fctx, &mut winners);
             }
         }
     }
-
-    let is_diseased_seat = |target: usize| -> bool {
-        board.marks[target] == Mark::Disease
-            || (!board.has_role_override_artifact(target)
-                && board.players[target].effective_role().id() == "diseased")
-    };
-    let casemap = room.casemap();
-    for seat in 0..n {
-        if let Some(voted) = votes[seat] {
-            if is_diseased_seat(voted) {
-                winners.remove(&seat);
-            }
-        }
-        if let Some(tok) = board.artifacts.get(&seat) {
-            if let Some(forfeit_msg) =
-                tok.check_day_conduct_forfeit(seat, roster, casemap, day_channel_log)
-            {
-                winners.remove(&seat);
-                room.say(forfeit_msg)?;
-            }
-        }
+    for msg in forfeit_announcements {
+        room.say(msg)?;
     }
 
     let mut sorted_winners: Vec<(usize, &'static str)> = winners.into_iter().collect();

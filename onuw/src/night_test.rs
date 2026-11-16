@@ -7,16 +7,19 @@ use crate::marks::Mark;
 use crate::night::{build_deck_schedule, NightTimings, TierPhase};
 use crate::role::{Role, Team};
 use crate::roles::{
-    alien::{alien::ALIEN, leader::LEADER},
+    alien::{
+        alien::ALIEN, blob::BLOB, cow::COW, leader::LEADER, mortician::MORTICIAN,
+    },
     base::{
         doppelganger::DOPPELGANGER, hunter::HUNTER, insomniac::INSOMNIAC, robber::ROBBER,
         seer::SEER, tanner::TANNER, villager::VILLAGER, werewolf::WEREWOLF,
     },
     daybreak::{
-        alpha_wolf::ALPHA_WOLF, aura_seer::AURA_SEER, prince::PRINCE, revealer::REVEALER,
-        sentinel::SENTINEL, witch::WITCH,
+        alpha_wolf::ALPHA_WOLF, aura_seer::AURA_SEER, curator::CURATOR, dream_wolf::DREAM_WOLF,
+        paranormal_investigator::PARANORMAL_INVESTIGATOR, prince::PRINCE, revealer::REVEALER,
+        sentinel::SENTINEL, village_idiot::VILLAGE_IDIOT, witch::WITCH,
     },
-    super_villains::temptress::TEMPTRESS,
+    super_villains::{evilometer::EVILOMETER, temptress::TEMPTRESS},
     vampire::{
         assassin::ASSASSIN, copycat::COPYCAT, count::COUNT, cupid::CUPID, gremlin::GREMLIN,
         pickpocket::PICKPOCKET, priest::PRIEST, thing::THING, vampire::VAMPIRE,
@@ -83,8 +86,12 @@ fn deck_schedule_is_purely_deck_derived_and_invariant_to_card_order() {
             (TierPhase::Dusk, "The Count".into(), 60, 80),
             (TierPhase::Night, "Sentinel".into(), 80, 100),
             (TierPhase::Night, "Werewolves".into(), 100, 120),
-            (TierPhase::Night, "Alpha Wolf, Seer".into(), 120, 140),
-            (TierPhase::Night, "Witch, Insomniac".into(), 140, 160),
+            (
+                TierPhase::Night,
+                "Alpha Wolf, Seer, Witch, Insomniac".into(),
+                120,
+                140,
+            ),
         ]
     );
 
@@ -153,22 +160,22 @@ async fn fast_vs_slow_or_timed_out_players_cannot_shift_any_downstream_prompt_or
         &[
             ("Alice", &DOPPELGANGER),
             ("Bob", &THING),
-            ("Carol", &ROBBER),
-            ("Dave", &WITCH),
+            ("Carol", &REVEALER),
+            ("Dave", &CURATOR),
         ],
-        [&WEREWOLF, &INSOMNIAC, &VILLAGER],
+        [&WEREWOLF, &INSOMNIAC, &ROBBER],
     )
     .await;
     let n_fast = h_fast.spawn_night();
-    h_fast.reply_dm("Alice", "Carol").await;
-    h_fast.reply_dm("Alice", "Dave").await;
+    h_fast.reply_dm("Alice", "Bob").await;
+    h_fast.reply_dm("Alice", "right").await;
     h_fast.reply_dm("Bob", "left").await;
     h_fast.reply_dm("Carol", "Bob").await;
     let dave_prompt_fast = h_fast.wait_for_new_dm("Dave").await;
-    assert!(dave_prompt_fast.contains("Witch"));
-    let witch_ts_fast = h_fast.timed_dms["Dave"]
+    assert!(dave_prompt_fast.contains("Curator"));
+    let curator_ts_fast = h_fast.timed_dms["Dave"]
         .iter()
-        .find(|(_, m)| m.contains("Witch:"))
+        .find(|(_, m)| m.contains("Curator:"))
         .unwrap()
         .0;
     h_fast.send_dm("Dave", "pass").await;
@@ -179,9 +186,9 @@ async fn fast_vs_slow_or_timed_out_players_cannot_shift_any_downstream_prompt_or
             ("Alice", &DOPPELGANGER),
             ("Bob", &THING),
             ("Carol", &VILLAGER),
-            ("Dave", &WITCH),
+            ("Dave", &CURATOR),
         ],
-        [&WEREWOLF, &INSOMNIAC, &ROBBER],
+        [&WEREWOLF, &INSOMNIAC, &REVEALER],
     )
     .await;
     let n_slow = h_slow.spawn_night();
@@ -194,15 +201,15 @@ async fn fast_vs_slow_or_timed_out_players_cannot_shift_any_downstream_prompt_or
     h_slow.send_dm("Bob", "left").await;
 
     let _ = h_slow.wait_for_new_dm("Dave").await;
-    let witch_ts_slow = h_slow.timed_dms["Dave"]
+    let curator_ts_slow = h_slow.timed_dms["Dave"]
         .iter()
-        .find(|(_, m)| m.contains("Witch:"))
+        .find(|(_, m)| m.contains("Curator:"))
         .unwrap()
         .0;
     let rep_slow = h_slow.finish_night(n_slow).await;
 
-    assert_eq!(witch_ts_fast, Duration::from_secs(13));
-    assert_eq!(witch_ts_slow, Duration::from_secs(13));
+    assert_eq!(curator_ts_fast, Duration::from_secs(13));
+    assert_eq!(curator_ts_slow, Duration::from_secs(13));
     assert_eq!(rep_fast.total_elapsed, Duration::from_secs(18));
     assert_eq!(rep_slow.total_elapsed, Duration::from_secs(18));
 }
@@ -349,7 +356,7 @@ async fn sentinel_omits_dusk_banner_aura_seer_precedes_gremlin_and_face_up_follo
     let dave_idx = h.seat_of("Dave");
     assert!(report.board.is_player_face_up(alice_idx));
     // Swapping cards carries `face_up` with the Card rather than leaving it stuck on `alice_idx`:
-    report.board.players.swap(alice_idx, dave_idx);
+    report.board.swap_players_for_test(alice_idx, dave_idx);
     assert!(!report.board.is_player_face_up(alice_idx));
     assert!(report.board.is_player_face_up(dave_idx));
 }
@@ -375,18 +382,16 @@ async fn role_override_artifacts_suppress_dawn_powers_and_override_dusk_marks() 
     // Alice (Prince) gets Claw of the Werewolf -> becomes Werewolf and loses Prince vote immunity!
     report
         .board
-        .artifacts
-        .insert(alice_idx, Artifact::ClawOfTheWerewolf);
+        .insert_artifact_for_test(alice_idx, Artifact::ClawOfTheWerewolf);
     // Bob (Hunter) gets Mark::Vampire in Dusk, then Brand of the Villager in Night -> Artifact overrides Mark, and Hunter loses on_death shot!
-    report.board.marks[bob_idx] = Mark::Vampire;
+    report.board.set_mark_for_test(bob_idx, Mark::Vampire);
     report
         .board
-        .artifacts
-        .insert(bob_idx, Artifact::BrandOfTheVillager);
+        .insert_artifact_for_test(bob_idx, Artifact::BrandOfTheVillager);
 
     assert_eq!(report.board.effective_team(bob_idx), Team::Village);
-    assert!(!report.board.is_vampire_threat(bob_idx));
-    assert!(report.board.is_wolf_threat(alice_idx));
+    assert!(!report.board.is_monster_threat_for(bob_idx, Team::Vampire));
+    assert!(report.board.is_monster_threat_for(alice_idx, Team::Werewolf));
 
     // Alice (Claw Prince) and Bob (Brand Hunter, voting Carol) tie with 2 votes each and BOTH die:
     // Alice is NOT immune as Prince, and Bob does NOT shoot Carol as Hunter!
@@ -420,8 +425,7 @@ async fn role_override_artifacts_suppress_dawn_powers_and_override_dusk_marks() 
     let mut rep2 = h2.finish_night(n2).await;
     let bob2 = h2.seat_of("Bob");
     rep2.board
-        .artifacts
-        .insert(bob2, Artifact::BrandOfTheVillager);
+        .insert_artifact_for_test(bob2, Artifact::BrandOfTheVillager);
     let dawn2 = h2
         .resolve_dawn(
             rep2,
@@ -455,7 +459,7 @@ async fn epic_battle_eliminates_runner_up_and_tanner_blocks_forced_team_victory(
     let mut report = h.finish_night(night).await;
     // Keep Alice pure Werewolf and Bob pure Vampire so each faction has 1 distinct monster:
     let alice_idx = h.seat_of("Alice");
-    report.board.marks[alice_idx] = Mark::Clarity;
+    report.board.set_mark_for_test(alice_idx, Mark::Clarity);
 
     let dawn = h
         .resolve_dawn(
@@ -549,4 +553,173 @@ async fn duplicate_witches_run_sequentially_and_alpha_wolf_and_rapscallion_extra
         rep_cross.effective_role_at(&h_cross.roster, "Dave"),
         "Henchman #7"
     );
+}
+
+#[test]
+fn artifact_chaos_merges_false_splits_and_curator_merges_without_revealer() {
+    let timings = NightTimings::default();
+
+    // 4-player Artifact Chaos (Daybreak):
+    // PI (`PLAYER_FACES -> PLAYER_BECAME`), Witch (`CENTER_FACES -> PLAYER_FACES | CENTER_FACES`),
+    // Village Idiot (`-> PLAYER_FACES`), Aura Seer (passive), and Revealer (`-> FACE_UP`)
+    // share Tier 3 concurrently without false splits, while Curator (`VISIBLE_TABLE`) splits into Tier 4
+    // so Curator sees any face-up card flipped by Revealer!
+    let artifact_chaos: Vec<&'static dyn Role> = vec![
+        &ALPHA_WOLF,
+        &WITCH,
+        &CURATOR,
+        &PARANORMAL_INVESTIGATOR,
+        &REVEALER,
+        &VILLAGE_IDIOT,
+        &AURA_SEER,
+    ];
+    let labels: Vec<String> = build_deck_schedule(&artifact_chaos, &timings)
+        .iter()
+        .map(crate::night::ScheduledTier::callout_label)
+        .collect();
+    assert_eq!(
+        labels,
+        vec![
+            "Werewolves",
+            "Alpha Wolf",
+            "Paranormal Investigator, Witch, Village Idiot, Aura Seer, Revealer",
+            "Curator",
+        ]
+    );
+
+    // Without Revealer, nothing mutates `VISIBLE_TABLE` before Curator, so Curator merges into Tier 3 (3 tiers total):
+    let without_revealer: Vec<&'static dyn Role> = vec![
+        &ALPHA_WOLF,
+        &WITCH,
+        &CURATOR,
+        &PARANORMAL_INVESTIGATOR,
+        &VILLAGER,
+        &VILLAGE_IDIOT,
+        &AURA_SEER,
+    ];
+    let labels_no_rev: Vec<String> = build_deck_schedule(&without_revealer, &timings)
+        .iter()
+        .map(crate::night::ScheduledTier::callout_label)
+        .collect();
+    assert_eq!(
+        labels_no_rev,
+        vec![
+            "Werewolves",
+            "Alpha Wolf",
+            "Paranormal Investigator, Witch, Village Idiot, Aura Seer, Curator",
+        ]
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn tabletop_visibility_omits_empty_dms_shows_markers_to_eyes_open_and_hides_from_eyes_closed_or_sleeping()
+{
+    // 1. When no shields, face-up cards, or artifacts are on the table, NEVER send an empty `On the table:` DM:
+    let mut h_empty = OnuwTestHarness::new(
+        &[
+            ("Alice", &WEREWOLF),
+            ("Bob", &SEER),
+            ("Carol", &INSOMNIAC),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_empty = h_empty.spawn_night();
+    h_empty.reply_dm("Alice", "pass").await;
+    h_empty.reply_dm("Bob", "pass").await;
+    let rep_empty = h_empty.finish_night(n_empty).await;
+    for nick in ["Alice", "Bob", "Carol"] {
+        let dms = rep_empty.dms_to(nick);
+        assert!(!dms.contains("On the table:"));
+        assert!(!dms.contains('🛡'));
+        assert!(!dms.contains('🔦'));
+        assert!(!dms.contains('🏺'));
+    }
+
+    // 2. Sentinel shields Bob (#0), Revealer flips Carol's Villager face-up (#10), Curator places Artifact on Alice (#11):
+    //    - Eyes-open roles (`Alien`, `Curator`, passive `Blob`, solo `Mortician`) see current tabletop markers.
+    //    - Sleeping (`Dream Wolf`) and eyes-closed (`Cow`, `Evilometer`) roles NEVER see tabletop markers!
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &SENTINEL),
+            ("Bob", &COW),
+            ("Carol", &VILLAGER),
+            ("Dave", &DREAM_WOLF),
+            ("Eve", &EVILOMETER),
+            ("Frank", &ALIEN),
+            ("Grace", &REVEALER),
+            ("Heidi", &CURATOR),
+            ("Ivan", &BLOB),
+            ("Judy", &MORTICIAN),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night = h.spawn_night();
+    // Tier 1 (#0): Sentinel Alice shields Bob:
+    h.reply_dm("Alice", "Bob").await;
+    // Tier 2: Alien Frank (#3), Cow Bob (#3A, eyes closed), Evilometer Eve (#3B, eyes closed), Revealer Grace (#10):
+    h.reply_dm("Frank", "pass").await;
+    h.reply_dm("Grace", "Carol").await;
+    // Tier 3 (#11): Curator Heidi places Artifact on Alice:
+    h.reply_dm("Heidi", "Alice").await;
+    // Tier 4 (#12..#13): Blob Ivan (passive eyes open) & Mortician Judy (solo eyes open):
+    h.reply_dm("Judy", "pass").await;
+
+    let report = h.finish_night(night).await;
+
+    // Sleeping Dream Wolf (Dave) and eyes-closed roles (Cow Bob, Evilometer Eve) NEVER see tabletop state:
+    for closed_nick in ["Bob", "Dave", "Eve"] {
+        let dms = Text::parse(&report.dms_to(closed_nick)).plain();
+        assert!(
+            !dms.contains("On the table:")
+                && !dms.contains('🛡')
+                && !dms.contains('🔦')
+                && !dms.contains('🏺'),
+            "{closed_nick} should not see tabletop state, got: {dms}"
+        );
+    }
+
+    // Alien Frank (#3, after Sentinel #0) sees `Bob🛡`:
+    let frank_dms = Text::parse(&report.dms_to("Frank")).plain();
+    assert!(frank_dms.contains("Bob🛡"), "Frank DMs: {frank_dms}");
+
+    // Curator Heidi (#11, after Sentinel #0 and Revealer #10) sees `Bob🛡` and `Carol [🔦 Villager]`:
+    let heidi_dms = Text::parse(&report.dms_to("Heidi")).plain();
+    assert!(heidi_dms.contains("Bob🛡"), "Heidi DMs: {heidi_dms}");
+    assert!(
+        heidi_dms.contains("Carol [🔦 Villager]"),
+        "Heidi DMs: {heidi_dms}"
+    );
+
+    // Blob Ivan (#12, passive eyes open) and Mortician Judy (#13, solo eyes open) see all three markers (`Alice🏺`, `Bob🛡`, `Carol [🔦 Villager]`):
+    for late_nick in ["Ivan", "Judy"] {
+        let dms = Text::parse(&report.dms_to(late_nick)).plain();
+        assert!(dms.contains("On the table:"), "{late_nick} DMs: {dms}");
+        assert!(dms.contains("Alice🏺"), "{late_nick} DMs: {dms}");
+        assert!(dms.contains("Bob🛡"), "{late_nick} DMs: {dms}");
+        assert!(
+            dms.contains("Carol [🔦 Villager]"),
+            "{late_nick} DMs: {dms}"
+        );
+    }
+}
+
+#[test]
+#[should_panic(expected = "Seer: undeclared write to PLAYER_FACES")]
+fn undeclared_board_write_panics_with_role_name() {
+    use crate::board::{BoardAccess, BoardCards, BoardMut, Card};
+
+    let mut board = BoardCards::new(
+        vec![Card::new(&SEER), Card::new(&VILLAGER), Card::new(&WEREWOLF)],
+        [Card::new(&VILLAGER), Card::new(&VILLAGER), Card::new(&VILLAGER)],
+    );
+    let mut bm = BoardMut::new(
+        &mut board,
+        "Seer",
+        BoardAccess::VISIBLE_TABLE,
+        BoardAccess::NONE,
+    );
+    let _ = bm.swap_players(0, 0, 1);
 }

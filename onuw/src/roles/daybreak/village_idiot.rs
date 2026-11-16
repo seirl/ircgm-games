@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct VillageIdiot;
 pub static VILLAGE_IDIOT: VillageIdiot = VillageIdiot;
@@ -24,21 +24,27 @@ impl Role for VillageIdiot {
         .aliases(&["vi", "idiot"])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(172, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).mutates())
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                WakeStep::solo(&VILLAGE_IDIOT, 172, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                    .immediate_copy()
+                    .writes(BoardAccess::PLAYER_FACES),
+            ]
+        }
     }
 }
 
 impl VillageIdiot {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let players_str = ctx.format_visible_players();
         let prompt = irc_format!(
-            "🤪 Village Idiot: Reply {} ({}), {} ({}), or {} to rotate all other unshielded cards! Players: {}",
+            "🤪 Village Idiot: Reply {} ({}), {} ({}), or {} to rotate all other unshielded cards! Players: {players_str}",
             "left".bold(),
             "-1".bold(),
             "right".bold(),
             "+1".bold(),
             "pass".bold(),
-            ctx.roster.format_players_marking_shields(ctx.shielded),
         );
         let ans = ctx
             .ask(prompt, |m| {
@@ -68,7 +74,7 @@ impl VillageIdiot {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<RotateDir>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let actor_nick = ctx.nick(seat);
@@ -80,28 +86,16 @@ impl VillageIdiot {
             return;
         };
 
-        let ring: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| i != seat && !board.is_shielded(i))
-            .collect();
-        if ring.len() >= 2 {
-            board.record_card_interaction(seat);
-            let snapshot: Vec<_> = ring.iter().map(|&i| board.players[i]).collect();
-            let k = ring.len();
-            for (pos, &dst_seat) in ring.iter().enumerate() {
-                let src_pos = match dir {
-                    RotateDir::Right => (pos + k - 1) % k,
-                    RotateDir::Left => (pos + 1) % k,
-                };
-                board.players[dst_seat] = snapshot[src_pos];
-            }
+        let rotate_right = matches!(dir, RotateDir::Right);
+        let moved = board.rotate_other_unshielded(seat, rotate_right);
+        if moved >= 2 {
             let dir_str = match dir {
                 RotateDir::Left => "left",
                 RotateDir::Right => "right",
             };
             ctx.record(irc_format!(
-                "🤪 {actor_label} ({}) rotated {} unshielded cards {dir_str}.",
+                "🤪 {actor_label} ({}) rotated {moved} unshielded cards {dir_str}.",
                 actor_nick.bold(),
-                ring.len(),
             ));
         }
     }

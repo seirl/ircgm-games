@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct RoleRetriever;
 pub static ROLE_RETRIEVER: RoleRetriever = RoleRetriever;
@@ -18,24 +18,31 @@ impl Role for RoleRetriever {
         .aliases(&["rr", "retriever"])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(162, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).mutates())
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                WakeStep::solo(&ROLE_RETRIEVER, 162, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                    .immediate_copy()
+                    .writes(BoardAccess::PLAYER_FACES),
+            ]
+        }
     }
 }
 
 impl RoleRetriever {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        if ctx.shielded.contains(&seat) {
+        if ctx.is_shielded(seat) {
             ctx.say("🛡️ Your own card has a Shield token — you cannot swap it tonight!");
             return Ok(SeatEffect::noop());
         }
 
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let roster = ctx.roster;
+        let view = ctx.view();
+        let players_str = ctx.format_visible_players();
         let prompt = irc_format!(
-            "🐕 Role Retriever: Reply {} to swap cards with another player and see your new card, or {}. Players: {}",
+            "🐕 Role Retriever: Reply {} to swap cards with another player and see your new card, or {}. Players: {players_str}",
             "<nick>".bold(),
             "pass".bold(),
-            roster.format_players_marking_shields(shielded),
         );
         let ans = ctx
             .ask(prompt, move |m| {
@@ -46,7 +53,7 @@ impl RoleRetriever {
                     Some(idx) if idx == seat => {
                         AskMatch::reject("Pick ANOTHER player (or pass)!".yellow())
                     }
-                    Some(idx) if shielded.contains(&idx) => {
+                    Some(idx) if view.is_shielded(idx) => {
                         AskMatch::reject("🛡️ Shielded players cannot be swapped!".yellow())
                     }
                     Some(idx) => AskMatch::accept_say(
@@ -70,17 +77,13 @@ impl RoleRetriever {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            if board.is_shielded(seat) || board.is_shielded(target) {
+            let Some((victim_new, actor_new)) = board.swap_players(seat, seat, target) else {
                 return;
-            }
-            board.record_card_interaction(seat);
-            board.players.swap(seat, target);
-            let actor_new = board.players[seat];
-            let victim_new = board.players[target];
+            };
             let victim_nick = ctx.nick(target);
 
             ctx.dm(

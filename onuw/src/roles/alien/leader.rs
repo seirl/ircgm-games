@@ -1,10 +1,10 @@
 use ircgm::prelude::*;
 
-use super::groob_zerb::{GROOB, ZERB};
-use crate::marks::Mark;
+use super::groob_zerb::{both_groob_and_zerb_in_play, GROOB, ZERB};
+use crate::board::BoardCards;
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, RoleTag, SpecialVictory, Team,
-    VictoryCtx, Wake,
+    EffectiveAlignment, GameSet, GroupEffect, GroupPromptCtx, NightFaction, Role, RoleInfo,
+    SpecialVictory, Team, VictoryCtx, WakeStep,
 };
 
 pub struct Leader;
@@ -21,26 +21,38 @@ impl Role for Leader {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(135, |seats, ctx| {
-            Box::pin(Self::wake_group(seats, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::group(&LEADER, 135, |seats, ctx| {
+                Box::pin(Self::wake_group(seats, ctx))
+            })]
+        }
+    }
+
+    fn adjust_alignment(
+        &self,
+        _seat: usize,
+        board: &BoardCards,
+        mut cur: EffectiveAlignment,
+    ) -> EffectiveAlignment {
+        if both_groob_and_zerb_in_play(board) {
+            cur.team = Team::Independent;
+        }
+        cur
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        if ctx.board.both_groob_and_zerb_in_play() {
-            let gz_survive = (0..ctx.roster.len())
-                .filter(|&i| {
-                    !ctx.board.has_role_override_artifact(i)
-                        && ctx.board.marks[i] != Mark::Vampire
-                        && matches!(ctx.board.players[i].effective_role().id(), "groob" | "zerb")
-                })
+        if both_groob_and_zerb_in_play(ctx.board) {
+            let gz_survive = ctx
+                .active_holders(&GROOB)
+                .into_iter()
+                .chain(ctx.active_holders(&ZERB))
                 .all(|i| !ctx.is_dead(i));
             return gz_survive.then_some(SpecialVictory::independent());
         }
 
         let alien_threats: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| ctx.board.is_alien_threat(i))
+            .filter(|&i| ctx.board.is_monster_threat_for(i, Team::Alien))
             .collect();
 
         if !alien_threats.is_empty() && alien_threats.iter().all(|&a| ctx.votes[a] == Some(seat)) {
@@ -61,7 +73,7 @@ impl Role for Leader {
 
 impl Leader {
     async fn wake_group(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let aliens = ctx.seats_with_tag(RoleTag::AlienPack);
+        let aliens = ctx.seats_with_faction(NightFaction::Alien);
         let groobs = ctx.seats_with_role(&GROOB);
         let zerbs = ctx.seats_with_role(&ZERB);
         let mut gz_seats = Vec::new();

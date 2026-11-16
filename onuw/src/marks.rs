@@ -1,6 +1,15 @@
-//! Vampire expansion **Mark** tokens (`Mark::Clarity`, `Mark::Vampire`, `Mark::Bat`, etc.).
+//! Vampire expansion **Mark** tokens (`Mark::Clarity`, `Mark::Vampire`, `Mark::Bat`, etc.),
+//! Dusk-end inspection / `Fear` / `Lovers` boundary logic, and [`EndgameModifier`] hooks.
+
+use std::collections::HashSet;
 
 use ircgm::prelude::*;
+
+use crate::board::{BoardCards, Roster};
+use crate::role::{
+    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, Phase, Role, Team,
+    WinnerFilterCtx, WinnerMap,
+};
 
 /// Vampire expansion Marks (every player starts Dusk with `Mark::Clarity`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -37,6 +46,159 @@ impl Mark {
             }
             Mark::Love => self.name().bold().yellow().into(),
             Mark::Bat | Mark::Clarity => self.name().bold().light_cyan().into(),
+        }
+    }
+
+    /// Runs the `00` Dusk -> Night boundary: notifies players of their Dusk `Mark`, records
+    /// `Mark::Fear` paralysis for Night wakers, and wakes `Mark::Love` Lovers to recognize each other.
+    pub(crate) fn finalize_dusk_boundary(
+        roster: &Roster,
+        waking_roles: &[&'static dyn Role],
+        acted_immediately: &HashSet<usize>,
+        board: &BoardCards,
+        feared_seats: &mut HashSet<usize>,
+        chronicle: &mut Vec<Text>,
+    ) {
+        let marks_in_play =
+            roster.deck_has_marks() || board.marks().iter().any(|&m| m != Mark::Clarity);
+
+        let mut feared_vec: Vec<usize> = (0..roster.len())
+            .filter(|&s| board.mark(s) == Mark::Fear)
+            .collect();
+        feared_vec.sort_unstable();
+        *feared_seats = feared_vec.iter().copied().collect();
+
+        if marks_in_play {
+            for s in 0..roster.len() {
+                let mark = board.mark(s);
+                if mark == Mark::Fear {
+                    let _ = roster.seats[s].user.say(irc_format!(
+                        "😱 Dusk ends — your Mark is {}! You received the {} during Dusk and are too terrified to wake up tonight!",
+                        Mark::Fear.styled(),
+                        Mark::Fear.styled(),
+                    ));
+                } else {
+                    let _ = roster.seats[s].user.say(irc_format!(
+                        "🔖 Dusk ends — you check your Mark: {}.",
+                        mark.styled(),
+                    ));
+                }
+            }
+        }
+
+        for &s in &feared_vec {
+            if !marks_in_play {
+                let _ = roster.seats[s].user.say(irc_format!(
+                    "😱 You received the {} during Dusk and are too terrified to wake up tonight!",
+                    Mark::Fear.styled(),
+                ));
+            }
+            let r = waking_roles[s];
+            let wakes_in_night = !acted_immediately.contains(&s)
+                && r.steps()
+                    .iter()
+                    .any(|st| st.phase == Phase::Night && st.order >= 100);
+            if wakes_in_night {
+                chronicle.push(irc_format!(
+                    "😱 {} was paralyzed by the {} and could not wake up during Night!",
+                    roster.seats[s].user.nick().bold(),
+                    Mark::Fear.styled(),
+                ));
+            }
+        }
+
+        // `00: Lovers` — players holding `Mark::Love` wake at the end of Dusk to recognize each other:
+        let lovers: Vec<usize> = (0..roster.len())
+            .filter(|&s| board.mark(s) == Mark::Love)
+            .collect();
+        if lovers.len() >= 2 {
+            for &s in &lovers {
+                let partners: Vec<usize> = lovers.iter().copied().filter(|&o| o != s).collect();
+                let _ = roster.seats[s].user.say(irc_format!(
+                    "💘 Lovers wake: Your Lover is {} — keep each other alive!",
+                    roster.format_indices(&partners).bold().magenta(),
+                ));
+            }
+            chronicle.push(irc_format!(
+                "💘 Lovers ({}) woke at the end of Dusk and recognized each other.",
+                roster.format_indices(&lovers).bold().magenta(),
+            ));
+        }
+    }
+}
+
+impl EndgameModifier for Mark {
+    fn modifier_name(&self) -> &'static str {
+        self.name()
+    }
+
+    fn adjust_alignment(
+        &self,
+        _seat: usize,
+        _board: &BoardCards,
+        cur: EffectiveAlignment,
+    ) -> EffectiveAlignment {
+        if *self == Mark::Vampire {
+            EffectiveAlignment {
+                team: Team::Vampire,
+                threat_team: Some(Team::Vampire),
+            }
+        } else {
+            cur
+        }
+    }
+
+    fn on_death(&self, dead_seat: usize, ctx: &DeathCtx<'_>) -> Vec<DeathEffect> {
+        if *self != Mark::Love {
+            return Vec::new();
+        }
+        (0..ctx.roster.len())
+            .filter(|&other| other != dead_seat && ctx.board.mark(other) == Mark::Love)
+            .map(|other| DeathEffect::Kill {
+                seat: other,
+                respects_protection: false,
+                announcement: irc_format!(
+                    "💔 {} died of heartbreak alongside their Lover!",
+                    ctx.roster.seats[other].user.nick().bold().red(),
+                ),
+            })
+            .collect()
+    }
+
+    fn override_win(&self, holder: usize, ctx: &WinnerFilterCtx<'_>, winners: &mut WinnerMap) {
+        if *self != Mark::Traitor || ctx.board.has_role_override_artifact(holder) {
+            return;
+        }
+        let team = ctx.board.effective_team(holder);
+        if team != Team::Independent {
+            let teammates: Vec<usize> = (0..ctx.roster.len())
+                .filter(|&o| o != holder && ctx.board.effective_team(o) == team)
+                .collect();
+            if !teammates.is_empty() {
+                let traitor_won = !ctx.blocked_teams.contains(&team)
+                    && !ctx.dead_seats.contains(&holder)
+                    && teammates.iter().any(|o| ctx.dead_seats.contains(o));
+                if traitor_won {
+                    winners.insert(holder, "Traitor");
+                } else {
+                    winners.remove(&holder);
+                }
+            }
+        }
+    }
+
+    fn apply_forfeits(
+        &self,
+        holder: usize,
+        ctx: &mut WinnerFilterCtx<'_>,
+        winners: &mut WinnerMap,
+    ) {
+        if *self == Mark::Disease {
+            for voter in 0..ctx.roster.len() {
+                if ctx.votes[voter] == Some(holder) {
+                    winners.remove(&voter);
+                }
+            }
         }
     }
 }

@@ -1,8 +1,24 @@
 use ircgm::prelude::*;
 
 use super::psychic::PSYCHIC;
-use crate::board::OracleOmen;
-use crate::role::{GameSet, PromptCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardKey};
+use crate::role::{GameSet, PromptCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum OracleOmen {
+    #[default]
+    Normal,
+    AmplifiedSignals,
+    QuantumStatic,
+}
+
+impl BoardKey for OracleOmen {
+    const ACCESS: u16 = BoardAccess::CUSTOM_0;
+
+    fn init() -> Self {
+        Self::Normal
+    }
+}
 
 pub struct Oracle;
 pub static ORACLE: Oracle = Oracle;
@@ -14,16 +30,15 @@ impl Role for Oracle {
             "Oracle",
             GameSet::Alien,
             Team::Village,
-            "Answer a Mother-Ship question at the start of Dusk/Night that alters cosmic visions and Alien-set powers!",
+            "Answer a Mother-Ship question at the start of Dusk/Night that alters cosmic frequencies and Alien-set powers!",
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(1, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
-                .mutates()
-                .follow_on_copy(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&ORACLE, 1, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .writes(OracleOmen::ACCESS | BoardAccess::CENTER_FACES)]
+        }
     }
 }
 
@@ -68,7 +83,7 @@ impl Oracle {
                     (o, true)
                 }
             };
-            board.oracle_omen = omen;
+            board.set_key(omen);
             if timed_out {
                 rctx.dm(
                     seat,
@@ -89,8 +104,7 @@ impl Oracle {
             } else {
                 match omen {
                     OracleOmen::AmplifiedSignals => {
-                        board.record_card_interaction(seat);
-                        let seen = board.center[0];
+                        let seen = board.peek_center(seat, 0);
                         rctx.dm(
                             seat,
                             irc_format!(
@@ -106,8 +120,7 @@ impl Oracle {
                         ));
                     }
                     OracleOmen::QuantumStatic => {
-                        board.record_card_interaction(seat);
-                        board.center.swap(0, 2);
+                        board.swap_centers(seat, 0, 2);
                         rctx.dm(
                             seat,
                             "🔮🛸 Quantum Static scrambled the cosmos — Center #1 and Center #3 swapped places!",
@@ -119,9 +132,7 @@ impl Oracle {
                         ));
                     }
                     OracleOmen::Normal => {
-                        if !board.is_shielded(seat) {
-                            board.record_card_interaction(seat);
-                            let seen = board.players[seat];
+                        if let Some(seen) = board.peek_player(seat, seat) {
                             rctx.dm(
                                 seat,
                                 irc_format!(

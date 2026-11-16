@@ -1,13 +1,19 @@
 use ircgm::prelude::*;
 
 use super::evilometer::EVILOMETER;
-use crate::board::BoardCards;
+use crate::board::BoardMut;
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, Team, Wake,
+    GameSet, GroupEffect, GroupPromptCtx, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep,
 };
 
 pub struct Henchman;
 pub static HENCHMAN: Henchman = Henchman;
+
+pub(crate) const VILLAIN_PACK_STEP: WakeStep = WakeStep::pack(
+    NightFaction::SuperVillain,
+    124,
+    |seats, ctx| Box::pin(Henchman::huddle(seats, ctx)),
+);
 
 impl Role for Henchman {
     fn info(&self) -> RoleInfo {
@@ -19,13 +25,11 @@ impl Role for Henchman {
             "Wake with the Super Villains to recognize fellow Super Villains and spot the Evilometer!",
         )
         .aliases(&["henchman", "henchman7", "henchman #7"])
-        .tags(&[RoleTag::VillainPack])
+        .night_faction(NightFaction::SuperVillain)
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::pack(124, RoleTag::VillainPack, |seats, ctx| {
-            Box::pin(Self::huddle(seats, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[VILLAIN_PACK_STEP] }
     }
 }
 
@@ -75,7 +79,7 @@ impl Henchman {
         }))
     }
 
-    fn resolve(active_seats: &[usize], _board: &mut BoardCards, ctx: &mut ResolveCtx<'_>) {
+    fn resolve(active_seats: &[usize], _board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
         if active_seats.len() >= 2 {
             let names = ctx.roster.format_indices(active_seats);
             ctx.record(irc_format!(

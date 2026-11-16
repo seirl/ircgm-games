@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::BoardCards;
-use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, Team, Wake};
+use crate::board::BoardMut;
+use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, Team, WakeStep};
 
 pub struct AuraSeer;
 pub static AURA_SEER: AuraSeer = AuraSeer;
@@ -18,25 +18,14 @@ impl Role for AuraSeer {
         .aliases(&["aura"])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(174, Self::inspect))
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[WakeStep::passive(&AURA_SEER, 174, Self::inspect)] }
     }
 }
 
 impl AuraSeer {
-    fn inspect(
-        seat: usize,
-        actor_label: &str,
-        board: &mut BoardCards,
-        ctx: &mut ResolveCtx<'_>,
-    ) {
-        let mut active: Vec<usize> = board
-            .viewed_or_moved_actors
-            .iter()
-            .copied()
-            .filter(|&s| s != seat)
-            .collect();
-        active.sort_unstable();
+    fn inspect(seat: usize, actor_label: &str, board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
+        let active = board.aura_actors_excluding(seat);
 
         let actor_nick = ctx.nick(seat);
         if active.is_empty() {

@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::BoardCards;
-use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, Team, Wake};
+use crate::board::BoardMut;
+use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, Team, WakeStep};
 
 pub struct Insomniac;
 pub static INSOMNIAC: Insomniac = Insomniac;
@@ -17,19 +17,14 @@ impl Role for Insomniac {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(190, Self::inspect))
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[WakeStep::passive(&INSOMNIAC, 190, Self::inspect)] }
     }
 }
 
 impl Insomniac {
-    fn inspect(
-        seat: usize,
-        actor_label: &str,
-        board: &mut BoardCards,
-        ctx: &mut ResolveCtx<'_>,
-    ) {
-        if board.is_shielded(seat) {
+    fn inspect(seat: usize, actor_label: &str, board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
+        let Some(seen) = board.peek_player(seat, seat) else {
             ctx.dm(
                 seat,
                 format!(
@@ -37,9 +32,7 @@ impl Insomniac {
                 ),
             );
             return;
-        }
-        board.record_card_interaction(seat);
-        let seen = board.players[seat];
+        };
         ctx.dm(
             seat,
             irc_format!(

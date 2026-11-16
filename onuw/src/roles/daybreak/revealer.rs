@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Revealer;
 pub static REVEALER: Revealer = Revealer;
@@ -24,41 +24,40 @@ impl Role for Revealer {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(192, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
-                .mutates()
-                .follow_on_copy(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&REVEALER, 192, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .writes(BoardAccess::FACE_UP)]
+        }
     }
 }
 
 impl Revealer {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let players_str = ctx.format_visible_players();
+        let view = ctx.view();
         let prompt = irc_format!(
-            "🔦 Revealer: Reply {} to flip their card, or {}. Players: {}",
+            "🔦 Revealer: Reply {} to flip their card, or {}. Players: {players_str}",
             "<nick>".bold(),
             "pass".bold(),
-            roster.format_players_marking_shields(shielded),
         );
         let ans = ctx
             .ask(prompt, move |m| {
                 if Roster::is_pass(&m.text) {
                     return AskMatch::accept_say(None, "🔦 Passed — left all cards face down.");
                 }
-                match roster.resolve_nick(&m.text) {
+                match view.resolve_nick(&m.text) {
                     Some(idx) if idx == seat => {
                         AskMatch::reject("Pick ANOTHER player, not yourself!".yellow())
                     }
-                    Some(idx) if shielded.contains(&idx) => {
+                    Some(idx) if view.is_shielded(idx) => {
                         AskMatch::reject("🛡️ Shielded cards cannot be flipped!".yellow())
                     }
                     Some(idx) => AskMatch::accept_say(
                         Some(idx),
                         irc_format!(
                             "🔦 Locked in flipping {}'s card — reveals when the phase ends!",
-                            roster.seats[idx].user.nick().bold(),
+                            view.roster.seats[idx].user.nick().bold(),
                         ),
                     ),
                     None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
@@ -75,19 +74,16 @@ impl Revealer {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            if board.is_shielded(target) {
+            let Some((card, stayed_face_up)) = board.reveal_player_if_village(seat, target) else {
                 return;
-            }
-            board.record_card_interaction(seat);
-            let card = board.players[target];
-            let face_role = card.face_role();
+            };
             let actor_nick = ctx.nick(seat);
             let target_nick = ctx.nick(target);
-            if face_role.triggers_pi_and_revealer() {
+            if !stayed_face_up {
                 ctx.dm(
                     seat,
                     irc_format!(
@@ -103,7 +99,6 @@ impl Revealer {
                     card.display_for_peek(),
                 ));
             } else {
-                board.flip_player_face_up(target);
                 ctx.dm(
                     seat,
                     irc_format!(

@@ -1,9 +1,10 @@
 use ircgm::prelude::*;
 
-use crate::marks::Mark;
+use super::alien::ALIEN_PACK_STEP;
+use crate::board::BoardCards;
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, RoleTag, SpecialVictory, Team,
-    VictoryCtx, Wake,
+    EffectiveAlignment, GameSet, GroupEffect, GroupPromptCtx, NightFaction, Role, RoleInfo,
+    SpecialVictory, Team, VictoryCtx, WakeStep,
 };
 
 pub struct Groob;
@@ -12,14 +13,8 @@ pub static GROOB: Groob = Groob;
 pub struct Zerb;
 pub static ZERB: Zerb = Zerb;
 
-fn effective_seats_for(ctx: &VictoryCtx<'_>, role_id: &str) -> Vec<usize> {
-    (0..ctx.roster.len())
-        .filter(|&i| {
-            !ctx.board.has_role_override_artifact(i)
-                && ctx.board.marks[i] != Mark::Vampire
-                && ctx.board.players[i].effective_role().id() == role_id
-        })
-        .collect()
+pub(super) fn both_groob_and_zerb_in_play(board: &BoardCards) -> bool {
+    !board.active_holders(&GROOB).is_empty() && !board.active_holders(&ZERB).is_empty()
 }
 
 impl Role for Groob {
@@ -31,21 +26,42 @@ impl Role for Groob {
             Team::Independent,
             "Rival Alien: wake with the Aliens; if Zerb is in play, win ONLY if you survive and Zerb dies (otherwise win with the Aliens)!",
         )
-        .tags(&[RoleTag::AlienPack])
+        .night_faction(NightFaction::Alien)
+        .threat_team(Team::Alien)
+        .anarchy_bundle("groob_zerb")
+        .non_village_labels(&["Alien"])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(114, |seats, ctx| {
-            Box::pin(Self::wake_group(seats, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                ALIEN_PACK_STEP,
+                WakeStep::group(&GROOB, 114, |seats, ctx| {
+                    Box::pin(Self::wake_group(seats, ctx))
+                }),
+            ]
+        }
+    }
+
+    fn adjust_alignment(
+        &self,
+        _seat: usize,
+        board: &BoardCards,
+        mut cur: EffectiveAlignment,
+    ) -> EffectiveAlignment {
+        cur.team = if both_groob_and_zerb_in_play(board) {
+            Team::Independent
+        } else {
+            Team::Alien
+        };
+        cur
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        if !ctx.board.both_groob_and_zerb_in_play() || ctx.is_dead(seat) {
+        if !both_groob_and_zerb_in_play(ctx.board) || ctx.is_dead(seat) {
             return None;
         }
-        let zerbs = effective_seats_for(ctx, "zerb");
-        zerbs
+        ctx.active_holders(&ZERB)
             .into_iter()
             .any(|z| ctx.is_dead(z))
             .then_some(SpecialVictory::independent())
@@ -97,21 +113,42 @@ impl Role for Zerb {
             Team::Independent,
             "Rival Alien: wake with the Aliens; if Groob is in play, win ONLY if you survive and Groob dies (otherwise win with the Aliens)!",
         )
-        .tags(&[RoleTag::AlienPack])
+        .night_faction(NightFaction::Alien)
+        .threat_team(Team::Alien)
+        .anarchy_bundle("groob_zerb")
+        .non_village_labels(&["Alien"])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(115, |seats, ctx| {
-            Box::pin(Self::wake_group(seats, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                ALIEN_PACK_STEP,
+                WakeStep::group(&ZERB, 115, |seats, ctx| {
+                    Box::pin(Self::wake_group(seats, ctx))
+                }),
+            ]
+        }
+    }
+
+    fn adjust_alignment(
+        &self,
+        _seat: usize,
+        board: &BoardCards,
+        mut cur: EffectiveAlignment,
+    ) -> EffectiveAlignment {
+        cur.team = if both_groob_and_zerb_in_play(board) {
+            Team::Independent
+        } else {
+            Team::Alien
+        };
+        cur
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        if !ctx.board.both_groob_and_zerb_in_play() || ctx.is_dead(seat) {
+        if !both_groob_and_zerb_in_play(ctx.board) || ctx.is_dead(seat) {
             return None;
         }
-        let groobs = effective_seats_for(ctx, "groob");
-        groobs
+        ctx.active_holders(&GROOB)
             .into_iter()
             .any(|g| ctx.is_dead(g))
             .then_some(SpecialVictory::independent())

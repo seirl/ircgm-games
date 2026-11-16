@@ -22,7 +22,7 @@ pub mod scenarios;
 pub mod testing;
 
 pub use artifacts::{Artifact, DayConductTracker};
-pub use board::{BoardCards, Card, OracleOmen, Roster, SeatInfo};
+pub use board::{BoardAccess, BoardCards, BoardKey, BoardMut, Card, Roster, SeatInfo};
 pub use dawn::{resolve_and_announce_winners, GameReveal};
 pub use day::{run_day_phase, run_voting_phase};
 pub use deck::{DeckBase, DeckSpec};
@@ -36,8 +36,8 @@ pub use night::{
     build_deck_schedule, run_night_phase, NightTimings, ScheduledTier, TierKind, TierPhase,
 };
 pub use role::{
-    DeathEffect, GameSet, GroupEffect, Phase, Role, RoleInfo, RoleTag, SeatEffect, SpecialVictory,
-    Team, Wake, WakeKind,
+    CopyTiming, DeathEffect, EffectiveAlignment, EndgameModifier, GameSet, GroupEffect,
+    NightFaction, Phase, Role, RoleInfo, SeatEffect, SpecialVictory, Team, WakeStep,
 };
 pub use roles::{find_role, ALL_ROLES};
 pub use scenarios::{

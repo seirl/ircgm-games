@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Pickpocket;
 pub static PICKPOCKET: Pickpocket = Pickpocket;
@@ -26,23 +26,22 @@ impl Role for Pickpocket {
         }
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(166, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
-                .mutates()
-                .follow_on_copy(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&PICKPOCKET, 166, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .writes(BoardAccess::MARKS)]
+        }
     }
 }
 
 impl Pickpocket {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let roster = ctx.roster;
+        let players_str = ctx.format_visible_players();
         let prompt = irc_format!(
-            "🤏 Pickpocket: Reply {} to swap Marks and view your new Mark, or {}. Players: {}",
+            "🤏 Pickpocket: Reply {} to swap Marks and view your new Mark, or {}. Players: {players_str}",
             "<nick>".bold(),
             "pass".bold(),
-            roster.format_players(),
         );
         let ans = ctx
             .ask(prompt, move |m| {
@@ -72,13 +71,11 @@ impl Pickpocket {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            let old_self_mark = board.marks[seat];
-            board.marks.swap(seat, target);
-            let new_mark = board.marks[seat];
+            let (old_self_mark, new_mark) = board.swap_marks(seat, target);
             let target_nick = ctx.nick(target);
             ctx.dm(
                 seat,

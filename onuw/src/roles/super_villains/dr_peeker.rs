@@ -1,8 +1,9 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use super::henchman::VILLAIN_PACK_STEP;
+use crate::board::{BoardMut, Roster};
 use crate::role::{
-    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
 
 pub struct DrPeeker;
@@ -18,30 +19,36 @@ impl Role for DrPeeker {
             "Wake with the Super Villains, then may inspect 1 other player's card!",
         )
         .aliases(&["peeker", "drpeeker"])
-        .tags(&[RoleTag::VillainPack])
+        .night_faction(NightFaction::SuperVillain)
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(126, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).follow_on_copy())
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                VILLAIN_PACK_STEP,
+                WakeStep::solo(&DR_PEEKER, 126, |s, ctx| Box::pin(Self::prompt(s, ctx))),
+            ]
+        }
     }
 }
 
 impl DrPeeker {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let valid_targets: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| i != seat && !ctx.shielded.contains(&i))
+        let roster = ctx.roster;
+        let view = ctx.view();
+        let valid_targets: Vec<usize> = (0..roster.len())
+            .filter(|&i| i != seat && !view.is_shielded(i))
             .collect();
 
         if valid_targets.is_empty() {
             return Ok(SeatEffect::noop());
         }
 
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let players_str = ctx.format_visible_players();
         let prompt = irc_format!(
-            "🔬 Dr. Peeker: Reply {} to X-ray another player's card, or {}. Players: {}",
+            "🔬 Dr. Peeker: Reply {} to X-ray another player's card, or {}. Players: {players_str}",
             "<nick>".bold(),
             "pass".bold(),
-            roster.format_players_marking_shields(shielded),
         );
         let ans = ctx
             .ask(prompt, move |m| {
@@ -59,7 +66,7 @@ impl DrPeeker {
                     Some(idx) if idx == seat => {
                         AskMatch::reject("Pick ANOTHER player (or pass)!".yellow())
                     }
-                    Some(idx) if shielded.contains(&idx) => {
+                    Some(idx) if view.is_shielded(idx) => {
                         AskMatch::reject("🛡️ That player is shielded!".yellow())
                     }
                     Some(_) => AskMatch::reject("Pick another player!".yellow()),
@@ -77,15 +84,13 @@ impl DrPeeker {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            if board.is_shielded(target) {
+            let Some(seen) = board.peek_player(seat, target) else {
                 return;
-            }
-            board.record_card_interaction(seat);
-            let seen = board.players[target];
+            };
             let target_nick = ctx.nick(target);
             ctx.dm(
                 seat,

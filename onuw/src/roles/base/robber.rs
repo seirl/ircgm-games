@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Robber;
 pub static ROBBER: Robber = Robber;
@@ -17,14 +17,18 @@ impl Role for Robber {
         )
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(160, |seat, ctx| Box::pin(Self::prompt(seat, ctx))).mutates())
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&ROBBER, 160, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .immediate_copy()
+                .writes(BoardAccess::PLAYER_FACES)]
+        }
     }
 }
 
 impl Robber {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        if ctx.shielded.contains(&seat) {
+        if ctx.is_shielded(seat) {
             ctx.say(
                 "🛡️ Robber: Your own card has a Shield token — you cannot swap it tonight!"
                     .yellow(),
@@ -36,30 +40,30 @@ impl Robber {
                 ));
             }));
         }
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let players_str = ctx.format_visible_players();
+        let view = ctx.view();
         let prompt = irc_format!(
-            "🦹 Robber: Reply with {} to steal their card, or {}. Players: {}",
+            "🦹 Robber: Reply with {} to steal their card, or {}. Players: {players_str}",
             "<nick>".bold(),
             "pass".bold(),
-            roster.format_players_marking_shields(shielded),
         );
         let ans = ctx
             .ask(prompt, move |m| {
                 if Roster::is_pass(&m.text) {
                     return AskMatch::accept_say(None, "🦹 Passed — not robbing anyone.");
                 }
-                match roster.resolve_nick(&m.text) {
+                match view.resolve_nick(&m.text) {
                     Some(idx) if idx == seat => {
                         AskMatch::reject("Pick ANOTHER player (or pass), not yourself!".yellow())
                     }
-                    Some(idx) if shielded.contains(&idx) => AskMatch::reject(
+                    Some(idx) if view.is_shielded(idx) => AskMatch::reject(
                         "🛡️ That player's card is shielded by the Sentinel!".yellow(),
                     ),
                     Some(idx) => AskMatch::accept_say(
                         Some(idx),
                         irc_format!(
                             "🦹 Locked in robbing {} — new card reveals when the phase ends!",
-                            roster.seats[idx].user.nick().bold(),
+                            view.roster.seats[idx].user.nick().bold(),
                         ),
                     ),
                     None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
@@ -76,19 +80,15 @@ impl Robber {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let actor_nick = ctx.nick(seat);
         if let Answer::Ok(Some(target_seat)) = ans {
-            if board.is_shielded(target_seat) || board.is_shielded(seat) {
+            let Some((given, stolen)) = board.swap_players(seat, seat, target_seat) else {
                 ctx.dm(seat, "🛡️ Robber swap blocked by a Sentinel shield!".yellow());
                 return;
-            }
-            board.record_card_interaction(seat);
-            board.players.swap(seat, target_seat);
-            let stolen = board.players[seat];
-            let given = board.players[target_seat];
+            };
             let victim_nick = ctx.nick(target_seat);
             ctx.dm(
                 seat,

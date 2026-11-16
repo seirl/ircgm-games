@@ -1,8 +1,8 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardAccess, BoardMut, Roster};
 use crate::marks::Mark;
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Priest;
 pub static PRIEST: Priest = Priest;
@@ -27,30 +27,30 @@ impl Role for Priest {
         }
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(40, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&PRIEST, 40, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
-                .mutates(),
-        )
+                .writes(BoardAccess::MARKS)]
+        }
     }
 }
 
 impl Priest {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let roster = ctx.roster;
+        let players_str = ctx.format_visible_players();
         let prompt = irc_format!(
-            "✝️ Priest: You cleanse yourself; reply {} to ALSO cleanse another player with Mark of Clarity, or {}. Players: {}",
+            "✝️ Priest: You cleanse yourself; reply {} to ALSO cleanse another player with Mark of Clarity, or {}. Players: {players_str}",
             "<nick>".bold(),
             "pass".bold(),
-            roster.format_players(),
         );
         let ans = ctx
             .ask(prompt, move |m| {
                 if Roster::is_pass(&m.text) {
                     return AskMatch::accept_say(
                         None,
-                        irc_format!("✝️ Cleansed yourself with the {}!", Mark::Clarity.styled(),),
+                        irc_format!("✝️ Cleansed yourself with the {}!", Mark::Clarity.styled()),
                     );
                 }
                 match roster.resolve_nick(&m.text) {
@@ -80,13 +80,13 @@ impl Priest {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        board.marks[seat] = Mark::Clarity;
+        board.set_mark(seat, Mark::Clarity);
         let actor_nick = ctx.nick(seat);
         if let Answer::Ok(Some(other)) = ans {
-            board.marks[other] = Mark::Clarity;
+            board.set_mark(other, Mark::Clarity);
             ctx.record(irc_format!(
                 "✝️ {actor_label} ({}) cleansed self and {} with {}.",
                 actor_nick.bold(),

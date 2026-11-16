@@ -1,12 +1,18 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardMut, Roster};
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, Team, Wake,
+    GameSet, GroupEffect, GroupPromptCtx, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep,
 };
 
 pub struct Werewolf;
 pub static WEREWOLF: Werewolf = Werewolf;
+
+pub(crate) const WOLF_PACK_STEP: WakeStep = WakeStep::pack(
+    NightFaction::Werewolf,
+    120,
+    |seats, ctx| Box::pin(Werewolf::huddle(seats, ctx)),
+);
 
 enum WolfIntent {
     Pack { dream_wolves: Vec<usize> },
@@ -23,20 +29,18 @@ impl Role for Werewolf {
             "See your fellow Werewolves; if you are the Lone Wolf, you may peek at 1 center card.",
         )
         .aliases(&["ww", "wolf"])
-        .tags(&[RoleTag::WolfPack])
+        .night_faction(NightFaction::Werewolf)
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::pack(120, RoleTag::WolfPack, |seats, ctx| {
-            Box::pin(Self::huddle(seats, ctx))
-        }))
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[WOLF_PACK_STEP] }
     }
 }
 
 impl Werewolf {
     async fn huddle(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let dream_wolves: Vec<usize> = ctx
-            .waking_seats_with_tag(RoleTag::DreamWolfThumb)
+            .waking_seats_with_faction(NightFaction::Werewolf)
             .into_iter()
             .filter(|s| !active_seats.contains(s))
             .collect();
@@ -118,7 +122,7 @@ impl Werewolf {
     fn resolve(
         active_seats: &[usize],
         intent: WolfIntent,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         match intent {
@@ -140,8 +144,7 @@ impl Werewolf {
             }
             WolfIntent::LonePeek(Answer::Ok(Some(c_idx))) => {
                 let seat = active_seats[0];
-                board.record_card_interaction(seat);
-                let seen = board.center[c_idx];
+                let seen = board.peek_center(seat, c_idx);
                 ctx.dm(
                     seat,
                     irc_format!("🐺 Center #{} is: {}", c_idx + 1, seen.display_for_peek()),

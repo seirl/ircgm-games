@@ -16,7 +16,6 @@ use crate::game::GameSummary;
 use crate::marks::Mark;
 use crate::night::{run_night_phase, NightTimings};
 use crate::role::Role;
-use crate::roles::base::werewolf::WEREWOLF;
 
 pub const TEST_ROOM: &str = "#onuw";
 
@@ -53,14 +52,6 @@ impl OnuwTestHarness {
         player_deals: &[(&str, &'static dyn Role)],
         center: [&'static dyn Role; 3],
     ) -> Self {
-        Self::with_extra_evil(player_deals, center, &WEREWOLF).await
-    }
-
-    pub async fn with_extra_evil(
-        player_deals: &[(&str, &'static dyn Role)],
-        center: [&'static dyn Role; 3],
-        extra_evil: &'static dyn Role,
-    ) -> Self {
         let (bot, srv) = test_harness("GM");
         let nicks: Vec<&str> = player_deals.iter().map(|(n, _)| *n).collect();
         srv.complete_join(TEST_ROOM, &nicks);
@@ -88,7 +79,7 @@ impl OnuwTestHarness {
         deck.extend_from_slice(&center);
 
         let roster = Roster { seats, deck };
-        let initial_board = BoardCards::new(player_cards, center_cards, Card::new(extra_evil));
+        let initial_board = BoardCards::new(player_cards, center_cards);
 
         Self {
             bot,
@@ -341,26 +332,26 @@ pub struct NightReport {
 impl NightReport {
     pub fn effective_role_at(&self, roster: &Roster, nick: &str) -> &'static str {
         let idx = roster.resolve_nick(nick).expect("player exists");
-        self.board.players[idx].effective_role().name()
+        self.board.player_card(idx).effective_role().name()
     }
 
     pub fn face_role_at(&self, roster: &Roster, nick: &str) -> &'static str {
         let idx = roster.resolve_nick(nick).expect("player exists");
-        self.board.players[idx].face_role().name()
+        self.board.player_card(idx).face_role().name()
     }
 
     pub fn center_role(&self, one_based: usize) -> &'static str {
-        self.board.center[one_based - 1].effective_role().name()
+        self.board.center_card(one_based - 1).effective_role().name()
     }
 
     pub fn mark_at(&self, roster: &Roster, nick: &str) -> Mark {
         let idx = roster.resolve_nick(nick).expect("player exists");
-        self.board.marks[idx]
+        self.board.mark(idx)
     }
 
     pub fn artifact_at(&self, roster: &Roster, nick: &str) -> Option<Artifact> {
         let idx = roster.resolve_nick(nick).expect("player exists");
-        self.board.artifacts.get(&idx).copied()
+        self.board.artifact(idx)
     }
 
     pub fn dms_to(&self, nick: &str) -> String {

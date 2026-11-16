@@ -1,13 +1,22 @@
+use std::collections::HashSet;
+
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardAccess, BoardMut, Roster};
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SpecialVictory,
-    Team, VictoryCtx, Wake,
+    GameSet, GroupEffect, GroupPromptCtx, NightFaction, ResolveCtx, Role, RoleInfo, SpecialVictory,
+    Team, VictoryCtx, WakeStep,
 };
 
 pub struct Alien;
 pub static ALIEN: Alien = Alien;
+
+pub(crate) const ALIEN_PACK_STEP: WakeStep = WakeStep::pack(
+    NightFaction::Alien,
+    110,
+    |seats, ctx| Box::pin(Alien::wake_group(seats, ctx)),
+)
+.writes(BoardAccess::PLAYER_FACES);
 
 enum AlienDirective {
     None,
@@ -24,22 +33,17 @@ impl Role for Alien {
             Team::Alien,
             "Wake with the Aliens; the commander may scan <nick> a non-Alien's card OR beam <nick1> <nick2> to swap two non-Aliens!",
         )
-        .tags(&[RoleTag::AlienPack])
+        .night_faction(NightFaction::Alien)
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::pack(110, RoleTag::AlienPack, |seats, ctx| {
-                Box::pin(Self::wake_group(seats, ctx))
-            })
-            .mutates(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[ALIEN_PACK_STEP] }
     }
 }
 
 impl Alien {
     async fn wake_group(active_seats: Vec<usize>, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let visible_aliens = ctx.waking_seats_with_tag(RoleTag::AlienPack);
+        let visible_aliens = ctx.waking_seats_with_faction(NightFaction::Alien);
         let alien_list = ctx.roster.format_indices(&visible_aliens);
         let cow_seats = ctx.seats_with_role(&super::cow::COW);
         let cow_list = ctx.roster.format_indices(&cow_seats);
@@ -69,13 +73,16 @@ impl Alien {
             }
         }
 
+        let shielded: HashSet<usize> = (0..ctx.roster.len())
+            .filter(|&s| ctx.is_shielded(s))
+            .collect();
         let non_alien_seats: Vec<usize> = (0..ctx.roster.len())
             .filter(|s| !visible_aliens.contains(s))
             .collect();
         let non_aliens: Vec<usize> = non_alien_seats
             .iter()
             .copied()
-            .filter(|s| !ctx.shielded.contains(s))
+            .filter(|s| !shielded.contains(s))
             .collect();
         let directive = if non_aliens.is_empty() {
             AlienDirective::None
@@ -85,14 +92,14 @@ impl Alien {
                 .copied()
                 .find(|&s| ctx.waking_roles[s].id() == "alien")
                 .unwrap_or(active_seats[0]);
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
+            let roster = ctx.roster;
+            let non_aliens_str = ctx.format_visible_indices(&non_alien_seats);
             let prompt = irc_format!(
-                "👽 Mother Ship Directive: Reply {} (or {}) to bio-scan a non-Alien, {} to swap two non-Aliens, or {}! Non-Aliens: {}",
+                "👽 Mother Ship Directive: Reply {} (or {}) to bio-scan a non-Alien, {} to swap two non-Aliens, or {}! Non-Aliens: {non_aliens_str}",
                 "scan <nick>".bold(),
                 "<nick>".bold(),
                 "beam <nick1> <nick2>".bold(),
                 "pass".bold(),
-                roster.format_indices_marking_shields(&non_alien_seats, shielded),
             );
             let ans = ctx
                 .ask(commander, prompt, move |m| {
@@ -186,69 +193,66 @@ impl Alien {
     fn resolve(
         active_seats: &[usize],
         action: AlienDirective,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         match action {
-            AlienDirective::Scan { actor, target } if !board.is_shielded(target) => {
-                board.record_card_interaction(actor);
-                let seen = board.players[target];
-                let target_nick = ctx.nick(target);
-                for &s in active_seats {
-                    ctx.dm(
-                        s,
-                        irc_format!(
-                            "👽 Bio-Scan Result: {} holds {}!",
-                            target_nick.as_str().bold(),
-                            seen.display_for_peek(),
-                        ),
-                    );
-                }
-                ctx.record(irc_format!(
-                    "👽 {} ({}) bio-scanned {} and saw {}.",
-                    "Alien".bold().red(),
-                    ctx.nick(actor).bold(),
-                    target_nick.bold(),
-                    seen.display_for_peek(),
-                ));
-            }
-            AlienDirective::TractorBeam { actor, a, b }
-                if !board.is_shielded(a) && !board.is_shielded(b) =>
-            {
-                board.record_card_interaction(actor);
-                let card_a = board.players[a];
-                let card_b = board.players[b];
-                board.players.swap(a, b);
-                for &s in active_seats {
-                    if s != actor {
+            AlienDirective::Scan { actor, target } => {
+                if let Some(seen) = board.peek_player(actor, target) {
+                    let target_nick = ctx.nick(target);
+                    for &s in active_seats {
                         ctx.dm(
                             s,
                             irc_format!(
-                                "🛸 Mother Ship Tractor Beam swapped {} and {}!",
-                                ctx.nick(a).bold(),
-                                ctx.nick(b).bold(),
+                                "👽 Bio-Scan Result: {} holds {}!",
+                                target_nick.as_str().bold(),
+                                seen.display_for_peek(),
                             ),
                         );
                     }
+                    ctx.record(irc_format!(
+                        "👽 {} ({}) bio-scanned {} and saw {}.",
+                        "Alien".bold().red(),
+                        ctx.nick(actor).bold(),
+                        target_nick.bold(),
+                        seen.display_for_peek(),
+                    ));
+                    return;
                 }
-                ctx.record(irc_format!(
-                    "🛸 {} ({}) tractor-beamed a swap between {} ({}) and {} ({}).",
-                    "Alien".bold().red(),
-                    ctx.nick(actor).bold(),
-                    ctx.nick(a).bold(),
-                    card_a.display_for_peek(),
-                    ctx.nick(b).bold(),
-                    card_b.display_for_peek(),
-                ));
             }
-            _ => {
-                let pack_names = ctx.roster.format_indices(active_seats);
-                ctx.record(irc_format!(
-                    "👽 Aliens ({}) woke aboard the Mother Ship.",
-                    pack_names.bold(),
-                ));
+            AlienDirective::TractorBeam { actor, a, b } => {
+                if let Some((card_a, card_b)) = board.swap_players(actor, a, b) {
+                    for &s in active_seats {
+                        if s != actor {
+                            ctx.dm(
+                                s,
+                                irc_format!(
+                                    "🛸 Mother Ship Tractor Beam swapped {} and {}!",
+                                    ctx.nick(a).bold(),
+                                    ctx.nick(b).bold(),
+                                ),
+                            );
+                        }
+                    }
+                    ctx.record(irc_format!(
+                        "🛸 {} ({}) tractor-beamed a swap between {} ({}) and {} ({}).",
+                        "Alien".bold().red(),
+                        ctx.nick(actor).bold(),
+                        ctx.nick(a).bold(),
+                        card_a.display_for_peek(),
+                        ctx.nick(b).bold(),
+                        card_b.display_for_peek(),
+                    ));
+                    return;
+                }
             }
+            AlienDirective::None => {}
         }
+        let pack_names = ctx.roster.format_indices(active_seats);
+        ctx.record(irc_format!(
+            "👽 Aliens ({}) woke aboard the Mother Ship.",
+            pack_names.bold(),
+        ));
     }
 }
 
@@ -273,7 +277,11 @@ impl Role for SyntheticAlien {
             "Wake with the Aliens and appear Alien to Leader & Cow, but you ONLY win if YOU are killed!",
         )
         .aliases(&["synth", "synthalien"])
-        .tags(&[RoleTag::AlienPack])
+        .night_faction(NightFaction::Alien)
+    }
+
+    fn steps(&self) -> &'static [WakeStep] {
+        const { &[ALIEN_PACK_STEP] }
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {

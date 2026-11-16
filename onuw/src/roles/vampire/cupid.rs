@@ -1,10 +1,8 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::{BoardAccess, BoardMut, Roster};
 use crate::marks::Mark;
-use crate::role::{
-    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
-};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Cupid;
 pub static CUPID: Cupid = Cupid;
@@ -18,26 +16,26 @@ impl Role for Cupid {
             Team::Village,
             "Wake in Dusk to give 2 players the Mark of Love (if one Lover dies at Dawn, the other dies of heartbreak!).",
         )
-        .tags(&[RoleTag::PlacesMarks])
+        .places_marks()
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(35, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[WakeStep::solo(&CUPID, 35, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
-                .mutates(),
-        )
+                .writes(BoardAccess::MARKS)]
+        }
     }
 }
 
 impl Cupid {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let roster = ctx.roster;
+        let players_str = ctx.format_visible_players();
+        let view = ctx.view();
         let prompt = irc_format!(
-            "💘 Cupid: Reply with TWO players ({}) to bestow the Mark of Love, or {}. Players: {}",
+            "💘 Cupid: Reply with TWO players ({}) to bestow the Mark of Love, or {}. Players: {players_str}",
             "<nick1> <nick2>".bold(),
             "pass".bold(),
-            roster.format_players(),
         );
         let ans = ctx
             .ask(prompt, move |m| {
@@ -49,7 +47,7 @@ impl Cupid {
                     return AskMatch::reject("Usage: <nick1> <nick2> or pass.".yellow());
                 }
                 let (Some(a), Some(b)) =
-                    (roster.resolve_nick(parts[0]), roster.resolve_nick(parts[1]))
+                    (view.resolve_nick(parts[0]), view.resolve_nick(parts[1]))
                 else {
                     return AskMatch::reject("Unknown player nickname.".yellow());
                 };
@@ -60,8 +58,8 @@ impl Cupid {
                     Some((a, b)),
                     irc_format!(
                         "💘 Linked {} and {} with the {}!",
-                        roster.seats[a].user.nick().bold(),
-                        roster.seats[b].user.nick().bold(),
+                        view.roster.seats[a].user.nick().bold(),
+                        view.roster.seats[b].user.nick().bold(),
                         Mark::Love.styled(),
                     ),
                 )
@@ -77,12 +75,12 @@ impl Cupid {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<(usize, usize)>>,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some((a, b))) = ans {
-            board.marks[a] = Mark::Love;
-            board.marks[b] = Mark::Love;
+            board.set_mark(a, Mark::Love);
+            board.set_mark(b, Mark::Love);
             ctx.record(irc_format!(
                 "💘 {actor_label} ({}) linked {} and {} with {}.",
                 ctx.nick(seat).bold(),

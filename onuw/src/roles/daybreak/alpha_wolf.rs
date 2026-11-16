@@ -1,12 +1,30 @@
 use ircgm::prelude::*;
 
-use crate::board::BoardCards;
+use crate::board::{BoardAccess, BoardKey, BoardMut, Card};
 use crate::role::{
-    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
+    GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
+use crate::roles::base::werewolf::{WEREWOLF, WOLF_PACK_STEP};
 
 pub struct AlphaWolf;
 pub static ALPHA_WOLF: AlphaWolf = AlphaWolf;
+
+#[derive(Clone, Debug)]
+struct CenterWolfCard(Card);
+
+impl BoardKey for CenterWolfCard {
+    const ACCESS: u16 = BoardAccess::CUSTOM_1;
+
+    fn init() -> Self {
+        Self(Card::new(&WEREWOLF))
+    }
+}
+
+impl AsMut<Card> for CenterWolfCard {
+    fn as_mut(&mut self) -> &mut Card {
+        &mut self.0
+    }
+}
 
 impl Role for AlphaWolf {
     fn info(&self) -> RoleInfo {
@@ -18,33 +36,30 @@ impl Role for AlphaWolf {
             "Wake with the Werewolves, then MUST swap the center Wolf card with another non-Werewolf player's card!",
         )
         .aliases(&["aw", "alpha"])
-        .tags(&[RoleTag::WolfPack])
+        .night_faction(NightFaction::Werewolf)
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(
-            Wake::solo(122, |seat, ctx| Box::pin(Self::prompt(seat, ctx)))
-                .mutates()
-                .follow_on_copy(),
-        )
+    fn steps(&self) -> &'static [WakeStep] {
+        const {
+            &[
+                WOLF_PACK_STEP,
+                WakeStep::solo(&ALPHA_WOLF, 122, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                    .writes(BoardAccess::PLAYER_FACES | CenterWolfCard::ACCESS),
+            ]
+        }
     }
 }
 
 impl AlphaWolf {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let mut wolves = ctx.waking_seats_with_tag(RoleTag::WolfPack);
-        for dw in ctx.waking_seats_with_tag(RoleTag::DreamWolfThumb) {
-            if !wolves.contains(&dw) {
-                wolves.push(dw);
-            }
-        }
+        let wolves = ctx.waking_seats_with_faction(NightFaction::Werewolf);
         let non_wolves: Vec<usize> = (0..ctx.roster.len())
             .filter(|&i| i != seat && !wolves.contains(&i))
             .collect();
         let valid_targets: Vec<usize> = non_wolves
             .iter()
             .copied()
-            .filter(|i| !ctx.shielded.contains(i))
+            .filter(|&i| !ctx.is_shielded(i))
             .collect();
 
         if valid_targets.is_empty() {
@@ -52,23 +67,23 @@ impl AlphaWolf {
             return Ok(SeatEffect::noop());
         }
 
-        let (roster, shielded) = (ctx.roster, ctx.shielded);
+        let non_wolves_str = ctx.format_visible_indices(&non_wolves);
+        let view = ctx.view();
         let prompt = irc_format!(
-            "🐺 Alpha Wolf: You MUST swap the center Werewolf card onto a non-Wolf player ({})! Non-Wolves: {}",
+            "🐺 Alpha Wolf: You MUST swap the center Werewolf card onto a non-Wolf player ({})! Non-Wolves: {non_wolves_str}",
             "<nick>".bold(),
-            roster.format_indices_marking_shields(&non_wolves, shielded),
         );
         let valid_for_match = valid_targets.clone();
         let ans = ctx
-            .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
+            .ask(prompt, move |m| match view.resolve_nick(&m.text) {
                 Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
                     idx,
                     irc_format!(
                         "🐺 Swapped the center Wolf card with {}'s card!",
-                        roster.seats[idx].user.nick().bold().red()
+                        view.roster.seats[idx].user.nick().bold().red()
                     ),
                 ),
-                Some(idx) if shielded.contains(&idx) => {
+                Some(idx) if view.is_shielded(idx) => {
                     AskMatch::reject("🛡️ That player's card is shielded by the Sentinel!".yellow())
                 }
                 Some(_) => AskMatch::reject("Pick another non-Werewolf player!".yellow()),
@@ -97,14 +112,12 @@ impl AlphaWolf {
         seat: usize,
         actor_label: &str,
         target: usize,
-        board: &mut BoardCards,
+        board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        if !board.is_shielded(target) {
-            board.record_card_interaction(seat);
-            let old_card = board.players[target];
-            let planted = board.extra_evil_card;
-            std::mem::swap(&mut board.players[target], &mut board.extra_evil_card);
+        if let Some((old_card, planted)) =
+            board.swap_player_with_extra::<CenterWolfCard>(seat, target)
+        {
             ctx.record(irc_format!(
                 "🐺 {actor_label} ({}) bit {}, swapping {} in for {}.",
                 ctx.nick(seat).bold(),
