@@ -40,6 +40,7 @@ impl Role for Assassin {
         const {
             &[WakeStep::solo(&ASSASSIN, 44, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
+                .copy_on_turn()
                 .writes(BoardAccess::MARKS)]
         }
     }

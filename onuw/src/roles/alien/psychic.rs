@@ -29,7 +29,6 @@ impl Role for Psychic {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[WakeStep::solo(&PSYCHIC, 159, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                .immediate_copy()
                 .reads(OracleOmen::ACCESS)]
         }
     }

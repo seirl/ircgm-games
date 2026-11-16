@@ -22,6 +22,7 @@ impl Role for Copycat {
         const {
             &[WakeStep::solo(&COPYCAT, 8, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .short_budget()
+                .copy_on_turn()
                 .writes(BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES)]
         }
     }

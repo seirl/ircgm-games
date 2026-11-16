@@ -20,7 +20,12 @@ impl Role for Mortician {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::solo(&MORTICIAN, 197, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
+        const {
+            &[
+                WakeStep::solo(&MORTICIAN, 197, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                    .copy_on_turn(),
+            ]
+        }
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {

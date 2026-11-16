@@ -18,8 +18,8 @@ use crate::board::{BoardAccess, BoardCards, BoardMut, PromptBoard, Roster};
 use crate::marks::Mark;
 pub use crate::role::Phase as TierPhase;
 use crate::role::{
-    BoxFuture, GroupEffect, GroupPromptCtx, PassiveWakeFn, Phase, PromptCtx, ResolveCtx, Role,
-    SeatEffect, StepKind, WakeStep,
+    BoxFuture, CopyTiming, GroupEffect, GroupPromptCtx, PassiveWakeFn, Phase, PromptCtx,
+    ResolveCtx, Role, SeatEffect, StepKind, WakeStep,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -146,6 +146,9 @@ pub fn build_deck_schedule(
 
     let has_dusk = steps.iter().any(|st| st.phase == Phase::Dusk);
     let deck_has_immediate_copy = deck.iter().any(|r| r.doppelganger_acts_immediately());
+    let player_count = deck.len().saturating_sub(3).max(1);
+    let copycat_count = deck.iter().filter(|&&r| r.id() == "copycat").count();
+    let doppelganger_count = deck.iter().filter(|&&r| r.is_doppelganger()).count();
 
     let effective_order = |st: &'static WakeStep| -> u16 {
         if st.is_doppelganger {
@@ -210,20 +213,28 @@ pub fn build_deck_schedule(
         }
 
         if step.pack_faction().is_none() {
-            let count_in_deck = deck.iter().filter(|&&r| r.has_step(step)).count();
+            let direct = deck.iter().filter(|&&r| r.has_step(step)).count();
+            let cc_extra = if step.order > 8 { copycat_count } else { 0 };
+            let holders_before_dg = direct.max(direct.saturating_sub(1) + cc_extra);
+            let dg_extra = if step.copy_timing == Some(CopyTiming::OnRoleTurn) {
+                doppelganger_count
+            } else {
+                0
+            };
+            let max_actors = (holders_before_dg + dg_extra).min(player_count);
             let eff_reads = step.effective_prompt_reads();
-            if count_in_deck > 1
+            if max_actors > 1
                 && step.needs_dm_prompt()
                 && (eff_reads & step.resolve_writes.0) != 0
             {
                 flush_cur(&mut cur, cur_phase, &mut cur_writes, &mut raw_tiers);
-                for slot_idx in 0..count_in_deck {
+                for slot_idx in 0..max_actors {
                     raw_tiers.push((
                         phase,
                         TierKind::StepSlot {
                             step,
                             slot_idx,
-                            total_slots: count_in_deck,
+                            total_slots: max_actors,
                         },
                         timings.tier_budget,
                     ));
@@ -393,7 +404,8 @@ pub async fn run_night_phase(
                         feared_snap,
                         waking_snap,
                         board_snap,
-                    );
+                    )
+                    .as_immediate_copy();
                     let effect = prompt_fn(seat, pctx).await?;
                     Ok::<_, Error>((seat, step, effect))
                 });

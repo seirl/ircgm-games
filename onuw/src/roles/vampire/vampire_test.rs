@@ -220,3 +220,35 @@ async fn priest_pickpocket_marksman_instigator_cupid_diseased_master_and_assassi
         vec!["Alice", "Carol", "Dave", "Frank"]
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn doppelganger_marksman_wakes_in_night_after_dusk_marks_are_placed() {
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &MARKSMAN),
+            ("Carol", &VAMPIRE),
+            ("Dave", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night = h.spawn_night();
+    // Dusk #-7: Alice copies Bob (Marksman) — she does NOT inspect Marks yet because Dusk Marks haven't been placed!
+    h.reply_dm("Alice", "Bob").await;
+    // Dusk #-6: Carol (Vampire) bites Dave with Mark of the Vampire:
+    h.reply_dm("Carol", "Dave").await;
+    // Night #5-B: Bob (Marksman) passes while Alice (Doppelgänger-Marksman) inspects Carol's card and Dave's Mark:
+    h.reply_dm("Bob", "pass").await;
+    h.reply_dm("Alice", "Carol Dave").await;
+
+    let report = h.finish_night(night).await;
+    assert!(
+        report
+            .dms_to("Alice")
+            .contains("Dave's mark is Mark of the Vampire"),
+        "Alice DMs: {}",
+        report.dms_to("Alice")
+    );
+}

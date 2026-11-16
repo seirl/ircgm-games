@@ -27,7 +27,7 @@ impl Role for Seer {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::solo(&SEER, 150, |s, ctx| Box::pin(Self::prompt(s, ctx))).immediate_copy()] }
+        const { &[WakeStep::solo(&SEER, 150, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
     }
 }
 

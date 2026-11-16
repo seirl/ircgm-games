@@ -7,7 +7,7 @@ use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster};
 use crate::role::{
-    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, Phase, Role, Team,
+    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, Phase, Role, StepKind, Team,
     WinnerFilterCtx, WinnerMap,
 };
 
@@ -94,10 +94,11 @@ impl Mark {
                 ));
             }
             let r = waking_roles[s];
-            let wakes_in_night = !acted_immediately.contains(&s)
-                && r.steps()
-                    .iter()
-                    .any(|st| st.phase == Phase::Night && st.order >= 100);
+            let wakes_in_night = r.steps().iter().any(|st| {
+                st.phase == Phase::Night
+                    && st.order >= 100
+                    && (matches!(st.kind, StepKind::Group(_)) || !acted_immediately.contains(&s))
+            });
             if wakes_in_night {
                 chronicle.push(irc_format!(
                     "😱 {} was paralyzed by the {} and could not wake up during Night!",

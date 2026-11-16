@@ -349,6 +349,7 @@ pub struct BoardCards {
     marks: Vec<Mark>,
     artifacts: HashMap<usize, Artifact>,
     viewed_or_moved_actors: HashSet<usize>,
+    copied_from: Vec<Option<usize>>,
     blackboard: HashMap<TypeId, Box<dyn BlackboardValue>>,
 }
 
@@ -366,6 +367,7 @@ impl Clone for BoardCards {
             marks: self.marks.clone(),
             artifacts: self.artifacts.clone(),
             viewed_or_moved_actors: self.viewed_or_moved_actors.clone(),
+            copied_from: self.copied_from.clone(),
             blackboard,
         }
     }
@@ -380,6 +382,7 @@ impl fmt::Debug for BoardCards {
             .field("marks", &self.marks)
             .field("artifacts", &self.artifacts)
             .field("viewed_or_moved_actors", &self.viewed_or_moved_actors)
+            .field("copied_from", &self.copied_from)
             .finish()
     }
 }
@@ -394,8 +397,13 @@ impl BoardCards {
             marks: vec![Mark::Clarity; n],
             artifacts: HashMap::new(),
             viewed_or_moved_actors: HashSet::new(),
+            copied_from: vec![None; n],
             blackboard: HashMap::new(),
         }
+    }
+
+    pub(crate) fn copied_from(&self, seat: usize) -> Option<usize> {
+        self.copied_from[seat]
     }
 
     pub fn player_count(&self) -> usize {
@@ -853,6 +861,7 @@ impl<'a> BoardMut<'a> {
         }
         let copied = self.inner.players[target].effective_role();
         self.inner.viewed_or_moved_actors.insert(actor);
+        self.inner.copied_from[actor] = Some(target);
         self.inner.players[actor].transform(copied);
         rctx.set_waking_identity(actor, copied, format!("{label_prefix}-{}", copied.name()));
         Some(copied)

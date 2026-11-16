@@ -21,8 +21,7 @@ impl Role for ApprenticeSeer {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::solo(&APPRENTICE_SEER, 152, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                    .immediate_copy(),
+                WakeStep::solo(&APPRENTICE_SEER, 152, |s, ctx| Box::pin(Self::prompt(s, ctx))),
             ]
         }
     }

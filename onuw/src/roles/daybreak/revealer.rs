@@ -27,6 +27,7 @@ impl Role for Revealer {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[WakeStep::solo(&REVEALER, 192, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .copy_on_turn()
                 .writes(BoardAccess::FACE_UP)]
         }
     }
@@ -52,6 +53,9 @@ impl Revealer {
                     }
                     Some(idx) if view.is_shielded(idx) => {
                         AskMatch::reject("🛡️ Shielded cards cannot be flipped!".yellow())
+                    }
+                    Some(idx) if view.is_face_up(idx) => {
+                        AskMatch::reject("🔦 That player's card is already face up!".yellow())
                     }
                     Some(idx) => AskMatch::accept_say(
                         Some(idx),

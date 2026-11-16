@@ -1,8 +1,9 @@
+use crate::roles::alien::oracle::ORACLE;
 use crate::roles::base::{
     doppelganger::DOPPELGANGER, insomniac::INSOMNIAC, minion::MINION, robber::ROBBER, seer::SEER,
     villager::VILLAGER, werewolf::WEREWOLF,
 };
-use crate::roles::daybreak::mystic_wolf::MYSTIC_WOLF;
+use crate::roles::daybreak::{alpha_wolf::ALPHA_WOLF, mystic_wolf::MYSTIC_WOLF};
 use crate::testing::OnuwTestHarness;
 
 #[tokio::test(start_paused = true)]
@@ -88,7 +89,7 @@ async fn doppelganger_werewolf_joins_pack_wake_and_is_seen_by_minion() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn doppelganger_mystic_wolf_wakes_with_pack_first_then_peeks_on_mystic_wolf_turn() {
+async fn doppelganger_mystic_wolf_peeks_immediately_then_joins_pack_huddle() {
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &DOPPELGANGER),
@@ -100,29 +101,106 @@ async fn doppelganger_mystic_wolf_wakes_with_pack_first_then_peeks_on_mystic_wol
     .await;
 
     let night = h.spawn_night();
-    // Alice (Doppelgänger) copies Bob (Mystic Wolf):
-    // Because Mystic Wolf uses `CopyTiming::OnRoleTurn` (#2C), Alice does NOT peek blind in the
-    // immediate window — instead Alice joins Bob in the Werewolf pack huddle (#2) first, and BOTH
-    // Mystic Wolves peek in the post-pack tier (#2C)!
+    // #1: Alice (Doppelgänger) copies Bob (Mystic Wolf), then IMMEDIATELY peeks Carol's card at #1
+    // (before the Werewolf pack huddle at #2), and stays asleep during Bob's #2-C Mystic Wolf turn:
     h.reply_dm("Alice", "Bob").await;
-    // In the Mystic Wolf tier (#2C), Bob peeks Carol and Alice (Doppelgänger-Mystic Wolf) also peeks Carol;
-    // Carol (Seer, #5A) runs concurrently in the same tier and peeks Bob:
-    h.reply_dm("Bob", "Carol").await;
     h.reply_dm("Alice", "Carol").await;
+    // #2-C / #5: Bob (Mystic Wolf) peeks Carol and Carol (Seer) peeks Bob:
+    h.reply_dm("Bob", "Carol").await;
     h.reply_dm("Carol", "Bob").await;
 
     let report = h.finish_night(night).await;
     let alice_plain = report.dms_to("Alice");
-    let pack_pos = alice_plain
-        .find("Fellow Werewolf pack: Bob")
-        .expect("Alice woke in Werewolf pack huddle");
     let peek_pos = alice_plain
         .find("Mystic Wolf: Reply")
-        .expect("Alice got Mystic Wolf solo peek prompt");
+        .expect("Alice got immediate Mystic Wolf peek prompt at #1");
+    let pack_pos = alice_plain
+        .find("Fellow Werewolf pack: Bob")
+        .expect("Alice woke in Werewolf pack huddle at #2");
     assert!(
-        pack_pos < peek_pos,
-        "Doppelgänger-Mystic Wolf must see packmates before being prompted for Mystic Wolf peek"
+        peek_pos < pack_pos,
+        "Doppelgänger-Mystic Wolf must peek immediately at #1 before joining the #2 Werewolf huddle"
     );
     assert!(alice_plain.contains("Carol's card is: Seer"));
     assert!(report.has_chronicle_substr("Doppelgänger-Mystic Wolf (Alice) viewed Carol's card (Seer)."));
+    assert!(report.has_chronicle_substr("Mystic Wolf (Bob) viewed Carol's card (Seer)."));
+}
+
+#[tokio::test(start_paused = true)]
+async fn doppelganger_alpha_wolf_swaps_immediately_without_pack_leak_before_real_alpha_wolf() {
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &ALPHA_WOLF),
+            ("Carol", &WEREWOLF),
+            ("Dave", &VILLAGER),
+            ("Eve", &SEER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night = h.spawn_night();
+    // #1: Alice copies Bob (Alpha Wolf). In her immediate #1 prompt, she only knows herself and Bob
+    // (Carol's Werewolf card is NOT leaked before #2!), and swaps the Center Werewolf onto Dave
+    // (putting Dave's Villager card into CenterWolfCard):
+    h.reply_dm("Alice", "Bob").await;
+    let imm_prompt = loop {
+        let m = h.wait_for_new_dm("Alice").await;
+        if m.contains("Alpha Wolf:") {
+            break m;
+        }
+    };
+    assert!(
+        imm_prompt.contains("Carol, Dave, Eve"),
+        "pre-pack #1 prompt must not leak Carol as a Werewolf: {imm_prompt}"
+    );
+    h.send_dm("Alice", "Dave").await;
+
+    // #2-B: After the #2 pack huddle (Alice, Bob, Carol), ONLY Bob wakes as Alpha Wolf (seeing only
+    // Dave & Eve as non-Wolves!) and swaps CenterWolfCard (now Dave's old Villager!) onto Eve, while Eve peeks Bob:
+    let bob_prompt = loop {
+        let m = h.wait_for_new_dm("Bob").await;
+        if m.contains("Alpha Wolf:") {
+            break m;
+        }
+    };
+    assert!(
+        bob_prompt.contains("Non-Wolves: Dave, Eve") && !bob_prompt.contains("Carol"),
+        "post-pack #2-B prompt excludes all waking packmates: {bob_prompt}"
+    );
+    h.send_dm("Bob", "Eve").await;
+    h.reply_dm("Eve", "Bob").await;
+
+    let report = h.finish_night(night).await;
+    // Dave keeps the Werewolf card planted by Doppelgänger-Alpha Wolf at #1, while Eve received
+    // Dave's displaced Villager card when the real Alpha Wolf swapped at #2-B!
+    assert_eq!(report.effective_role_at(&h.roster, "Dave"), "Werewolf");
+    assert_eq!(report.effective_role_at(&h.roster, "Eve"), "Villager");
+    assert!(report.dms_to("Alice").contains("Fellow Werewolf pack: Bob, Carol"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn doppelganger_copying_oracle_answers_omen_immediately() {
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &ORACLE),
+            ("Carol", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night = h.spawn_night();
+    // Oracle (#-9 / order 1) wakes before Doppelgänger:
+    h.reply_dm("Bob", "normal").await;
+    // Alice (Doppelgänger) copies Bob (Oracle) and immediately tunes cosmic frequencies:
+    h.reply_dm("Alice", "Bob").await;
+    h.reply_dm("Alice", "static").await;
+
+    let report = h.finish_night(night).await;
+    assert!(report.has_chronicle_substr(
+        "Doppelgänger-Oracle (Alice) engaged QuantumStatic, swapping Center #1 and Center #3."
+    ));
 }

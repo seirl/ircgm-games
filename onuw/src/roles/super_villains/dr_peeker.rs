@@ -26,7 +26,8 @@ impl Role for DrPeeker {
         const {
             &[
                 VILLAIN_PACK_STEP,
-                WakeStep::solo(&DR_PEEKER, 126, |s, ctx| Box::pin(Self::prompt(s, ctx))),
+                WakeStep::solo(&DR_PEEKER, 126, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                    .copy_on_turn(),
             ]
         }
     }

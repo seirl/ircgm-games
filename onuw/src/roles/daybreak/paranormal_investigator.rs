@@ -31,7 +31,6 @@ impl Role for ParanormalInvestigator {
                 WakeStep::solo(&PARANORMAL_INVESTIGATOR, 155, |s, ctx| {
                     Box::pin(Self::prompt(s, ctx))
                 })
-                .immediate_copy()
                 .reads(BoardAccess::PLAYER_FACES)
                 .writes(BoardAccess::PLAYER_BECAME),
             ]

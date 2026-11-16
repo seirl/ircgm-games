@@ -20,7 +20,6 @@ impl Role for Witch {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[WakeStep::solo(&WITCH, 165, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                .immediate_copy()
                 .reads(BoardAccess::CENTER_FACES)
                 .writes(BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES)]
         }

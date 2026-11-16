@@ -20,7 +20,6 @@ impl Role for Sentinel {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[WakeStep::solo(&SENTINEL, 100, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                .immediate_copy()
                 .writes(BoardAccess::SHIELDS)]
         }
     }
@@ -43,6 +42,9 @@ impl Sentinel {
                 match view.resolve_nick(&m.text) {
                     Some(idx) if idx == seat => AskMatch::reject(
                         "You cannot shield your own card! Pick another player or pass.".yellow(),
+                    ),
+                    Some(idx) if view.is_shielded(idx) => AskMatch::reject(
+                        "🛡️ That player's card already has a Shield token!".yellow(),
                     ),
                     Some(idx) => AskMatch::accept_say(
                         Some(idx),

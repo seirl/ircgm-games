@@ -52,7 +52,7 @@ impl Role for AlphaWolf {
 
 impl AlphaWolf {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let wolves = ctx.waking_seats_with_faction(NightFaction::Werewolf);
+        let wolves = ctx.known_pack_mates(NightFaction::Werewolf);
         let non_wolves: Vec<usize> = (0..ctx.roster.len())
             .filter(|&i| i != seat && !wolves.contains(&i))
             .collect();

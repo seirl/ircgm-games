@@ -30,6 +30,7 @@ impl Role for Count {
                 VAMPIRE_PACK_STEP,
                 WakeStep::solo(&COUNT, 30, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .dusk()
+                    .copy_on_turn()
                     .reads(BoardAccess::MARKS)
                     .writes(BoardAccess::MARKS),
             ]

@@ -83,14 +83,15 @@ fn deck_schedule_is_purely_deck_derived_and_invariant_to_card_order() {
                 40
             ),
             (TierPhase::Dusk, "Vampires".into(), 40, 60),
-            (TierPhase::Dusk, "The Count".into(), 60, 80),
-            (TierPhase::Night, "Sentinel".into(), 80, 100),
-            (TierPhase::Night, "Werewolves".into(), 100, 120),
+            (TierPhase::Dusk, "The Count (#1/2)".into(), 60, 80),
+            (TierPhase::Dusk, "The Count (#2/2)".into(), 80, 100),
+            (TierPhase::Night, "Sentinel".into(), 100, 120),
+            (TierPhase::Night, "Werewolves".into(), 120, 140),
             (
                 TierPhase::Night,
                 "Alpha Wolf, Seer, Witch, Insomniac".into(),
-                120,
                 140,
+                160,
             ),
         ]
     );
@@ -208,10 +209,10 @@ async fn fast_vs_slow_or_timed_out_players_cannot_shift_any_downstream_prompt_or
         .0;
     let rep_slow = h_slow.finish_night(n_slow).await;
 
-    assert_eq!(curator_ts_fast, Duration::from_secs(13));
-    assert_eq!(curator_ts_slow, Duration::from_secs(13));
-    assert_eq!(rep_fast.total_elapsed, Duration::from_secs(18));
-    assert_eq!(rep_slow.total_elapsed, Duration::from_secs(18));
+    assert_eq!(curator_ts_fast, Duration::from_secs(23));
+    assert_eq!(curator_ts_slow, Duration::from_secs(23));
+    assert_eq!(rep_fast.total_elapsed, Duration::from_secs(33));
+    assert_eq!(rep_slow.total_elapsed, Duration::from_secs(33));
 }
 
 #[tokio::test(start_paused = true)]
@@ -722,4 +723,45 @@ fn undeclared_board_write_panics_with_role_name() {
         BoardAccess::NONE,
     );
     let _ = bm.swap_players(0, 0, 1);
+}
+
+#[tokio::test(start_paused = true)]
+async fn doppelganger_curator_wakes_sequentially_after_curator_and_sees_first_artifact() {
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &CURATOR),
+            ("Carol", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night = h.spawn_night();
+    // #1: Alice copies Bob (Curator):
+    h.reply_dm("Alice", "Bob").await;
+    // #11: Bob (Curator #1/2) places an Artifact on Carol:
+    h.reply_dm("Bob", "Carol").await;
+    // #11a: Alice (Doppelgänger-Curator #2/2) wakes sequentially AFTER Bob's tier ends, sees `Carol🏺`,
+    // gets rejected when trying `Carol`, and places an Artifact on herself:
+    let alice_curator_prompt = loop {
+        let m = h.wait_for_new_dm("Alice").await;
+        if m.contains("Curator:") {
+            break m;
+        }
+    };
+    assert!(
+        Text::parse(&alice_curator_prompt)
+            .plain()
+            .contains("Carol🏺"),
+        "Doppelgänger-Curator must see Curator's artifact on Carol: {alice_curator_prompt}"
+    );
+    h.send_dm("Alice", "Carol").await;
+    let rej = h.wait_for_new_dm("Alice").await;
+    assert!(rej.contains("already has an Artifact token"), "got: {rej}");
+    h.send_dm("Alice", "Alice").await;
+
+    let report = h.finish_night(night).await;
+    assert!(report.board.artifact(h.seat_of("Carol")).is_some());
+    assert!(report.board.artifact(h.seat_of("Alice")).is_some());
 }

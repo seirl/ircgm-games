@@ -18,7 +18,7 @@ The original `Role` trait (`onuw/src/role.rs`) modeled Base ONUW ("1 card per se
 - **Core vocabulary:**
   - `EndgameModifier`: unified post-vote alignment, immunity, death-chain, victory, win-override, and win-forfeit pipeline implemented across `Role` (via `impl EndgameModifier for &'static dyn Role` so role files keep a single `impl Role` block), `Mark`, and `Artifact`.
   - `NightFaction`: `Option<NightFaction>` (`Werewolf`, `Vampire`, `Alien`, `SuperVillain`) on `RoleInfo`, replacing `RoleTag` and `DreamWolfThumb` (`Dream Wolf` simply has `night_faction: Some(NightFaction::Werewolf)` and `&[]` `WakeStep`s).
-  - `WakeStep`: roles return `&'static [WakeStep]` (`0`, `1`, or `2` steps, deduplicated by step ID), with shared pack steps (`WOLF_PACK_STEP`, `VAMPIRE_PACK_STEP`, `ALIEN_PACK_STEP`, `VILLAIN_PACK_STEP`) and ergonomic defaults (`eyes_open = true`, `reads = VISIBLE_TABLE`, `writes = NONE`, `copy_timing = OnRoleTurn`, overridden only when needed via `.eyes_closed()`, `.reads(...)`, `.writes(...)`, `.immediate_copy()`, `.dusk()`).
+  - `WakeStep`: roles return `&'static [WakeStep]` (`0`, `1`, or `2` steps, deduplicated by step ID), with shared pack steps (`WOLF_PACK_STEP`, `VAMPIRE_PACK_STEP`, `ALIEN_PACK_STEP`, `VILLAIN_PACK_STEP`) and ergonomic defaults (`eyes_open = true`, `reads = VISIBLE_TABLE`, `writes = NONE`, `copy_timing = Immediate` for `solo` / `OnRoleTurn` for `group` & `passive`, overridden only when needed via `.eyes_closed()`, `.reads(...)`, `.writes(...)`, `.copy_on_turn()`, `.dusk()`).
   - `BoardAccess` + `BoardMut<'a>`: zone-level bitmask checked on access inside `PromptCtx`, `GroupPromptCtx`, and `BoardMut` over module-private `BoardCards` fields (`#![forbid(unsafe_code)]`), keeping role files free of const-generic/trait ceremony while catching any undeclared read/write immediately in tests.
   - `BoardKey` (`TypeId` blackboard on `BoardCards`): moves `OracleOmen`, `ApprenticeSoloMark`, `CenterWolfCard`, and `ExtraVillainCard` into their own role modules so `board.rs` has zero expansion-specific fields or role imports.
 - **Gameplay & visibility semantics:**
@@ -26,7 +26,7 @@ The original `Role` trait (`onuw/src/role.rs`) modeled Base ONUW ("1 card per se
   - **Tabletop visibility (`🛡`, `🔦 Role`, `🏺`):** Every `eyes_open: true` step automatically includes `VISIBLE_TABLE` (`SHIELDS | FACE_UP | ARTIFACTS`) in its effective prompt read mask—creating natural sequence points only after `Sentinel` (`100`), `Revealer` (`192`), and `Curator` (`194`) when present—and renders visible markers **only when at least one is actually on the table** (no empty-state DMs). Sleeping roles (`Dream Wolf`, `Villager`, etc.) and `eyes_open: false` roles (`Cow`, `Evilometer`) never see visible markers or cause visibility splits.
   - **Rule cleanups:**
     1. `Curator` may place Artifacts on cards flipped face-up by `Revealer` (official Daybreak rule; fixes the Night DM info-leak and merges `Curator` into the main tier in non-`Revealer` games while showing `🔦 Role` to `Curator` when `Revealer` is in play).
-    2. `Doppelgänger -> Mystic Wolf` wakes on Mystic Wolf's post-pack turn (`CopyTiming::OnRoleTurn`, `#2C`).
+    2. `Alpha Wolf`, `Mystic Wolf`, and `Oracle` use `CopyTiming::Immediate` (acting at `#1` before joining the `#2` Werewolf huddle, without leaking unrevealed packmates at `#1`), while `Marksman` uses `CopyTiming::OnRoleTurn` so `Doppelgänger-Marksman` inspects Marks in Night after Dusk Marks are placed.
     3. `Thing` and `Annoying Lad` both use `CopyTiming::Immediate`.
     4. `Apprentice Assassin` uses the unified override-aware `board.active_holders(&ASSASSIN)` query.
   - **Intra-expansion coupling:** Coupled sibling roles inside the same `src/roles/<expansion>/` directory may reference each other directly (`Alien` spotting `Cow`, `Villains` spotting `Evilometer`, `Leader` checking `Groob`/`Zerb`), while the engine (`board.rs`, `night.rs`, `voting.rs`, `deck.rs`, `scenarios.rs`) becomes 100% role-agnostic.
@@ -105,7 +105,7 @@ pub struct WakeStep {
 **Scheduler Tier-Splitting Rule (`build_deck_schedule`):**
 A `WakeStep` starts a new `ScheduledTier` iff:
 1. `phase` changes (`Dusk` -> `Night`),
-2. `short_budget` is true (`Copycat`, `Doppelgänger`), or `count_in_deck > 1` with `(effective_prompt_reads & resolve_writes) != 0` (`RoleSlot` for `2x Witch`, `2x Curator`, etc.),
+2. `short_budget` is true (`Copycat`, `Doppelgänger`), or `max_actors > 1` (accounting for duplicate cards, `Copycat`, and `OnRoleTurn` `Doppelgänger`) with `(effective_prompt_reads & resolve_writes) != 0` (`StepSlot` for `Curator + Doppelgänger`, `Revealer + Doppelgänger`, `2x Witch`, etc.),
 3. The current tier contains a pack step whose `NightFaction` matches this role's `night_faction` (keeps huddles pure and specialists post-huddle), or
 4. `step.needs_dm_prompt() && (cur_tier_writes & effective_prompt_reads) != 0`, where `effective_prompt_reads` automatically includes `VISIBLE_TABLE` whenever `step.eyes_open` is true. (Passive `eyes_open` wakes like `Insomniac`, `Aura Seer`, and `Blob` have no prompt phase—they execute synchronously at resolution time in canonical `order`, reading live `BoardCards` state directly.)
 

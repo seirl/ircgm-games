@@ -28,7 +28,6 @@ impl Role for VillageIdiot {
         const {
             &[
                 WakeStep::solo(&VILLAGE_IDIOT, 172, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                    .immediate_copy()
                     .writes(BoardAccess::PLAYER_FACES),
             ]
         }

@@ -20,7 +20,6 @@ impl Role for Drunk {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[WakeStep::solo(&DRUNK, 180, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                .immediate_copy()
                 .writes(BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES)]
         }
     }

@@ -31,6 +31,7 @@ impl Role for Priest {
         const {
             &[WakeStep::solo(&PRIEST, 40, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
+                .copy_on_turn()
                 .writes(BoardAccess::MARKS)]
         }
     }

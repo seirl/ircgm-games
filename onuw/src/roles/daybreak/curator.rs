@@ -21,6 +21,7 @@ impl Role for Curator {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[WakeStep::solo(&CURATOR, 194, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                .copy_on_turn()
                 .writes(BoardAccess::ARTIFACTS)]
         }
     }

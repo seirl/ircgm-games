@@ -25,7 +25,8 @@ impl Role for Rapscallion {
         const {
             &[
                 VILLAIN_PACK_STEP,
-                WakeStep::solo(&RAPSCALLION, 127, |s, ctx| Box::pin(Self::prompt(s, ctx))),
+                WakeStep::solo(&RAPSCALLION, 127, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                    .copy_on_turn(),
             ]
         }
     }

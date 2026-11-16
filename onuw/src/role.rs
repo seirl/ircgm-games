@@ -363,7 +363,7 @@ enum StepTarget {
 /// - `eyes_open = true` (override with `.eyes_closed()` for eyes-closed roles like `Cow` and `Evilometer`).
 /// - `prompt_reads = VISIBLE_TABLE` for interactive steps (extend with `.reads(...)` when reading other zones mid-prompt).
 /// - `resolve_writes = NONE` (set with `.writes(...)` when mutating board state at resolution time).
-/// - `copy_timing = OnRoleTurn` (override with `.immediate_copy()` when `Doppelgänger` acts immediately at `#1`).
+/// - `copy_timing = Immediate` for [`WakeStep::solo`] (override with `.copy_on_turn()` when `Doppelgänger` waits for the role's scheduled turn), `OnRoleTurn` for `group`/`passive`, `None` for `pack`/`doppelganger`.
 #[derive(Clone, Copy)]
 pub struct WakeStep {
     target: StepTarget,
@@ -391,7 +391,7 @@ impl fmt::Debug for WakeStep {
 }
 
 impl WakeStep {
-    /// Interactive per-seat DM prompt (`eyes_open = true` by default).
+    /// Interactive per-seat DM prompt (`eyes_open = true`, `copy_timing = Immediate` by default).
     pub const fn solo(owner: &'static dyn Role, order: u16, f: SoloPromptFn) -> Self {
         Self {
             target: StepTarget::Role(owner),
@@ -400,7 +400,7 @@ impl WakeStep {
             eyes_open: true,
             short_budget: false,
             is_doppelganger: false,
-            copy_timing: Some(CopyTiming::OnRoleTurn),
+            copy_timing: Some(CopyTiming::Immediate),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
             kind: StepKind::Solo(f),
@@ -417,6 +417,7 @@ impl WakeStep {
 
     const fn mark_doppelganger(mut self) -> Self {
         self.is_doppelganger = true;
+        self.copy_timing = None;
         self
     }
 
@@ -478,12 +479,12 @@ impl WakeStep {
         self
     }
 
-    pub const fn immediate_copy(mut self) -> Self {
+    pub const fn copy_on_turn(mut self) -> Self {
         assert!(
             matches!(self.kind, StepKind::Solo(_)),
-            "only Solo steps support .immediate_copy()"
+            "only Solo steps support .copy_on_turn() (group and passive steps already wake on turn)"
         );
-        self.copy_timing = Some(CopyTiming::Immediate);
+        self.copy_timing = Some(CopyTiming::OnRoleTurn);
         self
     }
 
@@ -577,6 +578,7 @@ pub struct PromptCtx<'a> {
     reads: u16,
     seat: usize,
     eyes_open: bool,
+    is_immediate_copy: bool,
     dm: Option<ExclusiveDm>,
     pub roster: &'a Roster,
     pub ask_cfg: &'a AskConfig,
@@ -620,6 +622,11 @@ impl<'a> PromptView<'a> {
         self.check_read(BoardAccess::ARTIFACTS, "ARTIFACTS");
         self.board.raw().artifact(seat).is_some()
     }
+
+    pub fn is_face_up(self, seat: usize) -> bool {
+        self.check_read(BoardAccess::FACE_UP, "FACE_UP");
+        self.board.raw().is_player_face_up(seat)
+    }
 }
 
 impl<'a> PromptCtx<'a> {
@@ -642,6 +649,7 @@ impl<'a> PromptCtx<'a> {
             reads,
             seat,
             eyes_open,
+            is_immediate_copy: false,
             dm,
             roster,
             ask_cfg,
@@ -651,6 +659,11 @@ impl<'a> PromptCtx<'a> {
             board,
             saw_visible_table: AtomicBool::new(false),
         }
+    }
+
+    pub(crate) fn as_immediate_copy(mut self) -> Self {
+        self.is_immediate_copy = true;
+        self
     }
 
     #[inline]
@@ -775,6 +788,24 @@ impl<'a> PromptCtx<'a> {
             .into_iter()
             .filter(|s| !self.feared_seats.contains(s))
             .collect()
+    }
+
+    /// Packmates known to `self.seat` at the time of this prompt:
+    /// - After the pack huddle (`OnRoleTurn`), all waking members of `faction`.
+    /// - Before the pack huddle (`DoppelgangerImmediate` at `#1`), only `self.seat` and the player
+    ///   card she just copied (so unrevealed Werewolves are not leaked before `#2`).
+    pub fn known_pack_mates(&self, faction: NightFaction) -> Vec<usize> {
+        if self.is_immediate_copy {
+            let mut known = vec![self.seat];
+            if let Some(src) = self.board.raw().copied_from(self.seat) {
+                known.push(src);
+            }
+            known.sort_unstable();
+            known.dedup();
+            known
+        } else {
+            self.waking_seats_with_faction(faction)
+        }
     }
 }
 
