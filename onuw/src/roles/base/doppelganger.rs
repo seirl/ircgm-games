@@ -3,7 +3,9 @@
 use ircgm::prelude::*;
 
 use crate::board::BoardMut;
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
+use crate::role::{
+    GameSet, Phase, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
+};
 
 pub struct Doppelganger;
 pub static DOPPELGANGER: Doppelganger = Doppelganger;
@@ -97,21 +99,62 @@ impl Doppelganger {
         let actor_nick = ctx.nick(seat);
         let target_nick = ctx.nick(target_idx);
         let self_styled = DOPPELGANGER.info().styled_name();
+        let roster_has_dusk = ctx
+            .roster
+            .deck
+            .iter()
+            .any(|r| r.steps().iter().any(|st| st.phase == Phase::Dusk));
 
+        if copied.is_opaque_copycat {
+            let detail = if copied.endgame_role.id() == copied.seen_face.id() {
+                irc_format!("{}", copied.seen_face.styled_name())
+            } else {
+                irc_format!(
+                    "{} → {}",
+                    copied.seen_face.styled_name(),
+                    copied.endgame_role.styled_name()
+                )
+            };
+            if was_random {
+                ctx.dm(seat, format!("🎲 Randomly looked at {target_nick}."));
+                ctx.record(irc_format!(
+                    "🎭 {self_styled} ({}) randomly copied {} ({detail}).",
+                    actor_nick.bold(),
+                    target_nick.as_str().bold(),
+                ));
+            } else {
+                ctx.record(irc_format!(
+                    "🎭 {self_styled} ({}) copied {} ({detail}).",
+                    actor_nick.bold(),
+                    target_nick.as_str().bold(),
+                ));
+            }
+            ctx.dm(
+                seat,
+                irc_format!(
+                    "🎭 {}'s card is {}! You silently adopt whatever center role Copycat viewed, with no further night actions.",
+                    target_nick.bold(),
+                    copied.seen_face.styled_name(),
+                ),
+            );
+            return;
+        }
+
+        let role = copied.endgame_role;
         if was_random {
             ctx.dm(seat, format!("🎲 Randomly looked at {target_nick}."));
             ctx.record(irc_format!(
                 "🎭 {self_styled} ({}) randomly copied {} ({}).",
                 actor_nick.bold(),
                 target_nick.as_str().bold(),
-                copied.styled_name(),
+                role.styled_name(),
             ));
         } else {
             ctx.record(irc_format!(
                 "🎭 {self_styled} ({}) copied {} and became {}.",
                 actor_nick.bold(),
                 target_nick.as_str().bold(),
-                copied.styled_name(),
+                role.styled_name(),
             ));
         }
 
@@ -120,12 +163,17 @@ impl Doppelganger {
             irc_format!(
                 "🎭 {}'s card is {}! You are now that role.",
                 target_nick.bold(),
-                copied.styled_name(),
+                role.styled_name(),
             ),
         );
-        if copied.doppelganger_acts_immediately() {
-            // Immediate prompt arrives in the next tier.
-        } else if copied.doppelganger_wakes_on_schedule() {
+        if let Some(imm) = role.immediate_copy_step() {
+            if roster_has_dusk && imm.order >= 100 {
+                ctx.dm(
+                    seat,
+                    "🌙 Stand by—your copied Night action will fire at the start of Night!",
+                );
+            }
+        } else if role.doppelganger_wakes_on_schedule() {
             ctx.dm(
                 seat,
                 "🌙 Stand by—your copied role's night info will arrive on schedule!",

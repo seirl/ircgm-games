@@ -128,6 +128,19 @@ impl ScheduledTier {
     }
 }
 
+fn step_exec_phase(st: &WakeStep, has_dusk: bool) -> Phase {
+    let ord = if st.is_doppelganger {
+        if has_dusk { 10 } else { 105 }
+    } else {
+        st.order
+    };
+    if has_dusk && ord < 100 {
+        Phase::Dusk
+    } else {
+        Phase::Night
+    }
+}
+
 /// Pure function of the public `deck` multiset and `timings` — any permutation of the same
 /// `(N + 3)` cards produces the exact same tier list and wall-clock offsets.
 pub fn build_deck_schedule(
@@ -144,7 +157,16 @@ pub fn build_deck_schedule(
     }
 
     let has_dusk = steps.iter().any(|st| st.phase == Phase::Dusk);
-    let deck_has_immediate_copy = deck.iter().any(|r| r.doppelganger_acts_immediately());
+    let dg_step = steps.iter().copied().find(|st| st.is_doppelganger);
+    let deck_has_dusk_immediate_copy = has_dusk
+        && deck.iter().any(|r| {
+            r.immediate_copy_step()
+                .is_some_and(|st| step_exec_phase(st, has_dusk) == Phase::Dusk)
+        });
+    let deck_has_night_immediate_copy = deck.iter().any(|r| {
+        r.immediate_copy_step()
+            .is_some_and(|st| step_exec_phase(st, has_dusk) == Phase::Night)
+    });
     let player_count = deck.len().saturating_sub(3).max(1);
     let copycat_count = deck.iter().filter(|&&r| r.id() == "copycat").count();
     let doppelganger_count = deck.iter().filter(|&&r| r.is_doppelganger()).count();
@@ -156,13 +178,7 @@ pub fn build_deck_schedule(
             st.order
         }
     };
-    let effective_phase = |st: &'static WakeStep| -> Phase {
-        if has_dusk && effective_order(st) < 100 {
-            Phase::Dusk
-        } else {
-            Phase::Night
-        }
-    };
+    let effective_phase = |st: &'static WakeStep| -> Phase { step_exec_phase(st, has_dusk) };
 
     steps.sort_by_key(|&st| (effective_phase(st), effective_order(st), st.id()));
 
@@ -170,6 +186,7 @@ pub fn build_deck_schedule(
     let mut cur: Vec<&'static WakeStep> = Vec::new();
     let mut cur_phase: Option<Phase> = None;
     let mut cur_writes: u16 = 0;
+    let mut pending_night_dg_imm = has_dusk && deck_has_night_immediate_copy;
 
     let flush_cur = |cur: &mut Vec<&'static WakeStep>,
                      cur_phase: Option<Phase>,
@@ -193,6 +210,18 @@ pub fn build_deck_schedule(
             cur_phase = Some(phase);
         }
 
+        if phase == Phase::Night && pending_night_dg_imm && effective_order(step) > 105 {
+            if let Some(dg) = dg_step {
+                flush_cur(&mut cur, cur_phase, &mut cur_writes, &mut raw_tiers);
+                raw_tiers.push((
+                    Phase::Night,
+                    TierKind::DoppelgangerImmediate(dg),
+                    timings.tier_budget,
+                ));
+            }
+            pending_night_dg_imm = false;
+        }
+
         // Dedicated short-budget card-selection tiers (`Copycat`, `Doppelgänger`):
         if step.short_budget {
             flush_cur(&mut cur, cur_phase, &mut cur_writes, &mut raw_tiers);
@@ -201,12 +230,18 @@ pub fn build_deck_schedule(
                 TierKind::Steps(vec![step]),
                 timings.copycat_pick_budget,
             ));
-            if step.is_doppelganger && deck_has_immediate_copy {
-                raw_tiers.push((
-                    phase,
-                    TierKind::DoppelgangerImmediate(step),
-                    timings.tier_budget,
-                ));
+            if step.is_doppelganger {
+                let emit_imm = match phase {
+                    Phase::Dusk => deck_has_dusk_immediate_copy,
+                    Phase::Night => deck_has_night_immediate_copy,
+                };
+                if emit_imm {
+                    raw_tiers.push((
+                        phase,
+                        TierKind::DoppelgangerImmediate(step),
+                        timings.tier_budget,
+                    ));
+                }
             }
             continue;
         }
@@ -259,6 +294,15 @@ pub fn build_deck_schedule(
     }
 
     flush_cur(&mut cur, cur_phase, &mut cur_writes, &mut raw_tiers);
+    if pending_night_dg_imm {
+        if let Some(dg) = dg_step {
+            raw_tiers.push((
+                Phase::Night,
+                TierKind::DoppelgangerImmediate(dg),
+                timings.tier_budget,
+            ));
+        }
+    }
 
     let mut cursor = Duration::ZERO;
     raw_tiers
@@ -324,6 +368,7 @@ pub async fn run_night_phase(
         return Ok((board, all_chronicle));
     }
 
+    let has_dusk = schedule.iter().any(|t| t.phase == Phase::Dusk);
     let origin = Instant::now();
     let total_tiers = schedule.len();
     let mut current_phase: Option<Phase> = None;
@@ -370,9 +415,14 @@ pub async fn run_night_phase(
 
         match &tier.kind {
             TierKind::DoppelgangerImmediate(_) => {
-                let immediate_seats: SeatSet = (doppelganger_seats - feared_seats)
+                let tier_phase = tier.phase;
+                let immediate_seats: SeatSet = (doppelganger_seats - feared_seats - acted_immediately)
                     .into_iter()
-                    .filter(|&s| waking_roles[s].doppelganger_acts_immediately())
+                    .filter(|&s| {
+                        waking_roles[s]
+                            .immediate_copy_step()
+                            .is_some_and(|st| step_exec_phase(st, has_dusk) == tier_phase)
+                    })
                     .collect();
 
                 let board_snap = PromptBoard::new(&board);

@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use super::groob_zerb::{both_groob_and_zerb_in_play, GROOB, ZERB};
+use super::groob_zerb::{both_groob_and_zerb_in_play, groob_zerb_pointers, GROOB, ZERB};
 use crate::board::{BoardCards, SeatSet};
 use crate::role::{
     EffectiveAlignment, GameSet, GroupEffect, GroupPromptCtx, NightFaction, Role, RoleInfo,
@@ -75,19 +75,32 @@ impl Role for Leader {
 impl Leader {
     async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let aliens = ctx.seats_with_faction(NightFaction::Alien);
-        let groobs = ctx.waking_seats_with_role(&GROOB);
-        let zerbs = ctx.waking_seats_with_role(&ZERB);
-        let gz_seats = if !groobs.is_empty() && !zerbs.is_empty() {
-            groobs | zerbs
-        } else {
-            SeatSet::EMPTY
-        };
-        let thumb_aliens = aliens - gz_seats;
+        let gz_awake = ctx.waking_seats_with_role(&GROOB) | ctx.waking_seats_with_role(&ZERB);
+        let pointers = groob_zerb_pointers(gz_awake, |s| ctx.copied_from(s));
+        let pointing_seats: SeatSet = pointers.iter().map(|&(s, _)| s).collect();
+        let thumb_aliens = aliens - pointing_seats;
+
+        let is_clean_pair = pointers.len() == 2
+            && pointers[0].1 == SeatSet::single(pointers[1].0)
+            && pointers[1].1 == SeatSet::single(pointers[0].0);
+
+        let vectors_str: String = pointers
+            .iter()
+            .map(|&(src, dsts)| {
+                let dst_str = ctx.roster.format_seats(dsts);
+                if dsts.len() >= 2 {
+                    format!("{} → {dst_str} (both hands)", ctx.nick(src))
+                } else {
+                    format!("{} → {dst_str}", ctx.nick(src))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
 
         for s in active_seats {
             if aliens.is_empty() {
                 ctx.dm(s, "🫡 Leader: No Aliens are held by players tonight!");
-            } else if gz_seats.is_empty() {
+            } else if pointers.is_empty() {
                 ctx.dm(
                     s,
                     irc_format!(
@@ -95,7 +108,7 @@ impl Leader {
                         ctx.roster.format_seats(aliens).bold().red(),
                     ),
                 );
-            } else {
+            } else if is_clean_pair {
                 if !thumb_aliens.is_empty() {
                     ctx.dm(
                         s,
@@ -109,11 +122,29 @@ impl Leader {
                     s,
                     irc_format!(
                         "👾 Leader Intel: Groob & Zerb are pointing at each other ({}) — you ONLY win if NEITHER Groob nor Zerb dies!",
-                        ctx.roster.format_seats(gz_seats).bold().orange(),
+                        ctx.roster.format_seats(pointing_seats).bold().orange(),
+                    ),
+                );
+            } else {
+                if !thumb_aliens.is_empty() {
+                    ctx.dm(
+                        s,
+                        irc_format!(
+                            "🫡 Leader: Thumb-up Aliens: {}.",
+                            ctx.roster.format_seats(thumb_aliens).bold().red(),
+                        ),
+                    );
+                }
+                ctx.dm(
+                    s,
+                    irc_format!(
+                        "👾 Leader Intel: Groob/Zerb pointing: {} (if both Groob & Zerb are in play, you ONLY win if ALL Groob & Zerb holders survive)!",
+                        vectors_str.as_str().bold().orange(),
                     ),
                 );
             }
         }
+
         Ok(GroupEffect::new(move |_board, rctx| {
             let leaders = rctx.roster.format_seats(active_seats);
             let styled = LEADER.info().styled_name();

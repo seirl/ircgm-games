@@ -23,7 +23,6 @@ impl Role for Instigator {
         const {
             &[WakeStep::solo(&INSTIGATOR, 38, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
-                .copy_on_turn()
                 .writes(BoardAccess::MARKS)]
         }
     }

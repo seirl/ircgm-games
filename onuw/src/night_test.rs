@@ -76,16 +76,16 @@ fn deck_schedule_is_purely_deck_derived_and_invariant_to_card_order() {
         vec![
             (TierPhase::Dusk, "Copycat".into(), 0, 10),
             (TierPhase::Dusk, "Doppelgänger".into(), 10, 20),
+            (TierPhase::Dusk, "Vampires".into(), 20, 40),
+            (TierPhase::Dusk, "The Count (#1/2)".into(), 40, 60),
+            (TierPhase::Dusk, "The Count (#2/2)".into(), 60, 80),
+            (TierPhase::Night, "Sentinel".into(), 80, 100),
             (
-                TierPhase::Dusk,
+                TierPhase::Night,
                 "Doppelgänger (copied action)".into(),
-                20,
-                40
+                100,
+                120
             ),
-            (TierPhase::Dusk, "Vampires".into(), 40, 60),
-            (TierPhase::Dusk, "The Count (#1/2)".into(), 60, 80),
-            (TierPhase::Dusk, "The Count (#2/2)".into(), 80, 100),
-            (TierPhase::Night, "Sentinel".into(), 100, 120),
             (TierPhase::Night, "Werewolves".into(), 120, 140),
             (
                 TierPhase::Night,
@@ -843,4 +843,87 @@ async fn epic_battle_requires_third_faction_and_traitor_applies_after_artifact_a
     // Wait: Eve got 2 votes (Bob, Dave) and Dave (Prince) got 2 votes (Alice, Carol) -> Prince immunity DOES save Dave at 2-2 tie!
     // Check Bob won as Traitor alongside Alice/Carol? Let's assert Bob is in winners:
     assert!(dawn2.winner_nicks(&h2.roster).contains(&"Bob".to_owned()));
+}
+
+#[tokio::test(start_paused = true)]
+async fn dusk_doppelganger_splits_dusk_vs_night_immediates_respecting_fear_and_sentinel() {
+    use crate::roles::vampire::diseased::DISEASED;
+
+    // 1. Dusk immediate (`Diseased`) fires at Dusk #-7 BEFORE Vampires (#-6) & Renfield (#-6C):
+    let mut h_dusk_imm = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &DISEASED),
+            ("Carol", &VAMPIRE),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n1 = h_dusk_imm.spawn_night();
+    // Dusk #-7: Alice copies Bob (Diseased), then immediately places Mark::Disease on Carol (left neighbor = Carol):
+    h_dusk_imm.reply_dm("Alice", "Bob").await;
+    h_dusk_imm.reply_dm("Alice", "Carol").await;
+    // Dusk #-6: Vampire Carol marks Bob (overwriting Bob's Clarity while Carol already received Disease from Alice):
+    h_dusk_imm.reply_dm("Carol", "Bob").await;
+    // Dusk #-5: Original Diseased Bob places Mark::Disease on Alice:
+    h_dusk_imm.reply_dm("Bob", "Alice").await;
+    let rep1 = h_dusk_imm.finish_night(n1).await;
+    assert_eq!(rep1.mark_at(&h_dusk_imm.roster, "Carol"), Mark::Disease);
+    assert_eq!(rep1.mark_at(&h_dusk_imm.roster, "Bob"), Mark::Vampire);
+    assert_eq!(rep1.mark_at(&h_dusk_imm.roster, "Alice"), Mark::Disease);
+
+    // 2. Night immediate (`Robber`) copied in Dusk #-7 waits until Night #1 (after `00` Mark::Fear & `#0` Sentinel):
+    let mut h_fear = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &COUNT),
+            ("Carol", &ROBBER),
+            ("Dave", &SENTINEL),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n2 = h_fear.spawn_night();
+    h_fear.reply_dm("Alice", "Carol").await; // Dusk #-7: Alice copies Robber (does NOT rob in Dusk!)
+    h_fear.reply_dm("Bob", "Dave").await; // Dusk #-6: Count marks Dave with Vampire
+    h_fear.reply_dm("Bob", "Alice").await; // Dusk #-6B: Count paralyzes Alice with Mark::Fear!
+    h_fear.reply_dm("Dave", "Bob").await; // Night #0: Sentinel shields Bob
+    h_fear.reply_dm("Carol", "pass").await; // Night #6: Original Robber passes
+    let rep2 = h_fear.finish_night(n2).await;
+    assert!(!rep2.dms_to("Alice").contains("🦹 Robber:"));
+    assert!(rep2.has_chronicle_substr(
+        "Alice was paralyzed by the Mark of Fear and could not wake up during Night!"
+    ));
+
+    // 3. Unfeared Doppel-Robber at Night #1 sees and respects Sentinel's `#0` Shield token:
+    let mut h_shield = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &VAMPIRE),
+            ("Carol", &ROBBER),
+            ("Dave", &SENTINEL),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n3 = h_shield.spawn_night();
+    h_shield.reply_dm("Alice", "Carol").await; // Dusk #-7: Alice copies Robber
+    h_shield.reply_dm("Bob", "Dave").await; // Dusk #-6: Vampire marks Dave
+    h_shield.reply_dm("Dave", "Bob").await; // Night #0: Sentinel shields Bob!
+    // Night #1: Alice (Doppel-Robber) wakes AFTER Sentinel, tries shielded Bob -> rejected, then robs Dave:
+    let alice_rob_prompt = loop {
+        let m = h_shield.wait_for_new_dm("Alice").await;
+        if m.contains("Robber:") {
+            break m;
+        }
+    };
+    assert!(Text::parse(&alice_rob_prompt).plain().contains("Bob🛡"));
+    h_shield.send_dm("Alice", "Bob").await;
+    let rej = h_shield.wait_for_new_dm("Alice").await;
+    assert!(rej.contains("shielded"), "got: {rej}");
+    h_shield.send_dm("Alice", "Dave").await;
+    h_shield.reply_dm("Carol", "pass").await;
+    let rep3 = h_shield.finish_night(n3).await;
+    assert_eq!(rep3.effective_role_at(&h_shield.roster, "Alice"), "Sentinel");
+    assert_eq!(rep3.effective_role_at(&h_shield.roster, "Bob"), "Vampire");
 }

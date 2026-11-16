@@ -84,33 +84,129 @@ async fn count_mark_of_fear_suppresses_night_seer_completely() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn copycat_runs_before_doppelganger_so_chained_copy_propagates_center_role() {
+async fn copycat_runs_before_doppelganger_and_doppel_copycat_follows_cardboard_rule() {
+    use crate::roles::base::tanner::TANNER;
+    use crate::roles::base::werewolf::WEREWOLF;
+    use crate::roles::daybreak::paranormal_investigator::PARANORMAL_INVESTIGATOR;
+    use crate::roles::daybreak::witch::WITCH;
+
+    // 1. Copycat (#-8) peeks Werewolf in Center #1; Doppelgänger copies Copycat, sees ONLY "Copycat",
+    //    stays asleep (does NOT wake in Werewolf huddle), and inherits Werewolf for endgame!
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &DOPPELGANGER),
             ("Bob", &COPYCAT),
             ("Carol", &VILLAGER),
         ],
-        [&ROBBER, &VILLAGER, &VILLAGER],
+        [&WEREWOLF, &VILLAGER, &VILLAGER],
     )
     .await;
 
     let night = h.spawn_night();
-    // Copycat (#-8) runs BEFORE Doppelgänger (#-7) even though Alice is seat #1!
-    h.reply_dm("Bob", "1").await;
-    // Alice (Doppelgänger) copies Bob (Copycat -> Robber!) and steals Carol's Villager card:
-    h.reply_dm("Alice", "Bob").await;
-    h.reply_dm("Alice", "Carol").await;
-    // Night: Bob (Copycat-Robber) wakes on Robber's scheduled tier (#6) and passes:
+    h.reply_dm("Bob", "1").await; // Copycat -> Werewolf
+    h.reply_dm("Alice", "Bob").await; // Doppelgänger -> Copycat (sees "Copycat", stays asleep!)
+    // Night #2: ONLY Bob wakes as Lone Wolf (Alice does NOT wake because she doesn't know Bob saw Werewolf!):
     h.reply_dm("Bob", "pass").await;
 
     let report = h.finish_night(night).await;
     assert!(!report.channel_lines.join("\n").contains("Dusk falls!"));
-    assert_eq!(report.effective_role_at(&h.roster, "Bob"), "Robber");
-    assert_eq!(report.effective_role_at(&h.roster, "Alice"), "Villager");
-    assert_eq!(report.effective_role_at(&h.roster, "Carol"), "Robber");
-    assert!(report.has_chronicle_substr("Copycat (Bob) copied Center #1 and became Robber."));
-    assert!(report.has_chronicle_substr("Doppelgänger (Alice) copied Bob and became Robber."));
+    assert!(report.dms_to("Alice").contains("Bob's card is"));
+    assert!(report.dms_to("Alice").contains("Copycat"));
+    assert!(!report.dms_to("Alice").contains("Werewolf"));
+    assert_eq!(report.effective_role_at(&h.roster, "Bob"), "Werewolf");
+    assert_eq!(report.effective_role_at(&h.roster, "Alice"), "Werewolf");
+
+    // 2. Edge case `2.b`: Copycat peeks Paranormal Investigator in center, Doppelgänger copies Copycat,
+    //    then Copycat-PI peeks Tanner at #5C and becomes Tanner — Doppel-Copycat stays a Village PI!
+    let mut h_pi = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &COPYCAT),
+            ("Carol", &TANNER),
+        ],
+        [&PARANORMAL_INVESTIGATOR, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_pi = h_pi.spawn_night();
+    h_pi.reply_dm("Bob", "1").await;
+    h_pi.reply_dm("Alice", "Bob").await;
+    h_pi.reply_dm("Bob", "Carol").await; // Copycat-PI inspects Tanner Carol and transforms!
+    let rep_pi = h_pi.finish_night(n_pi).await;
+    assert_eq!(rep_pi.effective_role_at(&h_pi.roster, "Bob"), "Tanner");
+    assert_eq!(
+        rep_pi.effective_role_at(&h_pi.roster, "Alice"),
+        "Paranormal Investigator"
+    );
+
+    // 3. Apprentice Assassin wins when killing a Mark::Vampire-bitten Assassin, and does NOT win
+    //    off Mark::Assassin if Witch swapped the Assassin card into the center; also Monster Traitor
+    //    wins alongside Tanner when fellow Monster + Tanner both die!
+    let mut h_aa = OnuwTestHarness::new(
+        &[
+            ("Alice", &VAMPIRE),
+            ("Bob", &ASSASSIN),
+            ("Carol", &APPRENTICE_ASSASSIN),
+            ("Dave", &INSTIGATOR),
+            ("Eve", &TANNER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_aa = h_aa.spawn_night();
+    h_aa.reply_dm("Alice", "Bob").await; // Vampire bites Assassin Bob!
+    h_aa.reply_dm("Dave", "Alice").await; // Instigator gives Vampire Alice Mark::Traitor!
+    h_aa.reply_dm("Bob", "Dave").await; // Assassin Bob marks Dave
+    let rep_aa = h_aa.finish_night(n_aa).await;
+    // Execute Bob (Vampire-bitten Assassin, 2 votes) AND Eve (Tanner, 2 votes):
+    // - Carol (Apprentice Assassin) wins because Assassin Bob died (even with Mark::Vampire)!
+    // - Eve (Tanner) wins!
+    // - Village (Dave) wins because primary Vampire threat Bob died!
+    // - Alice (Vampire + Mark::Traitor) ALSO wins because fellow Vampire Bob died and Tanner only blocks the Vampire team, not a personal Traitor!
+    let dawn_aa = h_aa
+        .resolve_voting(
+            rep_aa,
+            &[
+                ("Alice", Some("Bob")),
+                ("Carol", Some("Bob")),
+                ("Bob", Some("Eve")),
+                ("Dave", Some("Eve")),
+                ("Eve", Some("Alice")),
+            ],
+        )
+        .await;
+    assert_eq!(
+        dawn_aa.winner_nicks(&h_aa.roster),
+        vec!["Alice", "Carol", "Dave", "Eve"]
+    );
+
+    // And if Witch swaps Assassin into the center during Night, Apprentice Assassin (who saw Assassin
+    // at Dusk and placed no solo mark) does NOT win off Assassin's Mark::Assassin:
+    let mut h_sw = OnuwTestHarness::new(
+        &[
+            ("Alice", &ASSASSIN),
+            ("Bob", &APPRENTICE_ASSASSIN),
+            ("Carol", &WITCH),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_sw = h_sw.spawn_night();
+    h_sw.reply_dm("Alice", "Carol").await; // Assassin marks Carol
+    h_sw.reply_dm("Carol", "1").await; // Witch peeks Center #1 (Villager)
+    h_sw.reply_dm("Carol", "Alice").await; // Witch swaps Villager onto Alice (moving Assassin into Center #1!)
+    let rep_sw = h_sw.finish_night(n_sw).await;
+    // Execute Carol (who holds Mark::Assassin, while Assassin is now in Center #1):
+    let dawn_sw = h_sw
+        .resolve_voting(
+            rep_sw,
+            &[
+                ("Alice", Some("Carol")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Alice")),
+            ],
+        )
+        .await;
+    assert!(dawn_sw.winner_nicks(&h_sw.roster).is_empty());
 }
 
 #[tokio::test(start_paused = true)]

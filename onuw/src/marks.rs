@@ -185,7 +185,11 @@ impl EndgameModifier for Mark {
                 .filter(|&o| ctx.board.effective_team(o) == team)
                 .collect();
             if !teammates.is_empty() {
-                let traitor_won = !ctx.blocked_teams.contains(&team)
+                // Global blockers (`Mad Scientist`, `Synthetic Alien`) block `Team::Village` alongside
+                // all other teams, whereas `Tanner` only blocks `MONSTER_TEAMS` (allowing a Monster
+                // `Traitor` who got a fellow Monster killed on a tie with `Tanner` to still win!).
+                let global_block = ctx.blocked_teams.contains(&Team::Village);
+                let traitor_won = !global_block
                     && !ctx.dead_seats.contains(holder)
                     && teammates.intersects(ctx.dead_seats);
                 if traitor_won {

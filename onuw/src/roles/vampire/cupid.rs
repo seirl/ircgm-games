@@ -23,7 +23,6 @@ impl Role for Cupid {
         const {
             &[WakeStep::solo(&CUPID, 35, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
-                .copy_on_turn()
                 .writes(BoardAccess::MARKS)]
         }
     }

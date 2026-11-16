@@ -238,3 +238,78 @@ async fn amplified_psychic_sees_visible_table_and_multi_alien_scan_records_all_f
         "Frank DMs: {frank_plain}"
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn doppelganger_groob_reproduces_1b_asymmetric_and_two_handed_leader_pointing() {
+    use crate::roles::base::doppelganger::DOPPELGANGER;
+    use ircgm::prelude::Text;
+
+    // 1.b.i: Groob (Bob) + Doppel-Groob (Alice, copied Bob), NO Zerb (Zerb in center):
+    //        Bob sees Alice open her eyes at #1D, assumes Alice is Zerb, and points `Bob → Alice` at #3C;
+    //        Alice knows Bob is Groob, deduces Zerb is in center, and sticks out an Alien thumb!
+    let mut h1 = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &GROOB),
+            ("Carol", &LEADER),
+        ],
+        [&ZERB, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n1 = h1.spawn_night();
+    h1.reply_dm("Alice", "Bob").await;
+    h1.reply_dm("Alice", "pass").await;
+    let rep1 = h1.finish_night(n1).await;
+    let carol1 = Text::parse(&rep1.dms_to("Carol")).plain();
+    assert!(
+        carol1.contains("Thumb-up Aliens: Alice"),
+        "Carol DMs: {carol1}"
+    );
+    assert!(
+        carol1.contains("Groob/Zerb pointing: Bob → Alice"),
+        "Carol DMs: {carol1}"
+    );
+
+    // 1.b.ii: Groob (Bob) + Doppel-Groob (Alice, copied Bob) + Zerb (Carol) + Leader (Dave):
+    //         Alice points 1 hand (`Alice → Carol`), while Bob (`Bob → Alice, Carol (both hands)`)
+    //         and Carol (`Carol → Alice, Bob (both hands)`) point with both hands!
+    //         And Leader Dave only wins if Alice, Bob, AND Carol all survive!
+    let mut h2 = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &GROOB),
+            ("Carol", &ZERB),
+            ("Dave", &LEADER),
+            ("Eve", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n2 = h2.spawn_night();
+    h2.reply_dm("Alice", "Bob").await;
+    h2.reply_dm("Alice", "pass").await;
+    let rep2 = h2.finish_night(n2).await;
+    let dave2 = Text::parse(&rep2.dms_to("Dave")).plain();
+    assert!(
+        dave2.contains("Alice → Carol")
+            && dave2.contains("Bob → Alice, Carol (both hands)")
+            && dave2.contains("Carol → Alice, Bob (both hands)"),
+        "Dave DMs: {dave2}"
+    );
+    // Kill Doppel-Groob Alice -> Leader Dave LOSES even though original Groob Bob & Zerb Carol survived!
+    let dawn_dead_dg = h2
+        .resolve_voting(
+            rep2,
+            &[
+                ("Alice", Some("Eve")),
+                ("Bob", Some("Alice")),
+                ("Carol", Some("Alice")),
+                ("Dave", Some("Eve")),
+                ("Eve", Some("Alice")),
+            ],
+        )
+        .await;
+    assert!(!dawn_dead_dg
+        .winner_nicks(&h2.roster)
+        .contains(&"Dave".to_owned()));
+}

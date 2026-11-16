@@ -355,6 +355,12 @@ pub(crate) enum StepKind {
 enum StepTarget {
     Role(&'static dyn Role),
     Pack(NightFaction),
+    Pair {
+        id: &'static str,
+        callout: &'static str,
+        team: Team,
+        faction: Option<NightFaction>,
+    },
 }
 
 /// Declarative Dusk/Night schedule entry contributed by [`Role::steps`].
@@ -453,6 +459,34 @@ impl WakeStep {
         }
     }
 
+    /// Shared pair/rival group wake (`Groob & Zerb` `#1D`).
+    pub const fn pair(
+        id: &'static str,
+        callout: &'static str,
+        team: Team,
+        faction: Option<NightFaction>,
+        order: u16,
+        f: GroupPromptFn,
+    ) -> Self {
+        Self {
+            target: StepTarget::Pair {
+                id,
+                callout,
+                team,
+                faction,
+            },
+            phase: Phase::Night,
+            order,
+            eyes_open: true,
+            short_budget: false,
+            is_doppelganger: false,
+            copy_timing: Some(CopyTiming::OnRoleTurn),
+            prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
+            resolve_writes: BoardAccess(BoardAccess::NONE),
+            kind: StepKind::Group(f),
+        }
+    }
+
     /// Passive resolution-time wake (`eyes_open = true` by default; chain `.eyes_closed()` for `Cow`/`Evilometer`).
     pub const fn passive(owner: &'static dyn Role, order: u16, f: PassiveWakeFn) -> Self {
         Self {
@@ -512,6 +546,7 @@ impl WakeStep {
         match self.target {
             StepTarget::Role(r) => r.id(),
             StepTarget::Pack(f) => f.step_id(),
+            StepTarget::Pair { id, .. } => id,
         }
     }
 
@@ -519,6 +554,7 @@ impl WakeStep {
         match self.target {
             StepTarget::Role(r) => r.name(),
             StepTarget::Pack(f) => f.callout_name(),
+            StepTarget::Pair { callout, .. } => callout,
         }
     }
 
@@ -526,13 +562,20 @@ impl WakeStep {
         match self.target {
             StepTarget::Role(r) => r.styled_name(),
             StepTarget::Pack(f) => f.styled_callout(),
+            StepTarget::Pair { callout, team, .. } => match team {
+                Team::Werewolf | Team::SuperVillain => callout.bold().red().into(),
+                Team::Vampire => callout.bold().magenta().into(),
+                Team::Alien => callout.bold().green().into(),
+                Team::Independent => callout.bold().orange().into(),
+                Team::Village => callout.bold().cyan().into(),
+            },
         }
     }
 
     pub fn pack_faction(&self) -> Option<NightFaction> {
         match self.target {
             StepTarget::Pack(f) => Some(f),
-            StepTarget::Role(_) => None,
+            StepTarget::Role(_) | StepTarget::Pair { .. } => None,
         }
     }
 
@@ -540,6 +583,7 @@ impl WakeStep {
         match self.target {
             StepTarget::Role(r) => r.night_faction(),
             StepTarget::Pack(_) => None,
+            StepTarget::Pair { faction, .. } => faction,
         }
     }
 
@@ -965,6 +1009,11 @@ impl<'a> GroupPromptCtx<'a> {
     pub fn waking_seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
         self.seats_with_role(role) - self.feared_seats
     }
+
+    /// Seat that `seat` copied via `Doppelgänger` (`None` for non-Doppelgänger seats).
+    pub fn copied_from(&self, seat: usize) -> Option<usize> {
+        self.board.raw().copied_from(seat)
+    }
 }
 
 pub struct ResolveCtx<'a> {
@@ -1039,6 +1088,11 @@ impl<'a> VictoryCtx<'a> {
     /// Seats currently holding `role` un-overridden by role-replacing `Artifact`s or `Mark::Vampire`.
     pub fn active_holders(&self, role: &'static dyn Role) -> SeatSet {
         self.board.active_holders(role)
+    }
+
+    /// Seats whose card is `role` un-overridden by role-replacing `Artifact`s (including `Mark::Vampire` holders).
+    pub fn role_card_holders(&self, role: &'static dyn Role) -> SeatSet {
+        self.board.role_card_holders(role)
     }
 }
 

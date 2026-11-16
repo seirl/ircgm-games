@@ -26,7 +26,6 @@ impl Role for Diseased {
         const {
             &[WakeStep::solo(&DISEASED, 34, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
-                .copy_on_turn()
                 .writes(BoardAccess::MARKS)]
         }
     }

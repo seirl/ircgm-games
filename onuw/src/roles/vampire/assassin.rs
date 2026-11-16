@@ -143,14 +143,7 @@ impl Role for ApprenticeAssassin {
                 .into_iter()
                 .any(|s| ctx.board.mark(s) == Mark::Assassin)
         } else {
-            let assassins = ctx.active_holders(&ASSASSIN);
-            if !assassins.is_empty() {
-                assassins.intersects(ctx.dead_seats)
-            } else {
-                ctx.dead_seats
-                    .into_iter()
-                    .any(|s| ctx.board.mark(s) == Mark::Assassin)
-            }
+            ctx.role_card_holders(&ASSASSIN).intersects(ctx.dead_seats)
         };
         won.then_some(SpecialVictory::independent())
     }
