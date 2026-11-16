@@ -29,7 +29,7 @@ pub struct GameConfig {
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
-            lobby_duration: Duration::from_secs(90),
+            lobby_duration: Duration::from_secs(500),
             night_timings: NightTimings::default(),
             day_duration_override: None,
             vote_timeout: Duration::from_secs(45),
