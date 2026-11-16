@@ -40,6 +40,10 @@ impl Role for Priest {
 impl Priest {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let roster = ctx.roster;
+        if !roster.deck_has_marks() {
+            ctx.say("✝️ Priest: No Mark-placing roles are in this deck — everyone already has clarity tonight.");
+            return Ok(SeatEffect::noop());
+        }
         let players_str = ctx.format_visible_players();
         let prompt = irc_format!(
             "✝️ Priest: You cleanse yourself; reply {} to ALSO cleanse another player with Mark of Clarity, or {}. Players: {players_str}",

@@ -132,15 +132,6 @@ impl Oracle {
                         ));
                     }
                     OracleOmen::Normal => {
-                        if let Some(seen) = board.peek_player(seat, seat) {
-                            rctx.dm(
-                                seat,
-                                irc_format!(
-                                    "🔮🛸 Oracle Reflection: Your own card is {}!",
-                                    seen.display_for_peek(),
-                                ),
-                            );
-                        }
                         rctx.record(irc_format!(
                             "🔮🛸 {label} ({}) kept cosmic frequencies {:?}.",
                             actor_nick.bold(),

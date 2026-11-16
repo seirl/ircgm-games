@@ -113,7 +113,11 @@ impl Mark {
             .into_iter()
             .filter(|&s| board.mark(s) == Mark::Love)
             .collect();
-        if lovers.len() >= 2 {
+        if let Some(solo_lover) = lovers.only() {
+            let _ = roster.seats[solo_lover].user.say(
+                "💘 Lovers wake: You woke alone — no one else holds the Mark of Love!",
+            );
+        } else if lovers.len() >= 2 {
             for s in lovers {
                 let partners = lovers.without(s);
                 let _ = roster.seats[s].user.say(irc_format!(
@@ -168,7 +172,7 @@ impl EndgameModifier for Mark {
     }
 
     fn override_win(&self, holder: usize, ctx: &WinnerFilterCtx<'_>, winners: &mut WinnerMap) {
-        if *self != Mark::Traitor || ctx.board.has_role_override_artifact(holder) {
+        if *self != Mark::Traitor {
             return;
         }
         let team = ctx.board.effective_team(holder);

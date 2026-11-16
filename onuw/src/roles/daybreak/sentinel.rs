@@ -13,7 +13,7 @@ impl Role for Sentinel {
             "Sentinel",
             GameSet::Daybreak,
             Team::Village,
-            "Wake before Night (Dusk) to optionally place a Shield token on another player's card, preventing it from being viewed or moved.",
+            "Wake first at Night (#0) to optionally place a Shield token on another player's card, preventing it from being viewed, moved, flipped, or given an Artifact.",
         )
     }
 

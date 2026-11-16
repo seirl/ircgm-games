@@ -202,3 +202,39 @@ async fn solo_groob_joins_alien_team_and_leader_wins_when_both_groob_and_zerb_su
         .await;
     assert_eq!(dawn2.winner_nicks(&h2.roster), vec!["Carol"]);
 }
+
+#[tokio::test(start_paused = true)]
+async fn amplified_psychic_sees_visible_table_and_multi_alien_scan_records_all_for_aura_seer() {
+    use crate::roles::daybreak::{aura_seer::AURA_SEER, sentinel::SENTINEL};
+    use ircgm::prelude::Text;
+
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &ORACLE),
+            ("Bob", &SENTINEL),
+            ("Carol", &SYNTHETIC_ALIEN),
+            ("Dave", &GROOB),
+            ("Eve", &PSYCHIC),
+            ("Frank", &AURA_SEER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night = h.spawn_night();
+    // Oracle amplifies; Sentinel shields Alice; Groob (Dave, preferred over Synthetic Alien Carol as commander!) scans Eve:
+    h.reply_dm("Alice", "amplify").await;
+    h.reply_dm("Bob", "Alice").await;
+    h.reply_dm("Dave", "scan Eve").await;
+
+    let report = h.finish_night(night).await;
+    // Psychic (Eve) gets wakeup DM AND sees `Alice🛡` under AmplifiedSignals:
+    let eve_plain = Text::parse(&report.dms_to("Eve")).plain();
+    assert!(eve_plain.contains("Alice🛡"), "Eve DMs: {eve_plain}");
+    // Aura Seer (Frank) sees BOTH Carol (Synthetic Alien) and Dave (Groob) from group Scan, plus Eve (Psychic), and NOT Alice (Oracle with Psychic in deck):
+    let frank_plain = Text::parse(&report.dms_to("Frank")).plain();
+    assert!(
+        frank_plain.contains("Carol, Dave, Eve"),
+        "Frank DMs: {frank_plain}"
+    );
+}

@@ -24,7 +24,7 @@ impl Role for Blob {
             "Blob",
             GameSet::Alien,
             Team::Independent,
-            "Part of the Blob! You win ONLY if you and every neighbor absorbed into the Blob survive the vote!",
+            "Part of the Blob! Win ONLY if you and every absorbed neighbor (<6p: left neighbor; 6+p: left & right neighbors) survive!",
         )
     }
 

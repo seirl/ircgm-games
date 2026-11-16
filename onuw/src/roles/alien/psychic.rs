@@ -42,10 +42,17 @@ impl Psychic {
         let (left, right) = roster.neighbors(seat);
 
         let targets: SeatSet = if omen == OracleOmen::AmplifiedSignals {
+            ctx.say(
+                "🧠 Psychic: Cosmic signals are AMPLIFIED — reading BOTH neighbors' minds! Vision arrives when the phase ends.",
+            );
             SeatSet::from([left, right])
         } else {
             let unshielded = SeatSet::from([left, right]) - view.shielded_seats();
             if unshielded.is_empty() {
+                ctx.say(
+                    "🛡️ Psychic: Both neighboring cards are shielded — you cannot read either mind tonight!"
+                        .yellow(),
+                );
                 SeatSet::EMPTY
             } else {
                 let left_nick = roster.seats[left].user.nick();

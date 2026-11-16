@@ -69,18 +69,48 @@ impl Role for Groob {
 
 impl Groob {
     async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let zerb_seats = ctx.seats_with_role(&ZERB);
+        let zerb_seats = ctx.waking_seats_with_role(&ZERB);
         let zerb_info = if zerb_seats.is_empty() {
+            let has_zerb_in_deck = ctx.roster.deck_has(&ZERB);
+            let has_marks = ctx.roster.deck_has_marks();
             for s in active_seats {
-                ctx.dm(
-                    s,
-                    "👾 Groob: Zerb is in the center — you are on the regular Alien team tonight!",
-                );
+                let others = active_seats.without(s);
+                if !others.is_empty() {
+                    ctx.dm(
+                        s,
+                        irc_format!(
+                            "👾 Fellow waking Groob(s): {}",
+                            ctx.roster.format_seats(others).bold().green(),
+                        ),
+                    );
+                }
+                let msg = if !has_zerb_in_deck {
+                    "👾 Groob: Zerb is not in the deck — you are on the regular Alien team tonight!"
+                } else if has_marks {
+                    "👾 Groob: No Zerb woke up tonight — if Zerb is in the center, you are on the regular Alien team tonight!"
+                } else {
+                    "👾 Groob: Zerb is in the center — you are on the regular Alien team tonight!"
+                };
+                ctx.dm(s, msg);
             }
-            "in the center".to_owned()
+            if !has_zerb_in_deck {
+                "not in deck".to_owned()
+            } else {
+                "did not wake / in center".to_owned()
+            }
         } else {
             let names = ctx.roster.format_seats(zerb_seats);
             for s in active_seats {
+                let others = active_seats.without(s);
+                if !others.is_empty() {
+                    ctx.dm(
+                        s,
+                        irc_format!(
+                            "👾 Fellow waking Groob(s): {}",
+                            ctx.roster.format_seats(others).bold().green(),
+                        ),
+                    );
+                }
                 ctx.dm(
                     s,
                     irc_format!(
@@ -155,18 +185,48 @@ impl Role for Zerb {
 
 impl Zerb {
     async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let groob_seats = ctx.seats_with_role(&GROOB);
+        let groob_seats = ctx.waking_seats_with_role(&GROOB);
         let groob_info = if groob_seats.is_empty() {
+            let has_groob_in_deck = ctx.roster.deck_has(&GROOB);
+            let has_marks = ctx.roster.deck_has_marks();
             for s in active_seats {
-                ctx.dm(
-                    s,
-                    "👾 Zerb: Groob is in the center — you are on the regular Alien team tonight!",
-                );
+                let others = active_seats.without(s);
+                if !others.is_empty() {
+                    ctx.dm(
+                        s,
+                        irc_format!(
+                            "👾 Fellow waking Zerb(s): {}",
+                            ctx.roster.format_seats(others).bold().green(),
+                        ),
+                    );
+                }
+                let msg = if !has_groob_in_deck {
+                    "👾 Zerb: Groob is not in the deck — you are on the regular Alien team tonight!"
+                } else if has_marks {
+                    "👾 Zerb: No Groob woke up tonight — if Groob is in the center, you are on the regular Alien team tonight!"
+                } else {
+                    "👾 Zerb: Groob is in the center — you are on the regular Alien team tonight!"
+                };
+                ctx.dm(s, msg);
             }
-            "in the center".to_owned()
+            if !has_groob_in_deck {
+                "not in deck".to_owned()
+            } else {
+                "did not wake / in center".to_owned()
+            }
         } else {
             let names = ctx.roster.format_seats(groob_seats);
             for s in active_seats {
+                let others = active_seats.without(s);
+                if !others.is_empty() {
+                    ctx.dm(
+                        s,
+                        irc_format!(
+                            "👾 Fellow waking Zerb(s): {}",
+                            ctx.roster.format_seats(others).bold().green(),
+                        ),
+                    );
+                }
                 ctx.dm(
                     s,
                     irc_format!(

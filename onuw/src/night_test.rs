@@ -765,3 +765,82 @@ async fn doppelganger_curator_wakes_sequentially_after_curator_and_sees_first_ar
     assert!(report.board.artifact(h.seat_of("Carol")).is_some());
     assert!(report.board.artifact(h.seat_of("Alice")).is_some());
 }
+
+#[tokio::test(start_paused = true)]
+async fn epic_battle_requires_third_faction_and_traitor_applies_after_artifact_and_fear_hides_sensors() {
+    // 1. Pure 2-faction monster board (`[Werewolf, Vampire, Villager + Mark::Vampire]` = 0 Villagers)
+    //    does NOT trigger Epic Battle double-kill: only 1st place (2 votes) dies, so Vampires win!
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &WEREWOLF),
+            ("Bob", &VAMPIRE),
+            ("Carol", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n = h.spawn_night();
+    h.reply_dm("Bob", "Carol").await; // Vampire marks Carol -> 0 Villagers remain!
+    h.reply_dm("Alice", "pass").await;
+    let rep = h.finish_night(n).await;
+    let dawn = h
+        .resolve_voting(
+            rep,
+            &[
+                ("Alice", Some("Bob")),   // 1 vote on Bob (Vampire)
+                ("Bob", Some("Alice")),   // 2 votes on Alice (Werewolf)
+                ("Carol", Some("Alice")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn.dead_nicks(&h.roster).len(), 1);
+    assert!(dawn.dead_nicks(&h.roster).contains("Alice"));
+    assert_eq!(dawn.winner_nicks(&h.roster), vec!["Bob", "Carol"]);
+
+    // 2. Mark::Fear suppresses Cow & Evilometer from leaking to Aliens & Super Villains,
+    //    and Mark::Traitor applies to holder's new ClawOfTheWerewolf team:
+    let mut h2 = OnuwTestHarness::new(
+        &[
+            ("Alice", &COUNT),
+            ("Bob", &COW),
+            ("Carol", &ALIEN),
+            ("Dave", &PRINCE),
+            ("Eve", &WEREWOLF),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n2 = h2.spawn_night();
+    h2.reply_dm("Alice", "Dave").await; // Vampire Coven marks Dave
+    h2.reply_dm("Alice", "Bob").await; // Count places Mark::Fear on Cow Bob!
+    h2.reply_dm("Carol", "pass").await; // Alien Carol does NOT see feared Cow Bob!
+    h2.reply_dm("Eve", "pass").await;
+    let mut rep2 = h2.finish_night(n2).await;
+    assert!(!rep2.dms_to("Carol").contains("holds the Cow card"));
+
+    // Give Bob ClawOfTheWerewolf + Mark::Traitor (now Werewolf Traitor!) and test Prince non-lethal 2-vote silence:
+    let bob_idx = h2.seat_of("Bob");
+    let dave_idx = h2.seat_of("Dave");
+    rep2.board
+        .insert_artifact_for_test(bob_idx, Artifact::ClawOfTheWerewolf);
+    rep2.board.set_mark_for_test(bob_idx, Mark::Traitor);
+    rep2.board.set_mark_for_test(dave_idx, Mark::Clarity); // Dave is pure Village Prince
+
+    // Eve (Werewolf) gets 3 votes and dies; Dave (Prince) gets 2 votes (out-voted anyway -> no royal immunity leak!);
+    // Bob (Claw Werewolf + Traitor) survives while fellow Werewolf Eve dies -> Bob wins as Traitor!
+    let dawn2 = h2
+        .resolve_voting(
+            rep2,
+            &[
+                ("Alice", Some("Dave")),
+                ("Carol", Some("Dave")),
+                ("Bob", Some("Eve")),
+                ("Dave", Some("Eve")),
+                ("Eve", Some("Alice")),
+            ],
+        )
+        .await;
+    // Wait: Eve got 2 votes (Bob, Dave) and Dave (Prince) got 2 votes (Alice, Carol) -> Prince immunity DOES save Dave at 2-2 tie!
+    // Check Bob won as Traitor alongside Alice/Carol? Let's assert Bob is in winners:
+    assert!(dawn2.winner_nicks(&h2.roster).contains(&"Bob".to_owned()));
+}

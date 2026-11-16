@@ -80,6 +80,16 @@ impl Intern {
     async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let scientists = ctx.seats_with_role(&MAD_SCIENTIST);
         for s in active_seats {
+            let others = active_seats.without(s);
+            if !others.is_empty() {
+                ctx.dm(
+                    s,
+                    irc_format!(
+                        "🥽 Fellow Intern(s): {}",
+                        ctx.roster.format_seats(others).bold().orange(),
+                    ),
+                );
+            }
             if scientists.is_empty() {
                 ctx.dm(
                     s,

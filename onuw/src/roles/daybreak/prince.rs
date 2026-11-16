@@ -12,7 +12,7 @@ impl Role for Prince {
             "Prince",
             GameSet::Daybreak,
             Team::Village,
-            "Sleep at night. Royal immunity: you CANNOT die! Any votes against you deflect to the next-highest vote-getter (>= 2 votes).",
+            "Sleep at night. Royal immunity: votes against you do not count and deflect to the next-highest vote-getter (>= 2 votes)!",
         )
     }
 

@@ -725,6 +725,11 @@ impl<'a> BoardMut<'a> {
         self.inner.viewed_or_moved_actors.insert(actor);
     }
 
+    /// Records additional seats that viewed a peeked card (`Alien` group bio-scan).
+    pub fn record_card_viewers(&mut self, viewers: SeatSet) {
+        self.inner.viewed_or_moved_actors |= viewers;
+    }
+
     /// Peeks `target`'s card if unshielded, automatically recording `actor` for `Aura Seer`.
     pub fn peek_player(&mut self, actor: usize, target: usize) -> Option<Card> {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
@@ -863,7 +868,8 @@ impl<'a> BoardMut<'a> {
         Some(copied)
     }
 
-    /// Copies `center[slot]` onto `actor` (`Copycat`), updating both card & waking identity.
+    /// Copies `center[slot]` onto `actor` (`Copycat`), updating both card & waking identity
+    /// (except when `center[slot]` is `Doppelgänger`, which stays asleep per official ONUV rules).
     pub fn copy_from_center(
         &mut self,
         actor: usize,
@@ -878,7 +884,9 @@ impl<'a> BoardMut<'a> {
         let copied = self.inner.center[slot].effective_role();
         self.inner.viewed_or_moved_actors.insert(actor);
         self.inner.players[actor].transform(copied);
-        rctx.set_waking_identity(actor, copied, format!("{label_prefix}-{}", copied.name()));
+        if !copied.is_doppelganger() {
+            rctx.set_waking_identity(actor, copied, format!("{label_prefix}-{}", copied.name()));
+        }
         copied
     }
 

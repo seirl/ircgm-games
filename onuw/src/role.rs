@@ -960,6 +960,11 @@ impl<'a> GroupPromptCtx<'a> {
             .filter_map(|(i, r)| (r.id() == target_id).then_some(i))
             .collect()
     }
+
+    /// Waking seats holding `role` (excluding seats suppressed by `Mark::Fear`).
+    pub fn waking_seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
+        self.seats_with_role(role) - self.feared_seats
+    }
 }
 
 pub struct ResolveCtx<'a> {
@@ -1266,12 +1271,9 @@ impl dyn Role {
         self.info().styled_name()
     }
 
-    /// True for primary Werewolf/Vampire/Alien/SuperVillain threats (excluding `Minion` and `Renfield`).
+    /// True for primary Werewolf/Vampire/Alien/SuperVillain threats (including `Groob` & `Zerb`, excluding `Minion` and `Renfield`).
     pub fn is_primary_threat(&self) -> bool {
-        matches!(
-            self.team(),
-            Team::Werewolf | Team::Vampire | Team::Alien | Team::SuperVillain
-        ) && !self.is_minion()
+        self.threat_team().is_some()
     }
 
     /// True for roles that cause `Paranormal Investigator` to stop & transform and `Revealer`

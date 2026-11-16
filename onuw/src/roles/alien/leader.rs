@@ -75,18 +75,19 @@ impl Role for Leader {
 impl Leader {
     async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let aliens = ctx.seats_with_faction(NightFaction::Alien);
-        let groobs = ctx.seats_with_role(&GROOB);
-        let zerbs = ctx.seats_with_role(&ZERB);
+        let groobs = ctx.waking_seats_with_role(&GROOB);
+        let zerbs = ctx.waking_seats_with_role(&ZERB);
         let gz_seats = if !groobs.is_empty() && !zerbs.is_empty() {
             groobs | zerbs
         } else {
             SeatSet::EMPTY
         };
+        let thumb_aliens = aliens - gz_seats;
 
         for s in active_seats {
             if aliens.is_empty() {
                 ctx.dm(s, "🫡 Leader: No Aliens are held by players tonight!");
-            } else {
+            } else if gz_seats.is_empty() {
                 ctx.dm(
                     s,
                     irc_format!(
@@ -94,8 +95,16 @@ impl Leader {
                         ctx.roster.format_seats(aliens).bold().red(),
                     ),
                 );
-            }
-            if !gz_seats.is_empty() {
+            } else {
+                if !thumb_aliens.is_empty() {
+                    ctx.dm(
+                        s,
+                        irc_format!(
+                            "🫡 Leader: Other Aliens in play: {}.",
+                            ctx.roster.format_seats(thumb_aliens).bold().red(),
+                        ),
+                    );
+                }
                 ctx.dm(
                     s,
                     irc_format!(

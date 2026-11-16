@@ -96,6 +96,9 @@ async fn temptress_dr_peeker_evilometer_role_retriever_and_annoying_lad_work() {
     // Villains spot Evilometer (Dave), and Evilometer (Dave) beeps for adjacent Carol (Dr. Peeker):
     assert!(report.dms_to("Alice").contains("Dave holds the Evilometer"));
     assert!(report.dms_to("Carol").contains("Dave holds the Evilometer"));
+    assert!(report
+        .dms_to("Carol")
+        .contains("planted the extra Villain card onto Eve"));
     assert!(report.dms_to("Carol").contains("Alice holds Temptress"));
     assert!(report.dms_to("Dave").contains("*BEEP! BEEP!*"));
     assert!(report.dms_to("Dave").contains("poked your right shoulder"));
@@ -139,4 +142,31 @@ async fn rapscallion_center_peek_and_mad_scientist_intern_co_win_blocking_all_te
         )
         .await;
     assert_eq!(dawn.winner_nicks(&h.roster), vec!["Bob", "Carol"]);
+}
+
+#[tokio::test(start_paused = true)]
+async fn annoying_lad_rejects_pass_and_auto_pokes_neighbor_on_timeout() {
+    use std::time::Duration;
+
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &ANNOYING_LAD),
+            ("Bob", &VILLAGER),
+            ("Carol", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night = h.spawn_night();
+    let _ = h.wait_for_new_dm("Alice").await;
+    h.send_dm("Alice", "pass").await;
+    let rej = h.wait_for_new_dm("Alice").await;
+    assert!(rej.contains("You MUST pick left or right"));
+    h.advance_time(Duration::from_secs(10)).await;
+
+    let report = h.finish_night(night).await;
+    let poked_bob = report.dms_to("Bob").contains("Annoying Lad");
+    let poked_carol = report.dms_to("Carol").contains("Annoying Lad");
+    assert!(poked_bob ^ poked_carol);
 }

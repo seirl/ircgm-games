@@ -31,11 +31,11 @@ impl Mason {
     async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let total_masons = ctx.seats_with_role(&MASON).len();
         if let Some(solo) = active_seats.only() {
-            if total_masons > 1 {
+            if ctx.roster.deck_has_marks() {
                 ctx.dm(
                     solo,
                     irc_format!(
-                        "🧱 Mason: You woke {} (your fellow Mason could not wake up tonight!).",
+                        "🧱 Mason: You woke {} tonight (no other Mason opened their eyes!).",
                         "alone".bold().light_cyan()
                     ),
                 );

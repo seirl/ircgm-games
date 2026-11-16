@@ -29,7 +29,14 @@ impl Doppelganger {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let candidates = ctx.roster.all_seats().without(seat) - ctx.shielded_seats();
         if candidates.is_empty() {
-            return Ok(SeatEffect::noop());
+            ctx.say("🛡️ Doppelgänger: Every other player's card is shielded — you cannot copy anyone tonight!".yellow());
+            return Ok(SeatEffect::new(move |_label, _board, rctx| {
+                rctx.record(irc_format!(
+                    "🎭 {} ({}) could not copy anyone because all other cards were shielded.",
+                    DOPPELGANGER.info().styled_name(),
+                    rctx.nick(seat).bold(),
+                ));
+            }));
         }
 
         let players_str = ctx.format_visible_players();

@@ -43,7 +43,7 @@ impl Alien {
     async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let visible_aliens = ctx.waking_seats_with_faction(NightFaction::Alien);
         let alien_list = ctx.roster.format_seats(visible_aliens);
-        let cow_seats = ctx.seats_with_role(&super::cow::COW);
+        let cow_seats = ctx.waking_seats_with_role(&super::cow::COW);
         let cow_list = ctx.roster.format_seats(cow_seats);
 
         for s in active_seats {
@@ -80,6 +80,11 @@ impl Alien {
             let commander = active_seats
                 .into_iter()
                 .find(|&s| ctx.waking_roles[s].id() == "alien")
+                .or_else(|| {
+                    active_seats
+                        .into_iter()
+                        .find(|&s| ctx.waking_roles[s].id() != "synthetic_alien")
+                })
                 .unwrap_or_else(|| active_seats.first().expect("active_seats non-empty"));
             let roster = ctx.roster;
             let non_aliens_str = ctx.format_visible_seats(non_alien_seats);
@@ -188,6 +193,7 @@ impl Alien {
         match action {
             AlienDirective::Scan { actor, target } => {
                 if let Some(seen) = board.peek_player(actor, target) {
+                    board.record_card_viewers(active_seats);
                     let target_nick = ctx.nick(target);
                     for s in active_seats {
                         ctx.dm(

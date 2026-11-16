@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::henchman::{HENCHMAN, VILLAIN_PACK_STEP};
-use crate::board::{BoardAccess, BoardKey, BoardMut, Card};
+use crate::board::{BoardAccess, BoardKey, BoardMut, Card, SeatSet};
 use crate::role::{
     GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
@@ -93,8 +93,9 @@ impl Temptress {
             ),
         };
 
+        let fellow_villains = villains.without(seat);
         Ok(SeatEffect::new(move |label, board, rctx| {
-            Self::resolve(seat, label, chosen, timed_out, board, rctx);
+            Self::resolve(seat, label, chosen, timed_out, fellow_villains, board, rctx);
         }))
     }
 
@@ -103,6 +104,7 @@ impl Temptress {
         actor_label: &str,
         target: usize,
         timed_out: bool,
+        fellow_villains: SeatSet,
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
@@ -114,6 +116,17 @@ impl Temptress {
                     seat,
                     irc_format!(
                         "💋 Time's up — automatically planted the extra Villain card onto {}!",
+                        ctx.nick(target).bold(),
+                    ),
+                );
+            }
+            for v in fellow_villains {
+                ctx.dm(
+                    v,
+                    irc_format!(
+                        "💋 Syndicate Update: {} ({}) planted the extra Villain card onto {}!",
+                        actor_label.bold().red(),
+                        ctx.nick(seat).bold(),
                         ctx.nick(target).bold(),
                     ),
                 );

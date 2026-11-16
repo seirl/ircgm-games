@@ -35,7 +35,7 @@ impl Role for Henchman {
 
 impl Henchman {
     async fn huddle(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let evilometers = ctx.seats_with_role(&EVILOMETER);
+        let evilometers = ctx.waking_seats_with_role(&EVILOMETER);
         let evilometer_list = ctx.roster.format_seats(evilometers);
 
         for v_seat in active_seats {

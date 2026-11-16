@@ -27,6 +27,18 @@ impl Role for Drunk {
 
 impl Drunk {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        if ctx.is_shielded(seat) {
+            ctx.say(
+                "🛡️ Drunk: Your own card has a Shield token — you cannot swap it tonight!".yellow(),
+            );
+            return Ok(SeatEffect::new(move |label, _board, rctx| {
+                rctx.record(irc_format!(
+                    "🛡️ {label} ({}) could not swap because their own card was shielded.",
+                    rctx.nick(seat).bold(),
+                ));
+            }));
+        }
+
         let ans = ctx
             .ask(
                 irc_format!(

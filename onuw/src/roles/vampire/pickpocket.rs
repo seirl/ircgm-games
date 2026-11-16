@@ -13,7 +13,7 @@ impl Role for Pickpocket {
             "Pickpocket",
             GameSet::Vampire,
             Team::Village,
-            "Swap your Mark with another player's Mark at the end of Dusk and view your new Mark!",
+            "Swap your Mark with another player's Mark in Night and view your new Mark!",
         )
     }
 
@@ -38,6 +38,10 @@ impl Role for Pickpocket {
 impl Pickpocket {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let roster = ctx.roster;
+        if !roster.deck_has_marks() {
+            ctx.say("🤏 Pickpocket: No Mark-placing roles are in this deck — there are no Marks to steal tonight.");
+            return Ok(SeatEffect::noop());
+        }
         let players_str = ctx.format_visible_players();
         let prompt = irc_format!(
             "🤏 Pickpocket: Reply {} to swap Marks and view your new Mark, or {}. Players: {players_str}",

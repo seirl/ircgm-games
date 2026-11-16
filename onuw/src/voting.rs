@@ -70,12 +70,14 @@ pub fn resolve_and_announce_winners(
         .filter(|(_, seats)| !seats.is_empty())
         .map(|(team, _)| *team)
         .collect();
-    let is_epic_battle = present_monster_factions.len() >= 2;
+    let has_non_monster = (0..n).any(|i| !Team::MONSTER_TEAMS.contains(&board.effective_team(i)));
+    let is_epic_battle = present_monster_factions.len() >= 3
+        || (present_monster_factions.len() == 2 && has_non_monster);
 
     // Collect unified vote protections across each seat's active EndgameModifiers:
     let mut vote_immune = SeatSet::EMPTY;
     let mut hunter_shielded = SeatSet::EMPTY;
-    let mut death_announcements: Vec<Text> = Vec::new();
+    let mut protections = Vec::new();
     for seat in 0..n {
         for modifier in board.seat_endgame_modifiers(seat) {
             if let Some(prot) = modifier.vote_protection(seat, &death_ctx) {
@@ -83,24 +85,31 @@ pub fn resolve_and_announce_winners(
                 if prot.blocks_hunter_shot {
                     hunter_shielded.insert(prot.protected_seat);
                 }
-                if tally[prot.protected_seat] >= 2
-                    || (is_epic_battle && tally[prot.protected_seat] >= 1)
-                {
-                    death_announcements.push(prot.announcement);
-                }
+                protections.push(prot);
             }
         }
     }
 
     // Standard ONUW: highest vote count >= 2 among non-immune seats dies.
-    // Epic Battle (>= 2 monster factions in play): BOTH most votes (>= 2) AND 2nd-most votes (>= 1)
-    // die, unless 2+ players tied for most votes (in which case all tied for 1st die).
+    // Epic Battle (>= 3 active factions, e.g. 2+ monster factions + Village): BOTH most votes (>= 2)
+    // AND 2nd-most votes (>= 1) die, unless 2+ players tied for most votes (in which case all tied for 1st die).
     let killable_seats = roster.all_seats() - vote_immune;
     let max_killable_votes = killable_seats
         .into_iter()
         .map(|idx| tally[idx])
         .max()
         .unwrap_or(0);
+    let max_raw_votes = tally.iter().copied().max().unwrap_or(0);
+
+    let mut death_announcements: Vec<Text> = Vec::new();
+    for prot in protections {
+        let p_votes = tally[prot.protected_seat];
+        let saved_from_vote = (p_votes >= 2 && p_votes >= max_killable_votes)
+            || (is_epic_battle && max_raw_votes >= 2 && p_votes >= 1 && p_votes >= max_killable_votes);
+        if saved_from_vote {
+            death_announcements.push(prot.announcement);
+        }
+    }
 
     let mut dead = SeatSet::EMPTY;
     if max_killable_votes >= 2 {

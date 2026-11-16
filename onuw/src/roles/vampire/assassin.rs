@@ -161,6 +161,7 @@ impl ApprenticeAssassin {
         let assassins = ctx.seats_with_role(&ASSASSIN);
         if !assassins.is_empty() {
             let list = ctx.roster.format_seats(assassins);
+            let app_list = ctx.roster.format_seats(active_seats);
             for s in active_seats {
                 ctx.dm(
                     s,
@@ -170,11 +171,21 @@ impl ApprenticeAssassin {
                     ),
                 );
             }
+            for a_seat in ctx.waking_seats_with_role(&ASSASSIN) {
+                ctx.dm(
+                    a_seat,
+                    irc_format!(
+                        "🗡️ Assassin: Your Apprentice Assassin is {} — watch your back!",
+                        app_list.as_str().bold().orange(),
+                    ),
+                );
+            }
             return Ok(GroupEffect::new(move |_board, rctx| {
                 let names = rctx.roster.format_seats(active_seats);
                 rctx.record(irc_format!(
-                    "🗡️ Apprentice Assassin ({}) identified their mentor Assassin.",
+                    "🗡️ Apprentice Assassin ({}) and Assassin ({}) recognized each other.",
                     names.bold(),
+                    list.as_str().bold(),
                 ));
             }));
         }

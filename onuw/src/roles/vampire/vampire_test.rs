@@ -252,3 +252,66 @@ async fn doppelganger_marksman_wakes_in_night_after_dusk_marks_are_placed() {
         report.dms_to("Alice")
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn assassin_mutual_sight_copycat_doppelganger_sleep_and_doppelganger_renfield_thrall_work() {
+    // 1. Assassin & Apprentice Assassin both see each other at Dusk #-1B:
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &ASSASSIN),
+            ("Bob", &APPRENTICE_ASSASSIN),
+            ("Carol", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n = h.spawn_night();
+    h.reply_dm("Alice", "Carol").await;
+    let rep = h.finish_night(n).await;
+    assert!(rep.dms_to("Bob").contains("Your mentor Assassin is Alice"));
+    assert!(rep
+        .dms_to("Alice")
+        .contains("Your Apprentice Assassin is Bob"));
+
+    // 2. Copycat viewing Doppelgänger in center becomes Village Doppelgänger and does NOT wake again:
+    let mut h_cc = OnuwTestHarness::new(
+        &[
+            ("Alice", &COPYCAT),
+            ("Bob", &ROBBER),
+            ("Carol", &VILLAGER),
+        ],
+        [&DOPPELGANGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_cc = h_cc.spawn_night();
+    h_cc.reply_dm("Alice", "1").await;
+    h_cc.reply_dm("Bob", "pass").await;
+    let rep_cc = h_cc.finish_night(n_cc).await;
+    assert_eq!(rep_cc.effective_role_at(&h_cc.roster, "Alice"), "Doppelgänger");
+    assert!(!rep_cc.dms_to("Alice").contains("🎭 Doppelgänger:"));
+    assert!(rep_cc
+        .dms_to("Alice")
+        .contains("You have no further actions tonight."));
+
+    // 3. Doppelgänger-Renfield still sees Mark::Vampire even when Vampires marked the initial Renfield:
+    let mut h_ren = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &RENFIELD),
+            ("Carol", &VAMPIRE),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_ren = h_ren.spawn_night();
+    h_ren.reply_dm("Alice", "Bob").await; // Doppelgänger -> Renfield
+    h_ren.reply_dm("Carol", "Bob").await; // Vampire marks Renfield Bob!
+    let rep_ren = h_ren.finish_night(n_ren).await;
+    assert_eq!(rep_ren.mark_at(&h_ren.roster, "Bob"), Mark::Bat);
+    assert_eq!(rep_ren.mark_at(&h_ren.roster, "Alice"), Mark::Bat);
+    assert!(rep_ren
+        .dms_to("Alice")
+        .contains("Marked with \u{2}\u{3}04Mark of the Vampire\u{f}: Bob")
+        || rep_ren.dms_to("Alice").contains("Mark of the Vampire")
+            && rep_ren.dms_to("Alice").contains(": Bob"));
+}

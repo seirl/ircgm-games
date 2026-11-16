@@ -97,7 +97,8 @@ impl Copycat {
                 copied.styled_name(),
             ),
         );
-        let wakes_later = copied.steps().iter().any(|st| st.order > 8);
+        let wakes_later =
+            !copied.is_doppelganger() && copied.steps().iter().any(|st| st.order > 8);
         if wakes_later {
             ctx.dm(
                 seat,

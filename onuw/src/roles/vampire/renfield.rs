@@ -1,10 +1,21 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardCards, BoardMut, SeatSet};
+use crate::board::{BoardAccess, BoardCards, BoardKey, BoardMut, SeatSet};
 use crate::marks::Mark;
 use crate::role::{
     EffectiveAlignment, GameSet, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep,
 };
+
+#[derive(Clone, Copy, Debug, Default)]
+struct RenfieldThrallSnapshot(Option<SeatSet>);
+
+impl BoardKey for RenfieldThrallSnapshot {
+    const ACCESS: u16 = BoardAccess::MARKS;
+
+    fn init() -> Self {
+        Self(None)
+    }
+}
 
 pub struct Renfield;
 pub static RENFIELD: Renfield = Renfield;
@@ -54,12 +65,19 @@ impl Renfield {
                     || board.card_has_night_faction(i, NightFaction::Vampire)
             })
             .collect();
-        let marked_vamps: SeatSet = ctx
-            .roster
-            .all_seats()
-            .into_iter()
-            .filter(|&i| board.mark_at(i) == Mark::Vampire)
-            .collect();
+        let marked_vamps: SeatSet = match board.get_key::<RenfieldThrallSnapshot>().0 {
+            Some(snap) => snap,
+            None => {
+                let snap: SeatSet = ctx
+                    .roster
+                    .all_seats()
+                    .into_iter()
+                    .filter(|&i| board.mark_at(i) == Mark::Vampire)
+                    .collect();
+                board.set_key(RenfieldThrallSnapshot(Some(snap)));
+                snap
+            }
+        };
 
         // Renfield places Mark of the Bat on himself at #-6C (overwriting any Mark::Vampire or Mark::Fear placed on him):
         board.set_mark(seat, Mark::Bat);

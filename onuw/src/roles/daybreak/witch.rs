@@ -67,7 +67,19 @@ impl Witch {
 
         let unshielded = ctx.roster.all_seats() - ctx.shielded_seats();
         if unshielded.is_empty() {
-            return Ok(SeatEffect::noop());
+            ctx.say(
+                "🛡️ All player cards are shielded — you cannot swap the center card onto anyone!"
+                    .yellow(),
+            );
+            return Ok(SeatEffect::new(move |label, board, rctx| {
+                board.record_prompt_peek(seat);
+                rctx.record(irc_format!(
+                    "🧙‍♀️ {label} ({}) peeked Center #{} ({}), but all player cards were shielded.",
+                    rctx.nick(seat).bold(),
+                    c_idx + 1,
+                    seen_center.display_for_peek(),
+                ));
+            }));
         }
 
         let players_str = ctx.format_visible_players();

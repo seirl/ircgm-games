@@ -40,6 +40,10 @@ impl DrPeeker {
         let valid_targets = roster.all_seats().without(seat) - view.shielded_seats();
 
         if valid_targets.is_empty() {
+            ctx.say(
+                "🛡️ Dr. Peeker: Every other player's card is shielded — you cannot X-ray anyone tonight!"
+                    .yellow(),
+            );
             return Ok(SeatEffect::noop());
         }
 
