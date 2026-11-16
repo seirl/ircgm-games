@@ -67,7 +67,7 @@ impl Copycat {
             None => (fastrand::usize(0..3), true),
         };
 
-        let copied = board.copy_from_center(seat, c_idx, "Copycat", ctx);
+        let copied = board.copy_from_center(seat, c_idx, ctx);
 
         let actor_nick = ctx.nick(seat);
         let self_styled = COPYCAT.info().styled_name();

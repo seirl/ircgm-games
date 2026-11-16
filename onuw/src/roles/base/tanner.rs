@@ -18,7 +18,7 @@ impl Role for Tanner {
         // ONUW Tanner rule: if Tanner dies and no Monster dies, Werewolf & Vampire Teams lose;
         // if a Monster ALSO dies, Village still wins alongside Tanner!
         ctx.is_dead(seat)
-            .then_some(SpecialVictory::independent_blocking(Team::MONSTER_TEAMS))
+            .then_some(SpecialVictory::independent_blocking_monsters())
     }
 }
 

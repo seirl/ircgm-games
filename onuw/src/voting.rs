@@ -7,7 +7,9 @@ use ircgm::prelude::*;
 use crate::board::{BoardCards, Roster, SeatSet};
 use crate::game::GameSummary;
 use crate::marks::Mark;
-use crate::role::{DeathCtx, DeathEffect, SpecialVictory, Team, VictoryCtx, WinnerFilterCtx, WinnerMap};
+use crate::role::{
+    DeathCtx, DeathEffect, SpecialVictory, Team, TeamBlock, VictoryCtx, WinnerFilterCtx, WinnerMap,
+};
 
 /// Deferred full game record (center cards, Dusk/Night chronicle, and per-seat `start → end`
 /// roles/marks/artifacts) held back after Voting until `!reveal` is run in channel.
@@ -281,7 +283,7 @@ pub fn resolve_and_announce_winners(
 
     // 4a. Special victories across each seat's active EndgameModifiers:
     let mut forced_team_candidate: Option<(Team, Text)> = None;
-    let mut blocked_teams: HashSet<Team> = HashSet::new();
+    let mut team_block = TeamBlock::None;
     let mut winners: WinnerMap = HashMap::new();
     for seat in 0..n {
         for modifier in board.seat_endgame_modifiers(seat) {
@@ -291,11 +293,11 @@ pub fn resolve_and_announce_winners(
                 {
                     forced_team_candidate = Some((team, announcement));
                 }
-                Some(SpecialVictory::Independent { blocks })
+                Some(SpecialVictory::Independent(block))
                     if board.effective_team(seat) == Team::Independent =>
                 {
                     winners.insert(seat, modifier.modifier_name());
-                    blocked_teams.extend(blocks.iter().copied());
+                    team_block = team_block.max(block);
                 }
                 _ => {}
             }
@@ -303,7 +305,7 @@ pub fn resolve_and_announce_winners(
     }
 
     let forced_team_winner = match forced_team_candidate {
-        Some((team, announcement)) if !blocked_teams.contains(&team) => {
+        Some((team, announcement)) if !team_block.blocks(team) => {
             room.say(announcement)?;
             Some(team)
         }
@@ -331,19 +333,19 @@ pub fn resolve_and_announce_winners(
         winning_teams.insert(forced);
     } else {
         let village_wins = if !present_monster_factions.is_empty() {
-            !blocked_teams.contains(&Team::Village)
+            !team_block.blocks(Team::Village)
                 && present_monster_factions
                     .iter()
                     .all(|&f| threats_of(f).intersects(dead))
         } else {
-            !blocked_teams.contains(&Team::Village) && dead.is_empty()
+            !team_block.blocks(Team::Village) && dead.is_empty()
         };
         if village_wins {
             winning_teams.insert(Team::Village);
         }
 
         for &team in Team::MONSTER_TEAMS {
-            if blocked_teams.contains(&team) {
+            if team_block.blocks(team) {
                 continue;
             }
             let threats = threats_of(team);
@@ -397,7 +399,7 @@ pub fn resolve_and_announce_winners(
             board: &board,
             votes: &votes,
             dead_seats: dead,
-            blocked_teams: &blocked_teams,
+            team_block,
             casemap: room.casemap(),
             day_channel_log,
             announcements: &mut forfeit_announcements,

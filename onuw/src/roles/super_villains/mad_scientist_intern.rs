@@ -12,14 +12,6 @@ pub static MAD_SCIENTIST: MadScientist = MadScientist;
 pub struct Intern;
 pub static INTERN: Intern = Intern;
 
-const ALL_TEAMS: &[Team] = &[
-    Team::Village,
-    Team::Werewolf,
-    Team::Vampire,
-    Team::Alien,
-    Team::SuperVillain,
-];
-
 impl Role for MadScientist {
     fn info(&self) -> RoleInfo {
         RoleInfo::new(
@@ -34,7 +26,7 @@ impl Role for MadScientist {
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         ctx.is_dead(seat)
-            .then_some(SpecialVictory::independent_blocking(ALL_TEAMS))
+            .then_some(SpecialVictory::independent_sole_winner())
     }
 }
 
@@ -72,7 +64,7 @@ impl Role for Intern {
         } else {
             scientists.intersects(ctx.dead_seats)
         };
-        won.then_some(SpecialVictory::independent_blocking(ALL_TEAMS))
+        won.then_some(SpecialVictory::independent_sole_winner())
     }
 }
 

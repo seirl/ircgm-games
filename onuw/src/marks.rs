@@ -5,8 +5,8 @@ use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster, SeatSet};
 use crate::role::{
-    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, Phase, Role, StepKind, Team,
-    WinnerFilterCtx, WinnerMap,
+    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, NightWakers, Phase, StepKind,
+    Team, TeamBlock, WinnerFilterCtx, WinnerMap,
 };
 
 /// Vampire expansion Marks (every player starts Dusk with `Mark::Clarity`).
@@ -51,10 +51,8 @@ impl Mark {
     /// `Mark::Fear` paralysis for Night wakers, and wakes `Mark::Love` Lovers to recognize each other.
     pub(crate) fn finalize_dusk_boundary(
         roster: &Roster,
-        waking_roles: &[&'static dyn Role],
-        acted_immediately: SeatSet,
         board: &BoardCards,
-        feared_seats: &mut SeatSet,
+        wakers: &mut NightWakers,
         chronicle: &mut Vec<Text>,
     ) {
         let marks_in_play =
@@ -65,7 +63,7 @@ impl Mark {
             .into_iter()
             .filter(|&s| board.mark(s) == Mark::Fear)
             .collect();
-        *feared_seats = feared;
+        wakers.feared = feared;
 
         if marks_in_play {
             for s in roster.all_seats() {
@@ -92,11 +90,11 @@ impl Mark {
                     Mark::Fear.styled(),
                 ));
             }
-            let r = waking_roles[s];
+            let r = wakers.role(s);
             let wakes_in_night = r.steps().iter().any(|st| {
                 st.phase == Phase::Night
                     && st.order >= 100
-                    && (matches!(st.kind, StepKind::Group(_)) || !acted_immediately.contains(s))
+                    && (matches!(st.kind, StepKind::Group(_)) || !wakers.acted_immediately.contains(s))
             });
             if wakes_in_night {
                 chronicle.push(irc_format!(
@@ -185,11 +183,7 @@ impl EndgameModifier for Mark {
                 .filter(|&o| ctx.board.effective_team(o) == team)
                 .collect();
             if !teammates.is_empty() {
-                // Global blockers (`Mad Scientist`, `Synthetic Alien`) block `Team::Village` alongside
-                // all other teams, whereas `Tanner` only blocks `MONSTER_TEAMS` (allowing a Monster
-                // `Traitor` who got a fellow Monster killed on a tie with `Tanner` to still win!).
-                let global_block = ctx.blocked_teams.contains(&Team::Village);
-                let traitor_won = !global_block
+                let traitor_won = ctx.team_block != TeamBlock::AllTeams
                     && !ctx.dead_seats.contains(holder)
                     && teammates.intersects(ctx.dead_seats);
                 if traitor_won {

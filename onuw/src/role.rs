@@ -1,7 +1,7 @@
 //! [`Role`] trait, [`RoleInfo`], [`NightFaction`], [`WakeStep`] schedule metadata,
 //! [`EndgameModifier`] pipeline, and access-checked Dusk/Night hook contexts.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
@@ -118,15 +118,18 @@ impl Team {
         }
     }
 
-    pub fn styled_label(self) -> Text {
+    pub fn style_text(self, s: &'static str) -> Text {
         match self {
-            Team::Village => "Village".bold().cyan(),
-            Team::Werewolf => "Werewolf".bold().red(),
-            Team::Vampire => "Vampire".bold().magenta(),
-            Team::Alien => "Alien".bold().green(),
-            Team::SuperVillain => "Super Villain".bold().red(),
-            Team::Independent => "Independent".bold().orange(),
+            Team::Village => s.bold().cyan().into(),
+            Team::Werewolf | Team::SuperVillain => s.bold().red().into(),
+            Team::Vampire => s.bold().magenta().into(),
+            Team::Alien => s.bold().green().into(),
+            Team::Independent => s.bold().orange().into(),
         }
+    }
+
+    pub fn styled_label(self) -> Text {
+        self.style_text(self.label())
     }
 }
 
@@ -145,6 +148,15 @@ pub enum NightFaction {
 }
 
 impl NightFaction {
+    pub fn team(self) -> Team {
+        match self {
+            Self::Werewolf => Team::Werewolf,
+            Self::Vampire => Team::Vampire,
+            Self::Alien => Team::Alien,
+            Self::SuperVillain => Team::SuperVillain,
+        }
+    }
+
     pub fn step_id(self) -> &'static str {
         match self {
             Self::Werewolf => "pack:werewolf",
@@ -164,12 +176,7 @@ impl NightFaction {
     }
 
     pub fn styled_callout(self) -> Text {
-        match self {
-            Self::Werewolf => "Werewolves".bold().red(),
-            Self::Vampire => "Vampires".bold().magenta(),
-            Self::Alien => "Aliens".bold().green(),
-            Self::SuperVillain => "Super Villains".bold().red(),
-        }
+        self.team().style_text(self.callout_name())
     }
 }
 
@@ -262,13 +269,7 @@ impl RoleInfo {
     }
 
     pub fn styled_name(self) -> Text {
-        match self.team {
-            Team::Werewolf | Team::SuperVillain => self.name.bold().red().into(),
-            Team::Vampire => self.name.bold().magenta().into(),
-            Team::Alien => self.name.bold().green().into(),
-            Team::Independent => self.name.bold().orange().into(),
-            Team::Village => self.name.bold().cyan().into(),
-        }
+        self.team.style_text(self.name)
     }
 }
 
@@ -562,13 +563,7 @@ impl WakeStep {
         match self.target {
             StepTarget::Role(r) => r.styled_name(),
             StepTarget::Pack(f) => f.styled_callout(),
-            StepTarget::Pair { callout, team, .. } => match team {
-                Team::Werewolf | Team::SuperVillain => callout.bold().red().into(),
-                Team::Vampire => callout.bold().magenta().into(),
-                Team::Alien => callout.bold().green().into(),
-                Team::Independent => callout.bold().orange().into(),
-                Team::Village => callout.bold().cyan().into(),
-            },
+            StepTarget::Pair { callout, team, .. } => team.style_text(callout),
         }
     }
 
@@ -603,18 +598,93 @@ impl WakeStep {
 }
 
 // ============================================================================
-// Night & Voting Hook Contexts
+// Ephemeral Night Waker State & Hook Contexts
 // ============================================================================
 
-fn seats_with_faction_in(
-    waking_roles: &[&'static dyn Role],
-    faction: NightFaction,
-) -> SeatSet {
-    waking_roles
-        .iter()
-        .enumerate()
-        .filter_map(|(i, r)| (r.night_faction() == Some(faction)).then_some(i))
-        .collect()
+/// Ephemeral per-seat Night waking state (dropped when [`crate::night::run_night_phase`] finishes
+/// so [`BoardCards`] carries only physical tabletop state into Day & Voting).
+pub(crate) struct NightWakers {
+    waking_roles: Vec<&'static dyn Role>,
+    copied_from: Vec<Option<usize>>,
+    pub acted_immediately: SeatSet,
+    pub feared: SeatSet,
+}
+
+impl NightWakers {
+    pub fn new(roster: &Roster) -> Self {
+        Self {
+            waking_roles: roster.seats.iter().map(|s| s.initial_role).collect(),
+            copied_from: vec![None; roster.len()],
+            acted_immediately: SeatSet::EMPTY,
+            feared: SeatSet::EMPTY,
+        }
+    }
+
+    pub fn roles(&self) -> &[&'static dyn Role] {
+        &self.waking_roles
+    }
+
+    pub fn role(&self, seat: usize) -> &'static dyn Role {
+        self.waking_roles[seat]
+    }
+
+    pub fn copied_from(&self, seat: usize) -> Option<usize> {
+        self.copied_from[seat]
+    }
+
+    pub fn doppelganger_copied_seats(&self) -> SeatSet {
+        self.copied_from
+            .iter()
+            .enumerate()
+            .filter_map(|(i, src)| src.map(|_| i))
+            .collect()
+    }
+
+    pub fn actor_label(&self, roster: &Roster, seat: usize) -> String {
+        let initial = roster.seats[seat].initial_role;
+        let waking = self.waking_roles[seat];
+        if waking.id() == initial.id() {
+            initial.name().to_owned()
+        } else {
+            format!("{}-{}", initial.name(), waking.name())
+        }
+    }
+
+    pub fn copy_player(&mut self, actor: usize, target: usize, face_role: &'static dyn Role) {
+        self.copied_from[actor] = Some(target);
+        self.waking_roles[actor] = face_role;
+    }
+
+    pub fn copy_center(&mut self, actor: usize, copied: &'static dyn Role) {
+        if !copied.is_doppelganger() {
+            self.waking_roles[actor] = copied;
+        }
+    }
+
+    pub fn seats_with_faction(&self, faction: NightFaction) -> SeatSet {
+        self.waking_roles
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| (r.night_faction() == Some(faction)).then_some(i))
+            .collect()
+    }
+
+    pub fn waking_seats_with_faction(&self, faction: NightFaction) -> SeatSet {
+        self.seats_with_faction(faction) - self.feared
+    }
+
+    pub fn seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
+        let target_id = role.id();
+        self.waking_roles
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| (r.id() == target_id).then_some(i))
+            .collect()
+    }
+
+    pub fn waking_seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
+        self.seats_with_role(role) - self.feared
+    }
 }
 
 pub struct PromptCtx<'a> {
@@ -627,8 +697,7 @@ pub struct PromptCtx<'a> {
     pub roster: &'a Roster,
     pub ask_cfg: &'a AskConfig,
     pub deadline: Instant,
-    feared_seats: SeatSet,
-    waking_roles: &'a [&'static dyn Role],
+    wakers: &'a NightWakers,
     board: PromptBoard<'a>,
     saw_visible_table: AtomicBool,
 }
@@ -689,8 +758,7 @@ impl<'a> PromptCtx<'a> {
         roster: &'a Roster,
         ask_cfg: &'a AskConfig,
         deadline: Instant,
-        feared_seats: SeatSet,
-        waking_roles: &'a [&'static dyn Role],
+        wakers: &'a NightWakers,
         board: PromptBoard<'a>,
     ) -> Self {
         Self {
@@ -703,8 +771,7 @@ impl<'a> PromptCtx<'a> {
             roster,
             ask_cfg,
             deadline,
-            feared_seats,
-            waking_roles,
+            wakers,
             board,
             saw_visible_table: AtomicBool::new(false),
         }
@@ -833,12 +900,12 @@ impl<'a> PromptCtx<'a> {
 
     /// All seats holding `faction` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
     pub fn seats_with_faction(&self, faction: NightFaction) -> SeatSet {
-        seats_with_faction_in(self.waking_roles, faction)
+        self.wakers.seats_with_faction(faction)
     }
 
     /// Waking seats holding `faction` (excluding seats suppressed by `Mark::Fear`).
     pub fn waking_seats_with_faction(&self, faction: NightFaction) -> SeatSet {
-        self.seats_with_faction(faction) - self.feared_seats
+        self.wakers.waking_seats_with_faction(faction)
     }
 
     /// Packmates known to `self.seat` at the time of this prompt:
@@ -848,12 +915,12 @@ impl<'a> PromptCtx<'a> {
     pub fn known_pack_mates(&self, faction: NightFaction) -> SeatSet {
         if self.is_immediate_copy {
             let mut known = SeatSet::single(self.seat);
-            if let Some(src) = self.board.raw().copied_from(self.seat) {
+            if let Some(src) = self.wakers.copied_from(self.seat) {
                 known.insert(src);
             }
             known
         } else {
-            self.waking_seats_with_faction(faction)
+            self.wakers.waking_seats_with_faction(faction)
         }
     }
 }
@@ -867,7 +934,7 @@ pub struct GroupPromptCtx<'a> {
     pub ask_cfg: &'a AskConfig,
     pub deadline: Instant,
     pub waking_roles: &'a [&'static dyn Role],
-    feared_seats: SeatSet,
+    wakers: &'a NightWakers,
     board: PromptBoard<'a>,
     notified_table_seats: AtomicU64,
 }
@@ -882,8 +949,7 @@ impl<'a> GroupPromptCtx<'a> {
         roster: &'a Roster,
         ask_cfg: &'a AskConfig,
         deadline: Instant,
-        waking_roles: &'a [&'static dyn Role],
-        feared_seats: SeatSet,
+        wakers: &'a NightWakers,
         board: PromptBoard<'a>,
     ) -> Self {
         Self {
@@ -894,8 +960,8 @@ impl<'a> GroupPromptCtx<'a> {
             roster,
             ask_cfg,
             deadline,
-            waking_roles,
-            feared_seats,
+            waking_roles: wakers.roles(),
+            wakers,
             board,
             notified_table_seats: AtomicU64::new(0),
         }
@@ -987,40 +1053,34 @@ impl<'a> GroupPromptCtx<'a> {
 
     /// All seats holding `faction` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
     pub fn seats_with_faction(&self, faction: NightFaction) -> SeatSet {
-        seats_with_faction_in(self.waking_roles, faction)
+        self.wakers.seats_with_faction(faction)
     }
 
     /// Waking seats holding `faction` (excluding seats suppressed by `Mark::Fear`).
     pub fn waking_seats_with_faction(&self, faction: NightFaction) -> SeatSet {
-        self.seats_with_faction(faction) - self.feared_seats
+        self.wakers.waking_seats_with_faction(faction)
     }
 
     /// All seats holding `role` (initial role or copied by `Copycat` / `Doppelgänger`).
     pub fn seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
-        let target_id = role.id();
-        self.waking_roles
-            .iter()
-            .enumerate()
-            .filter_map(|(i, r)| (r.id() == target_id).then_some(i))
-            .collect()
+        self.wakers.seats_with_role(role)
     }
 
     /// Waking seats holding `role` (excluding seats suppressed by `Mark::Fear`).
     pub fn waking_seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
-        self.seats_with_role(role) - self.feared_seats
+        self.wakers.waking_seats_with_role(role)
     }
 
     /// Seat that `seat` copied via `Doppelgänger` (`None` for non-Doppelgänger seats).
     pub fn copied_from(&self, seat: usize) -> Option<usize> {
-        self.board.raw().copied_from(seat)
+        self.wakers.copied_from(seat)
     }
 }
 
 pub struct ResolveCtx<'a> {
     pub roster: &'a Roster,
     pub chronicle: &'a mut Vec<Text>,
-    pub(crate) waking_roles: &'a mut [&'static dyn Role],
-    pub(crate) waking_labels: &'a mut [String],
+    pub(crate) wakers: &'a mut NightWakers,
 }
 
 impl<'a> ResolveCtx<'a> {
@@ -1037,17 +1097,7 @@ impl<'a> ResolveCtx<'a> {
     }
 
     pub fn waking_role(&self, seat: usize) -> &'static dyn Role {
-        self.waking_roles[seat]
-    }
-
-    pub(crate) fn set_waking_identity(
-        &mut self,
-        seat: usize,
-        role: &'static dyn Role,
-        label: String,
-    ) {
-        self.waking_roles[seat] = role;
-        self.waking_labels[seat] = label;
+        self.wakers.role(seat)
     }
 }
 
@@ -1096,21 +1146,44 @@ impl<'a> VictoryCtx<'a> {
     }
 }
 
+/// Which teams are prevented from winning when an `Independent` role wins (`Tanner` vs `Mad Scientist`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TeamBlock {
+    #[default]
+    None,
+    MonsterTeams,
+    AllTeams,
+}
+
+impl TeamBlock {
+    pub fn blocks(self, team: Team) -> bool {
+        match self {
+            Self::None => false,
+            Self::MonsterTeams => Team::MONSTER_TEAMS.contains(&team),
+            Self::AllTeams => team != Team::Independent,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum SpecialVictory {
     /// Personal victory for an `Independent` role or artifact holder, optionally blocking teams from winning.
-    Independent { blocks: &'static [Team] },
+    Independent(TeamBlock),
     /// Overrides normal team victory rules so `team` wins (`Leader` unanimous Alien point).
     ForceTeam { team: Team, announcement: Text },
 }
 
 impl SpecialVictory {
     pub const fn independent() -> Self {
-        Self::Independent { blocks: &[] }
+        Self::Independent(TeamBlock::None)
     }
 
-    pub const fn independent_blocking(blocks: &'static [Team]) -> Self {
-        Self::Independent { blocks }
+    pub const fn independent_blocking_monsters() -> Self {
+        Self::Independent(TeamBlock::MonsterTeams)
+    }
+
+    pub const fn independent_sole_winner() -> Self {
+        Self::Independent(TeamBlock::AllTeams)
     }
 
     pub fn force_team(team: Team, announcement: impl Into<Text>) -> Self {
@@ -1135,7 +1208,7 @@ pub struct WinnerFilterCtx<'a> {
     pub board: &'a BoardCards,
     pub votes: &'a [Option<usize>],
     pub dead_seats: SeatSet,
-    pub blocked_teams: &'a HashSet<Team>,
+    pub team_block: TeamBlock,
     pub casemap: CaseMap,
     pub day_channel_log: &'a [ChatMessage],
     pub announcements: &'a mut Vec<Text>,
@@ -1258,7 +1331,7 @@ impl EndgameModifier for &'static dyn Role {
                 (ctx.board.effective_team(seat) == self.team())
                     .then_some(SpecialVictory::ForceTeam { team, announcement })
             }
-            ind @ SpecialVictory::Independent { .. } => Some(ind),
+            ind @ SpecialVictory::Independent(_) => Some(ind),
         }
     }
 

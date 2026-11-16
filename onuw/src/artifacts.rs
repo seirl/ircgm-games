@@ -31,8 +31,6 @@ pub enum Artifact {
     VoidOfNothingness,
 }
 
-const TANNER_BLOCKED_TEAMS: &[Team] = Team::MONSTER_TEAMS;
-
 impl Artifact {
     pub const ALL: &'static [Artifact] = &[
         Artifact::ClawOfTheWerewolf,
@@ -213,7 +211,7 @@ impl EndgameModifier for Artifact {
     fn victory_claim(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         match self {
             Artifact::CudgelOfTheTanner if ctx.is_dead(seat) => {
-                Some(SpecialVictory::independent_blocking(TANNER_BLOCKED_TEAMS))
+                Some(SpecialVictory::independent_blocking_monsters())
             }
             _ => None,
         }

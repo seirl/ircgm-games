@@ -75,16 +75,6 @@ impl<T: Clone + fmt::Debug + Send + Sync + 'static> BlackboardValue for T {
     }
 }
 
-/// Outcome of [`BoardMut::copy_from_player`] (`Doppelgänger`).
-pub struct CopiedPlayerCard {
-    /// Physical card face seen by the Doppelgänger (`"Copycat"` when viewing a Copycat).
-    pub seen_face: &'static dyn Role,
-    /// Endgame role inherited on `Card.became` (Copycat's center role if viewing Copycat).
-    pub endgame_role: &'static dyn Role,
-    /// True when viewing a `Copycat` card (Doppelgänger sees only `"Copycat"` and does not wake again).
-    pub is_opaque_copycat: bool,
-}
-
 /// A physical card on the table: `face` is what is printed on the cardboard when peeked or flipped,
 /// `became` records any mid-night copy/transformation (`Copycat`, `Doppelgänger`, `Paranormal Investigator`),
 /// and `face_up` tracks whether the card was flipped face-up (`Revealer`) so face-up state travels with swaps.
@@ -364,7 +354,6 @@ pub struct BoardCards {
     marks: Vec<Mark>,
     artifacts: Vec<Option<Artifact>>,
     viewed_or_moved_actors: SeatSet,
-    copied_from: Vec<Option<usize>>,
     blackboard: HashMap<TypeId, Box<dyn BlackboardValue>>,
 }
 
@@ -382,7 +371,6 @@ impl Clone for BoardCards {
             marks: self.marks.clone(),
             artifacts: self.artifacts.clone(),
             viewed_or_moved_actors: self.viewed_or_moved_actors,
-            copied_from: self.copied_from.clone(),
             blackboard,
         }
     }
@@ -397,7 +385,6 @@ impl fmt::Debug for BoardCards {
             .field("marks", &self.marks)
             .field("artifacts", &self.artifacts)
             .field("viewed_or_moved_actors", &self.viewed_or_moved_actors)
-            .field("copied_from", &self.copied_from)
             .finish()
     }
 }
@@ -417,13 +404,8 @@ impl BoardCards {
             marks: vec![Mark::Clarity; n],
             artifacts: vec![None; n],
             viewed_or_moved_actors: SeatSet::EMPTY,
-            copied_from: vec![None; n],
             blackboard: HashMap::new(),
         }
-    }
-
-    pub(crate) fn copied_from(&self, seat: usize) -> Option<usize> {
-        self.copied_from[seat]
     }
 
     pub fn player_count(&self) -> usize {
@@ -866,18 +848,14 @@ impl<'a> BoardMut<'a> {
         self.inner.players[seat].transform(new_role);
     }
 
-    /// Copies `players[target]` onto `actor` (`Doppelgänger`), updating both card & waking identity.
-    ///
-    /// Per official ONUV rules, if `players[target]` is a physical `Copycat` card, `actor` sees only
-    /// `"Copycat"`, silently inherits Copycat's center role on `Card.became` for endgame, and stays
-    /// asleep for the rest of the night.
+    /// Copies `players[target]` onto `actor` (`Doppelgänger`), inheriting `target`'s effective role
+    /// for Voting while waking as `target`'s physical printed face (`Copycat` stays asleep).
     pub fn copy_from_player(
         &mut self,
         actor: usize,
         target: usize,
-        label_prefix: &str,
         rctx: &mut ResolveCtx<'_>,
-    ) -> Option<CopiedPlayerCard> {
+    ) -> Option<Card> {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
         self.check_write(
             BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES,
@@ -886,27 +864,11 @@ impl<'a> BoardMut<'a> {
         if self.inner.shielded.contains(target) {
             return None;
         }
-        let seen_face = self.inner.players[target].face_role();
-        let endgame_role = self.inner.players[target].effective_role();
-        let is_opaque_copycat = seen_face.id() == "copycat";
+        let target_card = self.inner.players[target];
         self.inner.viewed_or_moved_actors.insert(actor);
-        self.inner.copied_from[actor] = Some(target);
-        self.inner.players[actor].transform(endgame_role);
-        let waking_role = if is_opaque_copycat {
-            seen_face
-        } else {
-            endgame_role
-        };
-        rctx.set_waking_identity(
-            actor,
-            waking_role,
-            format!("{label_prefix}-{}", waking_role.name()),
-        );
-        Some(CopiedPlayerCard {
-            seen_face,
-            endgame_role,
-            is_opaque_copycat,
-        })
+        self.inner.players[actor].transform(target_card.effective_role());
+        rctx.wakers.copy_player(actor, target, target_card.face_role());
+        Some(target_card)
     }
 
     /// Copies `center[slot]` onto `actor` (`Copycat`), updating both card & waking identity
@@ -915,7 +877,6 @@ impl<'a> BoardMut<'a> {
         &mut self,
         actor: usize,
         slot: usize,
-        label_prefix: &str,
         rctx: &mut ResolveCtx<'_>,
     ) -> &'static dyn Role {
         self.check_write(
@@ -925,9 +886,7 @@ impl<'a> BoardMut<'a> {
         let copied = self.inner.center[slot].effective_role();
         self.inner.viewed_or_moved_actors.insert(actor);
         self.inner.players[actor].transform(copied);
-        if !copied.is_doppelganger() {
-            rctx.set_waking_identity(actor, copied, format!("{label_prefix}-{}", copied.name()));
-        }
+        rctx.wakers.copy_center(actor, copied);
         copied
     }
 
