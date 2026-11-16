@@ -105,6 +105,7 @@ async fn copycat_runs_before_doppelganger_so_chained_copy_propagates_center_role
     h.reply_dm("Bob", "pass").await;
 
     let report = h.finish_night(night).await;
+    assert!(!report.channel_lines.join("\n").contains("Dusk falls!"));
     assert_eq!(report.effective_role_at(&h.roster, "Bob"), "Robber");
     assert_eq!(report.effective_role_at(&h.roster, "Alice"), "Villager");
     assert_eq!(report.effective_role_at(&h.roster, "Carol"), "Robber");

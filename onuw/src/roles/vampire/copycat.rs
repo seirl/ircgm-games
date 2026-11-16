@@ -21,7 +21,6 @@ impl Role for Copycat {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[WakeStep::solo(&COPYCAT, 8, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                .dusk()
                 .short_budget()
                 .writes(BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES)]
         }

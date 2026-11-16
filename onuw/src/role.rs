@@ -479,6 +479,10 @@ impl WakeStep {
     }
 
     pub const fn immediate_copy(mut self) -> Self {
+        assert!(
+            matches!(self.kind, StepKind::Solo(_)),
+            "only Solo steps support .immediate_copy()"
+        );
         self.copy_timing = Some(CopyTiming::Immediate);
         self
     }

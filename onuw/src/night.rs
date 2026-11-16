@@ -272,17 +272,6 @@ pub fn build_deck_schedule(
 // Fixed-Clock Tier Execution Engine
 // ============================================================================
 
-enum CopiedImmediateOutcome {
-    Passive {
-        step: &'static WakeStep,
-        wake_fn: PassiveWakeFn,
-    },
-    Solo {
-        step: &'static WakeStep,
-        effect: SeatEffect,
-    },
-}
-
 enum StepTierResolution {
     Group {
         step: &'static WakeStep,
@@ -388,72 +377,46 @@ pub async fn run_night_phase(
                     let step = waking_snap[seat]
                         .immediate_copy_step()
                         .expect("immediate copied role has immediate step");
-                    match step.kind {
-                        StepKind::Passive(wake_fn) => {
-                            Ok::<_, Error>((seat, CopiedImmediateOutcome::Passive { step, wake_fn }))
-                        }
-                        StepKind::Solo(prompt_fn) => {
-                            let dm = roster.seats[seat].user.exclusive_available().await?;
-                            let pctx = PromptCtx::new(
-                                step.callout_name(),
-                                step.effective_prompt_reads(),
-                                seat,
-                                step.eyes_open,
-                                dm,
-                                roster,
-                                cfg_ref,
-                                tier_deadline,
-                                feared_snap,
-                                waking_snap,
-                                board_snap,
-                            );
-                            let effect = prompt_fn(seat, pctx).await?;
-                            Ok((seat, CopiedImmediateOutcome::Solo { step, effect }))
-                        }
-                        StepKind::Group(_) => {
-                            unreachable!("immediate_copy_step never matches Group steps")
-                        }
-                    }
+                    let StepKind::Solo(prompt_fn) = step.kind else {
+                        unreachable!("only Solo steps support CopyTiming::Immediate");
+                    };
+                    let dm = roster.seats[seat].user.exclusive_available().await?;
+                    let pctx = PromptCtx::new(
+                        step.callout_name(),
+                        step.effective_prompt_reads(),
+                        seat,
+                        step.eyes_open,
+                        dm,
+                        roster,
+                        cfg_ref,
+                        tier_deadline,
+                        feared_snap,
+                        waking_snap,
+                        board_snap,
+                    );
+                    let effect = prompt_fn(seat, pctx).await?;
+                    Ok::<_, Error>((seat, step, effect))
                 });
 
                 let outcomes = try_join_all(futs).await?;
                 sleep_until(tier_deadline).await;
 
-                for (seat, outcome) in outcomes {
+                for (seat, step, effect) in outcomes {
                     acted_immediately.insert(seat);
                     let label = waking_labels[seat].clone();
-                    let table_summary = board.visible_table_summary(roster);
                     let mut rctx = ResolveCtx {
                         roster,
                         chronicle: &mut all_chronicle,
                         waking_roles: &mut waking_roles,
                         waking_labels: &mut waking_labels,
                     };
-                    match outcome {
-                        CopiedImmediateOutcome::Passive { step, wake_fn } => {
-                            if step.eyes_open {
-                                if let Some(line) = table_summary {
-                                    rctx.dm(seat, line);
-                                }
-                            }
-                            let mut bm = BoardMut::new(
-                                &mut board,
-                                step.callout_name(),
-                                BoardAccess::ALL_READS,
-                                step.resolve_writes.0,
-                            );
-                            wake_fn(seat, &label, &mut bm, &mut rctx);
-                        }
-                        CopiedImmediateOutcome::Solo { step, effect } => {
-                            let mut bm = BoardMut::new(
-                                &mut board,
-                                step.callout_name(),
-                                step.effective_prompt_reads(),
-                                step.resolve_writes.0,
-                            );
-                            effect.apply(&label, &mut bm, &mut rctx);
-                        }
-                    }
+                    let mut bm = BoardMut::new(
+                        &mut board,
+                        step.callout_name(),
+                        step.effective_prompt_reads(),
+                        step.resolve_writes.0,
+                    );
+                    effect.apply(&label, &mut bm, &mut rctx);
                 }
             }
 
