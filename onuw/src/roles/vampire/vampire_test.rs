@@ -26,6 +26,7 @@ async fn vampire_coven_huddle_relays_whispers_marks_thrall_and_count_fears_seer(
             ("Bob", &COUNT),
             ("Carol", &RENFIELD),
             ("Dave", &SEER),
+            ("Eve", &VILLAGER),
         ],
         [&VILLAGER, &VILLAGER, &VILLAGER],
     )
@@ -37,23 +38,21 @@ async fn vampire_coven_huddle_relays_whispers_marks_thrall_and_count_fears_seer(
     let _ = h.wait_for_new_dm("Bob").await;
 
     // Alice whispers to Bob in the Coven Huddle -> relayed to Bob!
-    h.send_dm("Alice", "let's turn Dave or Carol?").await;
-    // Bob locks in `!mark Dave` in Dusk Tier 1, then in Dusk Tier 2 (`Count`) fears Carol:
-    h.send_dm("Bob", "!mark Dave").await;
-    h.reply_dm("Bob", "Carol").await;
-    // Stage B (Night): Dave (Seer, not feared since Carol got Fear) peeks Alice:
-    h.reply_dm("Dave", "Alice").await;
+    h.send_dm("Alice", "let's turn Eve and fear Dave?").await;
+    // Bob locks in `!mark Eve` in Dusk (#-6), then in Dusk (#-6B, The Count) fears Dave (Seer),
+    // while Carol (Renfield, #-6C) places Mark of the Bat on herself:
+    h.send_dm("Bob", "!mark Eve").await;
+    h.reply_dm("Bob", "Dave").await;
 
     let report = h.finish_night(night).await;
     assert!(report
         .dms_to("Bob")
-        .contains("[Coven] <Alice> let's turn Dave or Carol?"));
-    assert_eq!(report.mark_at(&h.roster, "Dave"), Mark::Vampire);
-    assert_eq!(report.mark_at(&h.roster, "Carol"), Mark::Fear);
-    // Dave is Seer (NOT terrified since Carol got Fear) — wait: Dave wasn't answered above?
-    // Oh! Dave=Seer DID wake in Stage B and timed out? No, `start_paused = true` auto-advances when all tasks sleep!
-    assert!(report.has_chronicle_substr("Vampire Coven (Alice, Bob) bestowed Mark of the Vampire on Dave."));
-    assert!(report.has_chronicle_substr("Count (Bob) placed Mark of Fear on Carol."));
+        .contains("[Coven] <Alice> let's turn Eve and fear Dave?"));
+    assert_eq!(report.mark_at(&h.roster, "Eve"), Mark::Vampire);
+    assert_eq!(report.mark_at(&h.roster, "Carol"), Mark::Bat);
+    assert_eq!(report.mark_at(&h.roster, "Dave"), Mark::Fear);
+    assert!(report.has_chronicle_substr("Vampire Coven (Alice, Bob) bestowed Mark of the Vampire on Eve."));
+    assert!(report.has_chronicle_substr("The Count (Bob) placed Mark of Fear on Dave."));
 }
 
 #[tokio::test(start_paused = true)]
@@ -178,19 +177,24 @@ async fn priest_pickpocket_marksman_instigator_cupid_diseased_master_and_assassi
     let _ = h2.wait_for_new_dm("Alice").await;
     let _ = h2.wait_for_new_dm("Bob").await;
     h2.send_dm("Bob", "!mark Grace").await;
-    h2.reply_dm("Carol", "Carol Dave").await;
+    // Eve (Diseased, #-5) places Mark::Disease on her immediate right neighbor Frank:
     h2.reply_dm("Eve", "Frank").await;
-    h2.reply_dm("Frank", "Frank").await;
-    h2.reply_dm("Grace", "Alice").await;
+    // Carol (Cupid, #-4) links Carol and Dave with Mark::Love:
+    h2.reply_dm("Carol", "Carol Dave").await;
+    // Frank (Instigator, #-3) places Mark::Traitor on Alice (The Master — wins if fellow Vampire dies while surviving!):
+    h2.reply_dm("Frank", "Alice").await;
+    // Grace (Apprentice Assassin, #-1B) places Mark::Assassin on Eve:
+    h2.reply_dm("Grace", "Eve").await;
 
     let report2 = h2.finish_night(night2).await;
     // At Dawn:
-    // - Alice (The Master) gets 3 votes, BUT Bob (Vampire) points at Alice -> Alice is immune!
-    // - Carol gets 2 votes (from Alice and Frank) -> Carol dies!
+    // - Alice (The Master) gets 2 votes (Carol, Frank), BUT Bob (Vampire) points at Alice -> Alice is immune!
+    // - Carol gets 2 votes (from Alice and Grace) -> Carol dies!
     // - Carol & Dave have Mark of Love -> Dave (Hunter) dies of heartbreak!
     // - Dave (Hunter) pointed at Bob (Vampire) -> Hunter shoots Bob!
-    // - A Vampire (Bob) died -> Village team wins, EXCEPT Frank has Mark::Traitor (turned Evil)
-    //   and anyone who voted for Frank (Mark::Disease) loses their win!
+    // - A Vampire (Bob) died -> Village team (Carol, Dave, Eve, Frank) wins, EXCEPT Eve voted for Frank (`Mark::Disease`)
+    //   so Eve forfeits her win! Meanwhile Alice (`Team::Vampire` + `Mark::Traitor`) survived while fellow Vampire Bob died
+    //   -> Alice ALSO wins as Traitor!
     let dawn2 = h2
         .resolve_dawn(
             report2,
@@ -199,9 +203,9 @@ async fn priest_pickpocket_marksman_instigator_cupid_diseased_master_and_assassi
                 ("Bob", Some("Alice")),
                 ("Carol", Some("Alice")),
                 ("Dave", Some("Bob")),
-                ("Eve", Some("Alice")),
-                ("Frank", Some("Carol")),
-                ("Grace", Some("Frank")),
+                ("Eve", Some("Frank")),
+                ("Frank", Some("Alice")),
+                ("Grace", Some("Carol")),
             ],
         )
         .await;
@@ -210,6 +214,8 @@ async fn priest_pickpocket_marksman_instigator_cupid_diseased_master_and_assassi
     assert!(dead.contains("Carol"));
     assert!(dead.contains("Dave")); // Lover heartbreak!
     assert!(dead.contains("Bob")); // Hunter shot!
-    // Village wins (Carol, Dave, Eve), while Frank (Mark::Traitor -> Evil) loses!
-    assert_eq!(dawn2.winner_nicks(&h2.roster), vec!["Carol", "Dave", "Eve"]);
+    assert_eq!(
+        dawn2.winner_nicks(&h2.roster),
+        vec!["Alice", "Carol", "Dave", "Frank"]
+    );
 }

@@ -15,32 +15,31 @@ impl Role for DrPeeker {
             "Dr. Peeker",
             GameSet::SuperVillains,
             Team::SuperVillain,
-            "Wake with the Super Villains, then inspect 1 non-Villain player's card!",
+            "Wake with the Super Villains, then may inspect 1 other player's card!",
         )
         .aliases(&["peeker", "drpeeker"])
         .tags(&[RoleTag::VillainPack])
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(128, Self::prompt))
+        Some(Wake::solo(126, Self::prompt).follow_on_copy())
     }
 }
 
 impl DrPeeker {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
-            let villains = ctx.seats_with_tag(RoleTag::VillainPack);
-            let non_villains: Vec<usize> = (0..ctx.roster.len())
-                .filter(|&i| i != seat && !ctx.shielded.contains(&i) && !villains.contains(&i))
+            let valid_targets: Vec<usize> = (0..ctx.roster.len())
+                .filter(|&i| i != seat && !ctx.shielded.contains(&i))
                 .collect();
 
-            if non_villains.is_empty() {
+            if valid_targets.is_empty() {
                 return Ok(SeatEffect::noop());
             }
 
             let (roster, shielded) = (ctx.roster, ctx.shielded);
             let prompt = irc_format!(
-                "🔬 Dr. Peeker: Reply {} to X-ray a non-Villain's card, or {}. Players: {}",
+                "🔬 Dr. Peeker: Reply {} to X-ray another player's card, or {}. Players: {}",
                 "<nick>".bold(),
                 "pass".bold(),
                 roster.format_players_marking_shields(shielded),
@@ -51,11 +50,14 @@ impl DrPeeker {
                         return AskMatch::accept(None);
                     }
                     match roster.resolve_nick(&m.text) {
-                        Some(idx) if non_villains.contains(&idx) => AskMatch::accept(Some(idx)),
+                        Some(idx) if valid_targets.contains(&idx) => AskMatch::accept(Some(idx)),
+                        Some(idx) if idx == seat => {
+                            AskMatch::reject("Pick ANOTHER player (or pass)!".yellow())
+                        }
                         Some(idx) if shielded.contains(&idx) => {
                             AskMatch::reject("🛡️ That player is shielded!".yellow())
                         }
-                        Some(_) => AskMatch::reject("Pick a non-Villain player!".yellow()),
+                        Some(_) => AskMatch::reject("Pick another player!".yellow()),
                         None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
                     }
                 })

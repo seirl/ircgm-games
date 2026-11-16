@@ -7,7 +7,7 @@ use crate::testing::OnuwTestHarness;
 async fn token_of_mute_allows_gestures_and_punctuation_while_words_forfeit_personal_win_only() {
     let mute_dm = Artifact::TokenOfMute.recipient_dm().plain();
     assert!(mute_dm.contains(
-        "You have the Token of Mute. If you send any public channel message containing letters/numbers before voting ends, you personally lose (even if your team wins)."
+        "You have the Mask of Muting. If you send any public channel message containing letters/numbers before voting ends, you personally lose (even if your team wins)."
     ));
 
     // 1. Compliant Mute holder + bluffing non-holder both win:
@@ -50,7 +50,7 @@ async fn token_of_mute_allows_gestures_and_punctuation_while_words_forfeit_perso
         )
         .await;
     assert_eq!(dawn.winner_nicks(&h.roster), vec!["Alice", "Bob"]);
-    assert!(!dawn.channel_text().contains("broke the Token of Mute"));
+    assert!(!dawn.channel_text().contains("broke the Mask of Muting"));
 
     // 2. Violating Mute holder (e.g. smuggling extra words in `/me points at ...` or typing letters/numbers)
     //    personally loses at Dawn even though Village team wins!
@@ -86,7 +86,7 @@ async fn token_of_mute_allows_gestures_and_punctuation_while_words_forfeit_perso
     assert_eq!(dawn2.winner_nicks(&h2.roster), vec!["Alice"]);
     assert!(dawn2
         .channel_text()
-        .contains("Bob broke the Token of Mute"));
+        .contains("Bob broke the Mask of Muting"));
 }
 
 #[tokio::test(start_paused = true)]

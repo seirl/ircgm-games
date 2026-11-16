@@ -1,6 +1,6 @@
-use crate::roles::base::{villager::VILLAGER, werewolf::WEREWOLF};
+use crate::roles::base::{minion::MINION, villager::VILLAGER, werewolf::WEREWOLF};
 use crate::roles::daybreak::{
-    aura_seer::AURA_SEER, bodyguard::BODYGUARD, curator::CURATOR,
+    aura_seer::AURA_SEER, bodyguard::BODYGUARD, curator::CURATOR, dream_wolf::DREAM_WOLF,
     paranormal_investigator::PARANORMAL_INVESTIGATOR, revealer::REVEALER, witch::WITCH,
 };
 use crate::testing::OnuwTestHarness;
@@ -53,10 +53,10 @@ async fn witch_revealer_curator_aura_seer_and_bodyguard_work_end_to_end() {
     // Witch (Alice, 165) peeks Center #1 (Werewolf) and swaps it onto Carol!
     h.reply_dm("Alice", "1").await;
     h.reply_dm("Alice", "Carol").await;
-    // Curator (Carol, 185) passes:
-    h.reply_dm("Carol", "pass").await;
-    // Revealer (Bob, 192) flips Eve (Bodyguard -> Village, stays face-up!):
+    // Revealer (Bob, #10 / 192) flips Eve (Bodyguard -> Village, stays face-up!):
     h.reply_dm("Bob", "Eve").await;
+    // Curator (Carol, #11 / 194) passes:
+    h.reply_dm("Carol", "pass").await;
 
     let report = h.finish_night(night).await;
     assert_eq!(report.effective_role_at(&h.roster, "Carol"), "Werewolf");
@@ -129,4 +129,40 @@ async fn bodyguard_deflects_execution_to_runner_up_with_at_least_two_votes() {
         dawn.winner_nicks(&h.roster),
         vec!["Alice", "Bob", "Dave", "Eve"]
     );
+}
+
+#[tokio::test(start_paused = true)]
+async fn dream_wolf_suppresses_lone_wolf_and_minion_does_not_trigger_pi_or_revealer_flip_back() {
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &WEREWOLF),
+            ("Bob", &DREAM_WOLF),
+            ("Carol", &MINION),
+            ("Dave", &PARANORMAL_INVESTIGATOR),
+            ("Eve", &REVEALER),
+            ("Frank", &CURATOR),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night = h.spawn_night();
+    // Alice (Werewolf) sees Dream Wolf Bob and gets NO Lone Wolf center peek!
+    // Dave (PI) peeks Carol (Minion -> does NOT transform!), then peeks Alice (Werewolf -> transforms!):
+    h.reply_dm("Dave", "Carol").await;
+    h.reply_dm("Dave", "Alice").await;
+    // Eve (Revealer) flips Carol (Minion -> stays face-up because Minion is not Werewolf/Tanner!):
+    h.reply_dm("Eve", "Carol").await;
+    // Frank (Curator) tries to place an Artifact on face-up Carol (rejected!), then places on Bob:
+    h.reply_dm("Frank", "Carol").await;
+    let reject = h.wait_for_new_dm("Frank").await;
+    assert!(reject.contains("Face-up"));
+    h.send_dm("Frank", "Bob").await;
+
+    let report = h.finish_night(night).await;
+    assert!(report.dms_to("Alice").contains("Dream Wolf Bob"));
+    assert!(!report.dms_to("Alice").contains("LONE WOLF"));
+    assert_eq!(report.effective_role_at(&h.roster, "Dave"), "Werewolf");
+    assert!(report.board.is_player_face_up(h.seat_of("Carol")));
+    assert!(report.board.artifacts.contains_key(&h.seat_of("Bob")));
 }

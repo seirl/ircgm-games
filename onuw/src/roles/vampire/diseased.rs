@@ -3,8 +3,7 @@ use ircgm::prelude::*;
 use crate::board::BoardCards;
 use crate::marks::Mark;
 use crate::role::{
-    BoxFuture, DeathCtx, DeathEffect, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag,
-    SeatEffect, Team, Wake,
+    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
 };
 
 pub struct Diseased;
@@ -17,7 +16,7 @@ impl Role for Diseased {
             "Diseased",
             GameSet::Vampire,
             Team::Village,
-            "Give another player the Mark of Disease; anyone voting for a marked player (or sitting beside a killed Diseased) cannot win!",
+            "Place the Mark of Disease on your left or right neighbor in Dusk; anyone who votes for you or the marked player cannot win!",
         )
         .tags(&[RoleTag::PlacesMarks])
     }
@@ -25,34 +24,43 @@ impl Role for Diseased {
     fn wake(&self) -> Option<Wake> {
         Some(Wake::solo(34, Self::prompt).dusk().mutates())
     }
-
-    fn on_death(&self, dead_seat: usize, ctx: &DeathCtx<'_>) -> Option<DeathEffect> {
-        let (l, r) = ctx.roster.neighbors(dead_seat);
-        Some(DeathEffect::ForfeitWins(vec![l, r]))
-    }
 }
 
 impl Diseased {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let roster = ctx.roster;
+            let (left, right) = roster.neighbors(seat);
             let prompt = irc_format!(
-                "🤢 Diseased: Reply {} to place the Mark of Disease on another player! Players: {}",
-                "<nick>".bold(),
-                roster.format_players(),
+                "🤢 Diseased: You MUST place the Mark of Disease on your {} ({}) or {} ({}) neighbor!",
+                "left".bold(),
+                ctx.nick(left),
+                "right".bold(),
+                ctx.nick(right),
             );
             let ans = ctx
-                .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
-                    Some(idx) if idx == seat => AskMatch::reject("Pick ANOTHER player!".yellow()),
-                    Some(idx) => AskMatch::accept_say(
-                        idx,
-                        irc_format!(
-                            "🤢 Placed {} on {}!",
-                            Mark::Disease.styled(),
-                            roster.seats[idx].user.nick().bold(),
+                .ask(prompt, move |m| {
+                    let raw = m.text.trim();
+                    let chosen = match raw.to_ascii_lowercase().as_str() {
+                        "left" | "l" => Some(left),
+                        "right" | "r" => Some(right),
+                        _ => roster
+                            .resolve_nick(raw)
+                            .filter(|&idx| idx == left || idx == right),
+                    };
+                    match chosen {
+                        Some(idx) => AskMatch::accept_say(
+                            idx,
+                            irc_format!(
+                                "🤢 Placed {} on {}!",
+                                Mark::Disease.styled(),
+                                roster.seats[idx].user.nick().bold(),
+                            ),
                         ),
-                    ),
-                    None => AskMatch::reject("Unknown player nickname.".yellow()),
+                        None => AskMatch::reject(
+                            "You MUST pick your immediate left or right neighbor!".yellow(),
+                        ),
+                    }
                 })
                 .await?;
 
@@ -72,7 +80,8 @@ impl Diseased {
         let target = match ans {
             Answer::Ok(idx) => idx,
             Answer::TimedOut | Answer::Left { .. } | Answer::Unreachable { .. } => {
-                ctx.roster.neighbors(seat).0
+                let (left, right) = ctx.roster.neighbors(seat);
+                if fastrand::bool() { left } else { right }
             }
         };
         board.marks[target] = Mark::Disease;

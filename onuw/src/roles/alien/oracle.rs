@@ -1,5 +1,6 @@
 use ircgm::prelude::*;
 
+use super::psychic::PSYCHIC;
 use crate::board::OracleOmen;
 use crate::role::{BoxFuture, GameSet, PromptCtx, Role, RoleInfo, SeatEffect, Team, Wake};
 
@@ -13,7 +14,7 @@ impl Role for Oracle {
             "Oracle",
             GameSet::Alien,
             Team::Village,
-            "Answer a Mother-Ship question during Night that alters how downstream Alien-set roles behave!",
+            "Answer a Mother-Ship question at the start of Dusk/Night that alters cosmic visions and Alien-set powers!",
         )
     }
 
@@ -28,7 +29,7 @@ impl Oracle {
             let ans = ctx
                 .ask(
                     irc_format!(
-                        "🔮🛸 Oracle: The Mother Ship asks — tune cosmic frequencies to {} (boosts Psychic visions), {}, or {}?",
+                        "🔮🛸 Oracle: The Mother Ship asks — tune cosmic frequencies to {} (boosts visions), {}, or {}?",
                         "amplify".bold(),
                         "static".bold(),
                         "normal".bold(),
@@ -52,13 +53,87 @@ impl Oracle {
                 .await?;
 
             Ok(SeatEffect::new(move |label, board, rctx| {
-                if let Answer::Ok(omen) = ans {
-                    board.oracle_omen = omen;
+                let (omen, timed_out) = match ans.ok() {
+                    Some(o) => (o, false),
+                    None => {
+                        let choices = [
+                            OracleOmen::AmplifiedSignals,
+                            OracleOmen::QuantumStatic,
+                            OracleOmen::Normal,
+                        ];
+                        let o = choices[fastrand::usize(..choices.len())];
+                        (o, true)
+                    }
+                };
+                board.oracle_omen = omen;
+                if timed_out {
+                    rctx.dm(
+                        seat,
+                        irc_format!(
+                            "🔮🛸 Time's up — the Mother Ship randomly tuned cosmic frequencies to {:?}!",
+                            omen,
+                        ),
+                    );
+                }
+
+                let actor_nick = rctx.nick(seat);
+                if rctx.roster.deck_has(&PSYCHIC) {
                     rctx.record(irc_format!(
                         "🔮🛸 {label} ({}) tuned cosmic frequencies to {:?}.",
-                        rctx.nick(seat).bold(),
+                        actor_nick.bold(),
                         omen,
                     ));
+                } else {
+                    match omen {
+                        OracleOmen::AmplifiedSignals => {
+                            board.record_card_interaction(seat);
+                            let seen = board.center[0];
+                            rctx.dm(
+                                seat,
+                                irc_format!(
+                                    "🔮🛸 Oracle Vision: Center #1 holds {}!",
+                                    seen.display_for_peek(),
+                                ),
+                            );
+                            rctx.record(irc_format!(
+                                "🔮🛸 {label} ({}) tuned frequencies to {:?} and foresaw Center #1 ({}).",
+                                actor_nick.bold(),
+                                omen,
+                                seen.display_for_peek(),
+                            ));
+                        }
+                        OracleOmen::QuantumStatic => {
+                            board.record_card_interaction(seat);
+                            board.center.swap(0, 2);
+                            rctx.dm(
+                                seat,
+                                "🔮🛸 Quantum Static scrambled the cosmos — Center #1 and Center #3 swapped places!",
+                            );
+                            rctx.record(irc_format!(
+                                "🔮🛸 {label} ({}) engaged {:?}, swapping Center #1 and Center #3.",
+                                actor_nick.bold(),
+                                omen,
+                            ));
+                        }
+                        OracleOmen::Normal => {
+                            if !board.is_shielded(seat) {
+                                board.record_card_interaction(seat);
+                                let seen = board.players[seat];
+                                rctx.dm(
+                                    seat,
+                                    irc_format!(
+                                        "🔮🛸 Oracle Reflection: Your own card is {}!",
+                                        seen.display_for_peek(),
+                                    ),
+                                );
+                            }
+                            rctx.record(irc_format!(
+                                "🔮🛸 {label} ({}) kept cosmic frequencies {:?}.",
+                                actor_nick.bold(),
+                                omen,
+                            ));
+                        }
+                    }
                 }
             }))
         })

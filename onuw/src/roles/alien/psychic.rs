@@ -2,7 +2,9 @@ use ircgm::prelude::*;
 
 use super::oracle::ORACLE;
 use crate::board::{BoardCards, OracleOmen, Roster};
-use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, Team, Wake};
+use crate::role::{
+    BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, Wake,
+};
 
 pub struct Psychic;
 pub static PSYCHIC: Psychic = Psychic;
@@ -14,7 +16,7 @@ impl Role for Psychic {
             "Psychic",
             GameSet::Alien,
             Team::Village,
-            "View 1 neighbor's card (or BOTH neighbors' cards if the Oracle amplified signals tonight!).",
+            "Choose 1 neighbor's card to view (or view BOTH neighbors' cards if the Oracle amplified signals tonight!).",
         )
     }
 
@@ -22,31 +24,96 @@ impl Role for Psychic {
         if roster.deck_has(&ORACLE) {
             self.info().summary.to_owned()
         } else {
-            "Wake in Night to view your left neighbor's card!".to_owned()
+            "Wake in Night to view either your left or right neighbor's card!".to_owned()
         }
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(159, Self::inspect).immediate_on_copy())
+        Some(
+            Wake::solo(159, Self::prompt)
+                .reads_board()
+                .immediate_on_copy(),
+        )
     }
 }
 
 impl Psychic {
-    fn inspect(
+    fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
+        Box::pin(async move {
+            let omen = ctx.board().oracle_omen;
+            let (roster, shielded) = (ctx.roster, ctx.shielded);
+            let (left, right) = roster.neighbors(seat);
+
+            let targets: Vec<usize> = if omen == OracleOmen::AmplifiedSignals {
+                let mut v = vec![left, right];
+                v.dedup();
+                v
+            } else {
+                let unshielded: Vec<usize> = [left, right]
+                    .into_iter()
+                    .filter(|s| !shielded.contains(s))
+                    .collect();
+                if unshielded.is_empty() {
+                    Vec::new()
+                } else {
+                    let left_nick = roster.seats[left].user.nick();
+                    let right_nick = roster.seats[right].user.nick();
+                    let prompt = irc_format!(
+                        "🧠 Psychic: Reply {} ({}) or {} ({}) to read a neighbor's mind!",
+                        "left".bold(),
+                        left_nick,
+                        "right".bold(),
+                        right_nick,
+                    );
+                    let ans = ctx
+                        .ask(prompt, move |m| {
+                            let raw = m.text.trim();
+                            let lower = raw.to_ascii_lowercase();
+                            let picked = match lower.as_str() {
+                                "left" | "l" => Some(left),
+                                "right" | "r" => Some(right),
+                                _ => roster
+                                    .resolve_nick(raw)
+                                    .filter(|&i| i == left || i == right),
+                            };
+                            match picked {
+                                Some(t) if shielded.contains(&t) => {
+                                    AskMatch::reject("🛡️ That neighbor's mind is shielded!".yellow())
+                                }
+                                Some(t) => AskMatch::accept(t),
+                                None => AskMatch::reject("Reply left or right.".yellow()),
+                            }
+                        })
+                        .await?;
+                    let fallback = match omen {
+                        OracleOmen::QuantumStatic if !shielded.contains(&right) => right,
+                        _ if !shielded.contains(&left) => left,
+                        _ => unshielded[0],
+                    };
+                    vec![ans.ok().unwrap_or(fallback)]
+                }
+            };
+
+            Ok(SeatEffect::new(move |label, board, rctx| {
+                Self::resolve(seat, label, &targets, board, rctx);
+            }))
+        })
+    }
+
+    fn resolve(
         seat: usize,
         actor_label: &str,
+        targets: &[usize],
         board: &mut BoardCards,
         ctx: &mut ResolveCtx<'_>,
     ) {
         let actor_nick = ctx.nick(seat);
-        let (left, right) = ctx.roster.neighbors(seat);
-        let mut candidates: Vec<usize> = match board.oracle_omen {
-            OracleOmen::AmplifiedSignals => vec![left, right],
-            OracleOmen::Normal => vec![left],
-            OracleOmen::QuantumStatic => vec![right],
-        };
+        let mut candidates: Vec<usize> = targets
+            .iter()
+            .copied()
+            .filter(|&s| !board.is_shielded(s))
+            .collect();
         candidates.dedup();
-        candidates.retain(|&s| !board.is_shielded(s));
 
         if candidates.is_empty() {
             ctx.dm(seat, "🧠 Psychic: Neighboring minds were shielded tonight!");

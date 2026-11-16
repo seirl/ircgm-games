@@ -20,7 +20,7 @@ impl Role for Assassin {
             "Assassin",
             GameSet::Vampire,
             Team::Independent,
-            "Place the Mark of the Assassin on another player in Dusk. You win ONLY if the player holding that Mark dies!",
+            "Place the Mark of the Assassin on any player (including yourself) in Dusk. You win ONLY if the player holding that Mark dies!",
         )
         .tags(&[RoleTag::PlacesMarks])
     }
@@ -41,15 +41,12 @@ impl Assassin {
         Box::pin(async move {
             let roster = ctx.roster;
             let prompt = irc_format!(
-                "🗡️ Assassin: Reply {} to place the Mark of the Assassin! Players: {}",
+                "🗡️ Assassin: Reply {} to place the Mark of the Assassin (any player, including yourself)! Players: {}",
                 "<nick>".bold(),
                 roster.format_players(),
             );
             let ans = ctx
                 .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
-                    Some(idx) if idx == seat => {
-                        AskMatch::reject("Pick ANOTHER player to assassinate!".yellow())
-                    }
                     Some(idx) => AskMatch::accept_say(
                         idx,
                         irc_format!(
@@ -108,7 +105,7 @@ impl Role for ApprenticeAssassin {
         if roster.deck_has(&ASSASSIN) {
             self.info().summary.to_owned()
         } else {
-            "Place the Mark of the Assassin on another player in Dusk. You win ONLY if the player holding that Mark dies!".to_owned()
+            "Place the Mark of the Assassin on any player in Dusk. You win ONLY if the player holding that Mark dies!".to_owned()
         }
     }
 
@@ -117,11 +114,16 @@ impl Role for ApprenticeAssassin {
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        let assassins = ctx.find_seats(&ASSASSIN);
-        let won = if !assassins.is_empty() {
-            assassins.into_iter().any(|a| ctx.is_dead(a))
-        } else {
+        let won = if ctx.board.apprentice_assassin_marked {
             (0..ctx.roster.len()).any(|s| ctx.board.marks[s] == Mark::Assassin && ctx.is_dead(s))
+        } else {
+            let assassins = ctx.find_seats(&ASSASSIN);
+            if !assassins.is_empty() {
+                assassins.into_iter().any(|a| ctx.is_dead(a))
+            } else {
+                (0..ctx.roster.len())
+                    .any(|s| ctx.board.marks[s] == Mark::Assassin && ctx.is_dead(s))
+            }
         };
         won.then_some(SpecialVictory::independent())
     }
@@ -155,17 +157,26 @@ impl ApprenticeAssassin {
             }
 
             let actor = active_seats[0];
+            if active_seats.len() > 1 {
+                for &s in &active_seats[1..] {
+                    ctx.dm(
+                        s,
+                        irc_format!(
+                            "🗡️ Apprentice Assassin: No Assassin is in play! Fellow Apprentice {} is placing the {}!",
+                            ctx.nick(actor).bold(),
+                            Mark::Assassin.styled(),
+                        ),
+                    );
+                }
+            }
             let roster = ctx.roster;
             let prompt = irc_format!(
-                "🗡️ Apprentice Assassin: No Assassin is in play! Reply {} to place the Mark of the Assassin! Players: {}",
+                "🗡️ Apprentice Assassin: No Assassin is in play! Reply {} to place the Mark of the Assassin (any player, including yourself)! Players: {}",
                 "<nick>".bold(),
                 roster.format_players(),
             );
             let ans = ctx
                 .ask(actor, prompt, move |m| match roster.resolve_nick(&m.text) {
-                    Some(idx) if idx == actor => {
-                        AskMatch::reject("Pick ANOTHER player to assassinate!".yellow())
-                    }
                     Some(idx) => AskMatch::accept_say(
                         idx,
                         irc_format!(
@@ -181,6 +192,17 @@ impl ApprenticeAssassin {
 
             Ok(GroupEffect::new(move |board, rctx| {
                 board.marks[target] = Mark::Assassin;
+                board.apprentice_assassin_marked = true;
+                for &s in &active_seats[1..] {
+                    rctx.dm(
+                        s,
+                        irc_format!(
+                            "🗡️ Fellow Apprentice Assassin placed {} on {}!",
+                            Mark::Assassin.styled(),
+                            rctx.nick(target).bold(),
+                        ),
+                    );
+                }
                 rctx.record(irc_format!(
                     "🗡️ Apprentice Assassin ({}) placed {} on {}.",
                     rctx.nick(actor).bold(),

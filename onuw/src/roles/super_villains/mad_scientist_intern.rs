@@ -1,6 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::Roster;
+use crate::marks::Mark;
 use crate::role::{
     BoxFuture, GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, SpecialVictory, Team,
     VictoryCtx, Wake,
@@ -11,6 +12,14 @@ pub static MAD_SCIENTIST: MadScientist = MadScientist;
 
 pub struct Intern;
 pub static INTERN: Intern = Intern;
+
+const ALL_TEAMS: &[Team] = &[
+    Team::Village,
+    Team::Werewolf,
+    Team::Vampire,
+    Team::Alien,
+    Team::SuperVillain,
+];
 
 impl Role for MadScientist {
     fn info(&self) -> RoleInfo {
@@ -26,7 +35,7 @@ impl Role for MadScientist {
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         ctx.is_dead(seat)
-            .then_some(SpecialVictory::independent_blocking(Team::MONSTER_TEAMS))
+            .then_some(SpecialVictory::independent_blocking(ALL_TEAMS))
     }
 }
 
@@ -54,13 +63,19 @@ impl Role for Intern {
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        let scientists = ctx.find_seats(&MAD_SCIENTIST);
+        let scientists: Vec<usize> = (0..ctx.roster.len())
+            .filter(|&i| {
+                !ctx.board.has_role_override_artifact(i)
+                    && ctx.board.marks[i] != Mark::Vampire
+                    && ctx.board.players[i].effective_role().id() == "mad_scientist"
+            })
+            .collect();
         let won = if scientists.is_empty() {
             ctx.is_dead(seat)
         } else {
             scientists.into_iter().any(|m| ctx.is_dead(m))
         };
-        won.then_some(SpecialVictory::independent())
+        won.then_some(SpecialVictory::independent_blocking(ALL_TEAMS))
     }
 }
 

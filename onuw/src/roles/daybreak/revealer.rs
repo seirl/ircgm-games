@@ -81,7 +81,7 @@ impl Revealer {
             let face_role = card.face_role();
             let actor_nick = ctx.nick(seat);
             let target_nick = ctx.nick(target);
-            if face_role.team() != Team::Village {
+            if face_role.triggers_pi_and_revealer() {
                 ctx.dm(
                     seat,
                     irc_format!(

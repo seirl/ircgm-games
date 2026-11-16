@@ -15,10 +15,10 @@ async fn minion_sees_both_waking_and_dream_wolves() {
     .await;
 
     let night = h.spawn_night();
-    // Bob is the sole *waking* wolf (Carol sleeps as Dream Wolf), so Bob gets Lone Wolf prompt:
-    h.reply_dm("Bob", "pass").await;
-
+    // Carol sleeps as Dream Wolf with thumb out, so waking wolf Bob sees Carol and does NOT get Lone Wolf center peek:
     let report = h.finish_night(night).await;
+    assert!(report.dms_to("Bob").contains("Dream Wolf Carol"));
+    assert!(!report.dms_to("Bob").contains("LONE WOLF"));
     assert!(report
         .dms_to("Alice")
         .contains("The Werewolves are Bob, Carol"));

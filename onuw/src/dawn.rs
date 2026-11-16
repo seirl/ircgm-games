@@ -136,9 +136,8 @@ pub fn resolve_and_announce_winners(
         }
     }
 
-    // Fixpoint loop over `Role::on_death` (`Hunter` kill + `Diseased` taint) and `Mark::Love` heartbreak:
+    // Fixpoint loop over `Role::on_death` (`Hunter` kill) and `Mark::Love` heartbreak:
     let mut processed_deaths: HashSet<usize> = HashSet::new();
-    let mut death_forfeits: HashSet<usize> = HashSet::new();
     loop {
         let mut current_dead: Vec<usize> = dead.iter().copied().collect();
         current_dead.sort_unstable();
@@ -146,24 +145,14 @@ pub fn resolve_and_announce_winners(
         for d in current_dead {
             if processed_deaths.insert(d) {
                 if !board.has_role_override_artifact(d) {
-                    if let Some(effect) =
-                        board.players[d].effective_role().on_death(d, &death_ctx)
+                    if let Some(DeathEffect::Kill {
+                        seat: kill_seat,
+                        announcement,
+                    }) = board.players[d].effective_role().on_death(d, &death_ctx)
                     {
-                        match effect {
-                            DeathEffect::Kill {
-                                seat: kill_seat,
-                                announcement,
-                            } => {
-                                if !dead.contains(&kill_seat)
-                                    && !hunter_shielded.contains(&kill_seat)
-                                {
-                                    newly_killed.push(kill_seat);
-                                    death_announcements.push(announcement);
-                                }
-                            }
-                            DeathEffect::ForfeitWins(seats) => {
-                                death_forfeits.extend(seats);
-                            }
+                        if !dead.contains(&kill_seat) && !hunter_shielded.contains(&kill_seat) {
+                            newly_killed.push(kill_seat);
+                            death_announcements.push(announcement);
                         }
                     }
                 }
@@ -380,23 +369,27 @@ pub fn resolve_and_announce_winners(
             }
             let threats = threats_of(team);
             let minions = minions_for(team);
-            let won = if !threats.is_empty() {
+            if !threats.is_empty() {
                 let all_own_survive = threats.iter().all(|s| !dead.contains(s));
-                if is_epic_battle {
-                    let rival_killed = present_monster_factions
-                        .iter()
-                        .any(|&other| other != team && threats_of(other).iter().any(|s| dead.contains(s)));
+                let won = if is_epic_battle {
+                    let rival_killed = present_monster_factions.iter().any(|&other| {
+                        other != team && threats_of(other).iter().any(|s| dead.contains(s))
+                    });
                     all_own_survive && rival_killed
                 } else {
                     all_own_survive
+                };
+                if won {
+                    winning_teams.insert(team);
                 }
             } else {
-                !minions.is_empty()
-                    && minions.iter().all(|m| !dead.contains(m))
-                    && dead.iter().any(|&d| board.effective_team(d) != team)
-            };
-            if won {
-                winning_teams.insert(team);
+                // Minion with 0 primary threats in play wins individually if they survive
+                // AND another player dies (and the team is not blocked by Tanner/etc.):
+                for m in minions {
+                    if !dead.contains(&m) && dead.iter().any(|&d| d != m) {
+                        winners.insert(m, team.win_label());
+                    }
+                }
             }
         }
     }
@@ -417,14 +410,37 @@ pub fn resolve_and_announce_winners(
         }
     }
 
-    // 4c. Individual win-forfeit penalties (`Mark::Disease`, `DeathEffect::ForfeitWins`, & `Artifact` conduct):
-    for forfeited in death_forfeits {
-        winners.remove(&forfeited);
+    // 4c. `Mark::Traitor` override + individual win-forfeit penalties (`Diseased`, `Mark::Disease`, & `Artifact` conduct):
+    for seat in 0..n {
+        if !board.has_role_override_artifact(seat) && board.marks[seat] == Mark::Traitor {
+            let team = board.effective_team(seat);
+            if team != Team::Independent {
+                let teammates: Vec<usize> = (0..n)
+                    .filter(|&o| o != seat && board.effective_team(o) == team)
+                    .collect();
+                if !teammates.is_empty() {
+                    let traitor_won = !blocked_teams.contains(&team)
+                        && !dead.contains(&seat)
+                        && teammates.iter().any(|o| dead.contains(o));
+                    if traitor_won {
+                        winners.insert(seat, "Traitor");
+                    } else {
+                        winners.remove(&seat);
+                    }
+                }
+            }
+        }
     }
+
+    let is_diseased_seat = |target: usize| -> bool {
+        board.marks[target] == Mark::Disease
+            || (!board.has_role_override_artifact(target)
+                && board.players[target].effective_role().id() == "diseased")
+    };
     let casemap = room.casemap();
     for seat in 0..n {
         if let Some(voted) = votes[seat] {
-            if board.marks[voted] == Mark::Disease {
+            if is_diseased_seat(voted) {
                 winners.remove(&seat);
             }
         }

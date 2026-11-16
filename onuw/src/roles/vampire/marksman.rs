@@ -12,6 +12,7 @@ pub static MARKSMAN: Marksman = Marksman;
 enum MarksmanChoice {
     Pass,
     CardOnly(usize),
+    MarkOnly(usize),
     CardAndMark(usize, usize),
 }
 
@@ -22,7 +23,7 @@ impl Role for Marksman {
             "Marksman",
             GameSet::Vampire,
             Team::Village,
-            "Wake in Night to view ONE player's card AND a DIFFERENT player's Mark!",
+            "Wake in Night to view one other player's card and/or a different other player's Mark!",
         )
     }
 
@@ -47,8 +48,10 @@ impl Marksman {
             let players_str = roster.format_players_marking_shields(shielded);
             let prompt = if has_marks {
                 irc_format!(
-                    "🎯 Marksman: Reply {} (two DIFFERENT players) or {}. Players: {players_str}",
+                    "🎯 Marksman: Reply {} (two DIFFERENT other players), {}, {}, or {}. Players: {players_str}",
                     "<card_nick> <mark_nick>".bold(),
+                    "card <nick>".bold(),
+                    "mark <nick>".bold(),
                     "pass".bold(),
                 )
             } else {
@@ -66,11 +69,16 @@ impl Marksman {
                     }
                     let parts: Vec<&str> = m.text.split_whitespace().collect();
                     let (card_tok, mark_tok) = match parts.as_slice() {
-                        [card_tok] if !has_marks => (*card_tok, None),
-                        [card_tok, mark_tok] if has_marks => (*card_tok, Some(*mark_tok)),
+                        [w, nick] if w.eq_ignore_ascii_case("card") => (Some(*nick), None),
+                        [w, nick] if has_marks && w.eq_ignore_ascii_case("mark") => {
+                            (None, Some(*nick))
+                        }
+                        [card_tok] if !has_marks => (Some(*card_tok), None),
+                        [card_tok, mark_tok] if has_marks => (Some(*card_tok), Some(*mark_tok)),
                         _ if has_marks => {
                             return AskMatch::reject(
-                                "Usage: <card_nick> <mark_nick> or pass.".yellow(),
+                                "Usage: <card_nick> <mark_nick>, card <nick>, mark <nick>, or pass."
+                                    .yellow(),
                             );
                         }
                         _ => {
@@ -80,29 +88,41 @@ impl Marksman {
                             );
                         }
                     };
-                    let Some(card_idx) = roster.resolve_nick(card_tok) else {
-                        return AskMatch::reject("Unknown player nickname.".yellow());
-                    };
-                    if card_idx == seat {
-                        return AskMatch::reject("You cannot inspect your own card!".yellow());
-                    }
-                    if shielded.contains(&card_idx) {
-                        return AskMatch::reject(
-                            "🛡️ That card is shielded by the Sentinel!".yellow(),
-                        );
-                    }
-                    if let Some(mark_tok) = mark_tok {
-                        let Some(mark_idx) = roster.resolve_nick(mark_tok) else {
+                    let card_idx = if let Some(ct) = card_tok {
+                        let Some(idx) = roster.resolve_nick(ct) else {
                             return AskMatch::reject("Unknown player nickname.".yellow());
                         };
-                        if card_idx == mark_idx {
+                        if idx == seat {
+                            return AskMatch::reject("You cannot inspect your own card!".yellow());
+                        }
+                        if shielded.contains(&idx) {
                             return AskMatch::reject(
-                                "Card target and Mark target must be DIFFERENT players!".yellow(),
+                                "🛡️ That card is shielded by the Sentinel!".yellow(),
                             );
                         }
-                        AskMatch::accept(MarksmanChoice::CardAndMark(card_idx, mark_idx))
+                        Some(idx)
                     } else {
-                        AskMatch::accept(MarksmanChoice::CardOnly(card_idx))
+                        None
+                    };
+                    let mark_idx = if let Some(mt) = mark_tok {
+                        let Some(idx) = roster.resolve_nick(mt) else {
+                            return AskMatch::reject("Unknown player nickname.".yellow());
+                        };
+                        if idx == seat {
+                            return AskMatch::reject("You cannot inspect your own Mark!".yellow());
+                        }
+                        Some(idx)
+                    } else {
+                        None
+                    };
+                    match (card_idx, mark_idx) {
+                        (Some(c), Some(mk)) if c == mk => AskMatch::reject(
+                            "Card target and Mark target must be DIFFERENT players!".yellow(),
+                        ),
+                        (Some(c), Some(mk)) => AskMatch::accept(MarksmanChoice::CardAndMark(c, mk)),
+                        (Some(c), None) => AskMatch::accept(MarksmanChoice::CardOnly(c)),
+                        (None, Some(mk)) => AskMatch::accept(MarksmanChoice::MarkOnly(mk)),
+                        (None, None) => AskMatch::accept(MarksmanChoice::Pass),
                     }
                 })
                 .await?;
@@ -142,6 +162,24 @@ impl Marksman {
                     "🎯 {actor_label} ({}) viewed {target_nick}'s card ({}).",
                     actor_nick.bold(),
                     seen_card.display_for_peek(),
+                ));
+            }
+            MarksmanChoice::MarkOnly(mark_idx) => {
+                let seen_mark = board.marks[mark_idx];
+                let mark_nick = ctx.nick(mark_idx);
+                ctx.dm(
+                    seat,
+                    irc_format!(
+                        "🎯 Marksman: {}'s mark is {}!",
+                        mark_nick.as_str().bold(),
+                        seen_mark.styled(),
+                    ),
+                );
+                ctx.record(irc_format!(
+                    "🎯 {actor_label} ({}) viewed {}'s mark ({}).",
+                    actor_nick.bold(),
+                    mark_nick.bold(),
+                    seen_mark.styled(),
                 ));
             }
             MarksmanChoice::CardAndMark(card_idx, mark_idx) => {

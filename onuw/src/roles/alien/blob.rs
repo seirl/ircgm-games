@@ -1,10 +1,21 @@
 use ircgm::prelude::*;
 
-use crate::board::BoardCards;
-use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx};
+use crate::board::{BoardCards, Roster};
+use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx, Wake};
 
 pub struct Blob;
 pub static BLOB: Blob = Blob;
+
+fn blob_seats_around(roster: &Roster, seat: usize) -> Vec<usize> {
+    let (left, right) = roster.neighbors(seat);
+    let mut list = vec![seat, left];
+    if roster.len() >= 6 {
+        list.push(right);
+    }
+    list.sort_unstable();
+    list.dedup();
+    list
+}
 
 impl Role for Blob {
     fn info(&self) -> RoleInfo {
@@ -13,42 +24,43 @@ impl Role for Blob {
             "Blob",
             GameSet::Alien,
             Team::Independent,
-            "Part of the Blob! You win ONLY if every player absorbed into the Blob survives the vote!",
+            "Part of the Blob! You win ONLY if you and every neighbor absorbed into the Blob survive the vote!",
         )
     }
 
-    fn on_deal(&self, seat: usize, board: &mut BoardCards, ctx: &mut ResolveCtx<'_>) {
-        let (left, right) = ctx.roster.neighbors(seat);
-        board.blob_seats.insert(seat);
-        board.blob_seats.insert(left);
-        if ctx.roster.len() >= 6 {
-            board.blob_seats.insert(right);
-        }
+    fn wake(&self) -> Option<Wake> {
+        Some(Wake::passive(196, Self::wake_passive).follow_on_copy())
+    }
 
-        let mut list: Vec<usize> = board.blob_seats.iter().copied().collect();
-        list.sort_unstable();
-        let names = ctx.roster.format_indices(&list);
+    fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+        let absorbed = blob_seats_around(ctx.roster, seat);
+        absorbed
+            .into_iter()
+            .all(|s| !ctx.is_dead(s))
+            .then_some(SpecialVictory::independent())
+    }
+}
+
+impl Blob {
+    fn wake_passive(
+        seat: usize,
+        actor_label: &str,
+        _board: &mut BoardCards,
+        ctx: &mut ResolveCtx<'_>,
+    ) {
+        let absorbed = blob_seats_around(ctx.roster, seat);
+        let names = ctx.roster.format_indices(&absorbed);
         ctx.dm(
             seat,
             irc_format!(
-                "🟢 Blob: You have absorbed {} — keep ALL of them alive to win!",
+                "🟢 Blob: At your seat, the Blob spans {} — keep ALL absorbed players alive to win!",
                 names.as_str().bold().green(),
             ),
         );
         ctx.record(irc_format!(
-            "🟢 {} ({}) absorbed {} into the Blob.",
-            self.info().styled_name(),
+            "🟢 {actor_label} ({}) woke with Blob neighbors {}.",
             ctx.nick(seat).bold(),
             names.as_str().bold().green(),
         ));
-    }
-
-    fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        let won = if ctx.board.blob_seats.is_empty() {
-            !ctx.is_dead(seat)
-        } else {
-            ctx.board.blob_seats.iter().all(|&s| !ctx.is_dead(s))
-        };
-        won.then_some(SpecialVictory::independent())
     }
 }

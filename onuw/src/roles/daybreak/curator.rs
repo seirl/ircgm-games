@@ -21,14 +21,19 @@ impl Role for Curator {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(194, Self::prompt).mutates().follow_on_copy())
+        Some(
+            Wake::solo(194, Self::prompt)
+                .reads_board()
+                .mutates()
+                .follow_on_copy(),
+        )
     }
 }
 
 impl Curator {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
-            let (roster, shielded) = (ctx.roster, ctx.shielded);
+            let (roster, shielded, board) = (ctx.roster, ctx.shielded, ctx.board());
             let prompt = irc_format!(
                 "🏺 Curator: Reply {} to bestow a random Artifact token (including yourself), or {}. Players: {}",
                 "<nick>".bold(),
@@ -43,6 +48,12 @@ impl Curator {
                     match roster.resolve_nick(&m.text) {
                         Some(idx) if shielded.contains(&idx) => AskMatch::reject(
                             "🛡️ Shielded players cannot receive Artifacts!".yellow(),
+                        ),
+                        Some(idx) if board.is_player_face_up(idx) => AskMatch::reject(
+                            "🔦 Face-up cards cannot receive an Artifact!".yellow(),
+                        ),
+                        Some(idx) if board.artifacts.contains_key(&idx) => AskMatch::reject(
+                            "🏺 That player already has an Artifact token!".yellow(),
                         ),
                         Some(idx) => AskMatch::accept_say(
                             Some(idx),
@@ -70,8 +81,11 @@ impl Curator {
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            if !board.is_shielded(target) {
-                let art = Artifact::random();
+            if !board.is_shielded(target)
+                && !board.is_player_face_up(target)
+                && !board.artifacts.contains_key(&target)
+            {
+                let art = Artifact::random_unused(&board.artifacts);
                 board.artifacts.insert(target, art);
                 ctx.dm(target, art.recipient_dm());
                 ctx.record(irc_format!(

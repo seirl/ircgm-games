@@ -30,40 +30,46 @@ impl Minion {
         ctx: GroupPromptCtx<'a>,
     ) -> BoxFuture<'a, Result<GroupEffect>> {
         Box::pin(async move {
-            let mut wolves = ctx.seats_with_tag(RoleTag::WolfPack);
-            for dw in ctx.seats_with_tag(RoleTag::DreamWolfThumb) {
-                if !wolves.contains(&dw) {
-                    wolves.push(dw);
-                }
-            }
-            wolves.sort_unstable();
+            let has_tanner_hazard = ctx.roster.deck_has_tanner_hazard();
+            Ok(GroupEffect::new(move |board, rctx| {
+                let mut wolves: Vec<usize> = (0..rctx.roster.len())
+                    .filter(|&i| {
+                        let wr = rctx.waking_roles[i];
+                        wr.tags().contains(&RoleTag::WolfPack)
+                            || wr.tags().contains(&RoleTag::DreamWolfThumb)
+                            || board.players[i].became.is_some_and(|b| {
+                                b.tags().contains(&RoleTag::WolfPack)
+                                    || b.tags().contains(&RoleTag::DreamWolfThumb)
+                            })
+                    })
+                    .collect();
+                wolves.sort_unstable();
 
-            for &m_seat in &active_seats {
-                if wolves.is_empty() {
-                    let goal = if ctx.roster.deck_has_tanner_hazard() {
-                        "Survive and get another non-Tanner player killed to win!"
+                for &m_seat in &active_seats {
+                    if wolves.is_empty() {
+                        let goal = if has_tanner_hazard {
+                            "Survive and get another non-Tanner player killed to win!"
+                        } else {
+                            "Survive and get another player killed to win!"
+                        };
+                        rctx.dm(
+                            m_seat,
+                            irc_format!(
+                                "🗡️ Minion: {}! {goal}",
+                                "NO players hold Werewolf cards".bold().yellow()
+                            ),
+                        );
                     } else {
-                        "Survive and get another player killed to win!"
-                    };
-                    ctx.dm(
-                        m_seat,
-                        irc_format!(
-                            "🗡️ Minion: {}! {goal}",
-                            "NO players hold Werewolf cards".bold().yellow()
-                        ),
-                    );
-                } else {
-                    ctx.dm(
-                        m_seat,
-                        irc_format!(
-                            "🗡️ Minion: The Werewolves are {} (they do not know who you are!).",
-                            ctx.roster.format_indices(&wolves).bold().red()
-                        ),
-                    );
+                        rctx.dm(
+                            m_seat,
+                            irc_format!(
+                                "🗡️ Minion: The Werewolves are {} (they do not know who you are!).",
+                                rctx.roster.format_indices(&wolves).bold().red()
+                            ),
+                        );
+                    }
                 }
-            }
 
-            Ok(GroupEffect::new(move |_board, rctx| {
                 let names = rctx.roster.format_indices(&active_seats);
                 let styled = MINION.info().styled_name();
                 if wolves.is_empty() {

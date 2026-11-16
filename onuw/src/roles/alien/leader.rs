@@ -1,5 +1,7 @@
 use ircgm::prelude::*;
 
+use super::groob_zerb::{GROOB, ZERB};
+use crate::marks::Mark;
 use crate::role::{
     BoxFuture, GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, RoleTag, SpecialVictory, Team,
     VictoryCtx, Wake,
@@ -15,7 +17,7 @@ impl Role for Leader {
             "Leader",
             GameSet::Alien,
             Team::Village,
-            "Knows who the Aliens are! WARNING: if ALL Aliens point at you during the vote, the Aliens win regardless of who dies!",
+            "Knows who the Aliens are! WARNING: if ALL Aliens vote for you, Aliens win (or if both Groob & Zerb are in play, win ONLY if both survive)!",
         )
     }
 
@@ -24,11 +26,19 @@ impl Role for Leader {
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+        if ctx.board.both_groob_and_zerb_in_play() {
+            let gz_survive = (0..ctx.roster.len())
+                .filter(|&i| {
+                    !ctx.board.has_role_override_artifact(i)
+                        && ctx.board.marks[i] != Mark::Vampire
+                        && matches!(ctx.board.players[i].effective_role().id(), "groob" | "zerb")
+                })
+                .all(|i| !ctx.is_dead(i));
+            return gz_survive.then_some(SpecialVictory::independent());
+        }
+
         let alien_threats: Vec<usize> = (0..ctx.roster.len())
-            .filter(|&i| {
-                let r = ctx.board.players[i].effective_role();
-                r.tags().contains(&RoleTag::AlienPack) && r.is_primary_threat()
-            })
+            .filter(|&i| ctx.board.is_alien_threat(i))
             .collect();
 
         if !alien_threats.is_empty() && alien_threats.iter().all(|&a| ctx.votes[a] == Some(seat)) {
@@ -54,6 +64,16 @@ impl Leader {
     ) -> BoxFuture<'a, Result<GroupEffect>> {
         Box::pin(async move {
             let aliens = ctx.seats_with_tag(RoleTag::AlienPack);
+            let groobs = ctx.seats_with_role(&GROOB);
+            let zerbs = ctx.seats_with_role(&ZERB);
+            let mut gz_seats = Vec::new();
+            if !groobs.is_empty() && !zerbs.is_empty() {
+                gz_seats.extend(groobs);
+                gz_seats.extend(zerbs);
+                gz_seats.sort_unstable();
+                gz_seats.dedup();
+            }
+
             for &s in &active_seats {
                 if aliens.is_empty() {
                     ctx.dm(s, "🫡 Leader: No Aliens are held by players tonight!");
@@ -63,6 +83,15 @@ impl Leader {
                         irc_format!(
                             "🫡 Leader: The Aliens are {} — stay hidden so they don't all vote for you!",
                             ctx.roster.format_indices(&aliens).bold().red(),
+                        ),
+                    );
+                }
+                if !gz_seats.is_empty() {
+                    ctx.dm(
+                        s,
+                        irc_format!(
+                            "👾 Leader Intel: Groob & Zerb are pointing at each other ({}) — you ONLY win if NEITHER Groob nor Zerb dies!",
+                            ctx.roster.format_indices(&gz_seats).bold().orange(),
                         ),
                     );
                 }

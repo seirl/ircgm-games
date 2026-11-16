@@ -1,6 +1,7 @@
 use ircgm::prelude::*;
 
 use crate::board::BoardCards;
+use crate::marks::Mark;
 use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, RoleTag, Team, Wake};
 
 pub struct Evilometer;
@@ -13,7 +14,7 @@ impl Role for Evilometer {
             "Evilometer",
             GameSet::SuperVillains,
             Team::Village,
-            "Wake during the Villain phase: your gadget beeps if either immediate neighbor holds a Super Villain or Evil threat card!",
+            "Wake during the Villain phase: your gadget beeps if either immediate neighbor is a waking Super Villain (and Villains see who holds Evilometer)!",
         )
         .aliases(&["meter", "evil_meter"])
     }
@@ -31,31 +32,31 @@ impl Evilometer {
         ctx: &mut ResolveCtx<'_>,
     ) {
         let (left, right) = ctx.roster.neighbors(seat);
-        let neighbor_evil = [left, right].into_iter().any(|n| {
-            let tags = board.players[n].effective_role().tags();
-            tags.contains(&RoleTag::VillainPack) || board.is_primary_threat(n)
+        let neighbor_villain = [left, right].into_iter().any(|n| {
+            ctx.waking_roles[n].tags().contains(&RoleTag::VillainPack)
+                && board.marks[n] != Mark::Fear
         });
 
         let actor_nick = ctx.nick(seat);
-        if neighbor_evil {
+        if neighbor_villain {
             ctx.dm(
                 seat,
                 irc_format!(
-                    "{} Evil detected immediately to your left or right!",
+                    "{} A Super Villain sits immediately to your left or right!",
                     "📟🚨 *BEEP! BEEP!*".bold().red(),
                 ),
             );
             ctx.record(irc_format!(
-                "📟 {actor_label} ({}) beeped — an Evil neighbor was detected!",
+                "📟 {actor_label} ({}) beeped — a Super Villain neighbor was detected!",
                 actor_nick.bold(),
             ));
         } else {
             ctx.dm(
                 seat,
-                "📟 Evilometer stayed silent (neither immediate neighbor is Evil).",
+                "📟 Evilometer stayed silent (neither immediate neighbor is a waking Super Villain).",
             );
             ctx.record(irc_format!(
-                "📟 {actor_label} ({}) stayed silent (no Evil neighbors).",
+                "📟 {actor_label} ({}) stayed silent (no Super Villain neighbors).",
                 actor_nick.bold(),
             ));
         }

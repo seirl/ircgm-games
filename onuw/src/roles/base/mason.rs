@@ -28,14 +28,25 @@ impl Mason {
         ctx: GroupPromptCtx<'a>,
     ) -> BoxFuture<'a, Result<GroupEffect>> {
         Box::pin(async move {
+            let total_masons = ctx.seats_with_role(&MASON).len();
             if active_seats.len() == 1 {
-                ctx.dm(
-                    active_seats[0],
-                    irc_format!(
-                        "🧱 Mason: You are the {} in play (the other Mason card is in the center!).",
-                        "ONLY Mason".bold().light_cyan()
-                    ),
-                );
+                if total_masons > 1 {
+                    ctx.dm(
+                        active_seats[0],
+                        irc_format!(
+                            "🧱 Mason: You woke {} (your fellow Mason could not wake up tonight!).",
+                            "alone".bold().light_cyan()
+                        ),
+                    );
+                } else {
+                    ctx.dm(
+                        active_seats[0],
+                        irc_format!(
+                            "🧱 Mason: You are the {} in play (the other Mason card is in the center!).",
+                            "ONLY Mason".bold().light_cyan()
+                        ),
+                    );
+                }
             } else {
                 for &seat in &active_seats {
                     let others: Vec<usize> = active_seats
@@ -55,8 +66,13 @@ impl Mason {
 
             Ok(GroupEffect::new(move |_board, rctx| {
                 if active_seats.len() == 1 {
+                    let reason = if total_masons > 1 {
+                        "fellow Mason feared"
+                    } else {
+                        "the other Mason was in the center"
+                    };
                     rctx.record(irc_format!(
-                        "🧱 {} ({}) woke alone (the other Mason was in the center).",
+                        "🧱 {} ({}) woke alone ({reason}).",
                         MASON.info().styled_name(),
                         rctx.nick(active_seats[0]).bold(),
                     ));

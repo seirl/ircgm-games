@@ -173,12 +173,12 @@ impl Roster {
         self.deck_has_id("sentinel")
     }
 
-    /// True iff `self.deck` contains a death-win spoiler (`Tanner`, `Mad Scientist`, `Synthetic Alien`, or `Curator`'s Cudgel).
+    /// True iff `self.deck` contains a death-win spoiler (`Tanner`, `Mad Scientist`, `Intern`, `Synthetic Alien`, or `Curator`'s Cudgel).
     pub fn deck_has_tanner_hazard(&self) -> bool {
         self.deck.iter().any(|r| {
             matches!(
                 r.id(),
-                "tanner" | "mad_scientist" | "synthetic_alien" | "curator"
+                "tanner" | "mad_scientist" | "intern" | "synthetic_alien" | "curator"
             )
         })
     }
@@ -201,11 +201,11 @@ impl Roster {
         if self.deck_has_tag(RoleTag::VampirePack) {
             push_unique("Vampire");
         }
-        if self
-            .deck
-            .iter()
-            .any(|r| r.team() == Team::Alien || (r.tags().contains(&RoleTag::AlienPack) && r.team() == Team::Werewolf))
-        {
+        if self.deck.iter().any(|r| {
+            r.team() == Team::Alien
+                || matches!(r.id(), "groob" | "zerb")
+                || (r.tags().contains(&RoleTag::AlienPack) && r.team() == Team::Werewolf)
+        }) {
             push_unique("Alien");
         }
         if self.deck_has_tag(RoleTag::VillainPack)
@@ -215,20 +215,6 @@ impl Roster {
                 .any(|r| r.team() == Team::SuperVillain || (r.team() == Team::Werewolf && r.game() == GameSet::SuperVillains))
         {
             push_unique("Super Villain");
-        }
-        if self
-            .deck
-            .iter()
-            .any(|r| r.is_minion() && r.team() == Team::Werewolf)
-        {
-            push_unique("Minion");
-        }
-        if self
-            .deck
-            .iter()
-            .any(|r| r.is_minion() && r.team() == Team::Vampire)
-        {
-            push_unique("Renfield");
         }
         for &r in &self.deck {
             if r.team() == Team::Independent {
@@ -348,7 +334,7 @@ pub struct BoardCards {
     pub center: [Card; 3],
     /// Extra center Werewolf card used by `Alpha Wolf`.
     pub extra_evil_card: Card,
-    /// Extra perpendicular Villain card (`Henchman`) used by `Temptress` / `Rapscallion`.
+    /// Extra perpendicular Villain card (`Henchman #7`) used by `Temptress`.
     pub extra_villain_card: Card,
     /// Seats protected by `Sentinel`'s shield token (cannot be viewed, moved, flipped, or artifacted).
     pub shielded: HashSet<usize>,
@@ -358,10 +344,10 @@ pub struct BoardCards {
     pub artifacts: HashMap<usize, Artifact>,
     /// Seats that viewed or moved any card tonight (read by Daybreak's `Aura Seer`).
     pub viewed_or_moved_actors: HashSet<usize>,
-    /// Seats absorbed into the `Blob` (Alien expansion).
-    pub blob_seats: HashSet<usize>,
     /// Cosmic signal frequency tuned by the `Oracle` (read by `Psychic`).
     pub oracle_omen: OracleOmen,
+    /// True if `Apprentice Assassin` acted in solo-fallback mode at Dusk (placing `Mark::Assassin` directly).
+    pub apprentice_assassin_marked: bool,
 }
 
 impl BoardCards {
@@ -390,8 +376,8 @@ impl BoardCards {
             marks: vec![Mark::Clarity; n],
             artifacts: HashMap::new(),
             viewed_or_moved_actors: HashSet::new(),
-            blob_seats: HashSet::new(),
             oracle_omen: OracleOmen::Normal,
+            apprentice_assassin_marked: false,
         }
     }
 
@@ -428,54 +414,46 @@ impl BoardCards {
         self.viewed_or_moved_actors.insert(actor_seat);
     }
 
+    /// True if any player seat currently holds `role_id` un-overridden by role-changing `Artifact`s or `Mark::Vampire`.
+    pub fn has_effective_role(&self, role_id: &str) -> bool {
+        (0..self.players.len()).any(|i| {
+            !self.has_role_override_artifact(i)
+                && self.marks[i] != Mark::Vampire
+                && self.players[i].effective_role().id() == role_id
+        })
+    }
+
+    /// True if both `Groob` and `Zerb` are effectively held by players at Dawn.
+    pub fn both_groob_and_zerb_in_play(&self) -> bool {
+        self.has_effective_role("groob") && self.has_effective_role("zerb")
+    }
+
     /// Computes a seat's final effective [`Team`] after applying Dusk `Mark`s first and Night `#11`
     /// role-changing `Artifact`s second (so `Artifact`s override `Mark`s).
     pub fn effective_team(&self, seat: usize) -> Team {
-        let mut team = self.players[seat].effective_role().team();
-
-        match self.marks[seat] {
-            Mark::Vampire => team = Team::Vampire,
-            Mark::Traitor => {
-                let any_vamp = (0..self.players.len()).any(|i| {
-                    self.marks[i] == Mark::Vampire
-                        || self.players[i].effective_role().team() == Team::Vampire
-                });
-                let any_wolf = (0..self.players.len()).any(|i| {
-                    self.artifacts.get(&i).and_then(|t| t.team_override()) == Some(Team::Werewolf)
-                        || self.players[i].effective_role().team() == Team::Werewolf
-                });
-                let any_alien = (0..self.players.len())
-                    .any(|i| self.players[i].effective_role().team() == Team::Alien);
-                let any_villain = (0..self.players.len())
-                    .any(|i| self.players[i].effective_role().team() == Team::SuperVillain);
-                team = match team {
-                    Team::Village => {
-                        if any_vamp && !any_wolf && !any_alien && !any_villain {
-                            Team::Vampire
-                        } else if any_alien && !any_wolf && !any_vamp && !any_villain {
-                            Team::Alien
-                        } else if any_villain && !any_wolf && !any_vamp && !any_alien {
-                            Team::SuperVillain
-                        } else {
-                            Team::Werewolf
-                        }
-                    }
-                    Team::Werewolf | Team::Vampire | Team::Alien | Team::SuperVillain => {
-                        Team::Village
-                    }
-                    Team::Independent => Team::Independent,
-                };
-            }
-            _ => {}
-        }
-
         if let Some(tok) = self.artifacts.get(&seat) {
             if let Some(override_team) = tok.team_override() {
-                team = override_team;
+                return override_team;
             }
         }
-
-        team
+        if self.marks[seat] == Mark::Vampire {
+            return Team::Vampire;
+        }
+        let role = self.players[seat].effective_role();
+        if role.id() == "renfield" && !(0..self.players.len()).any(|i| self.is_vampire_threat(i)) {
+            return Team::Village;
+        }
+        if matches!(role.id(), "groob" | "zerb") {
+            return if self.both_groob_and_zerb_in_play() {
+                Team::Independent
+            } else {
+                Team::Alien
+            };
+        }
+        if role.id() == "leader" && self.both_groob_and_zerb_in_play() {
+            return Team::Independent;
+        }
+        role.team()
     }
 
     /// True if `seat` counts as a primary monster threat for `monster_team`
@@ -486,12 +464,13 @@ impl BoardCards {
                 return override_team == monster_team;
             }
         }
-        match self.marks[seat] {
-            Mark::Vampire => return monster_team == Team::Vampire,
-            Mark::Traitor => return false,
-            _ => {}
+        if self.marks[seat] == Mark::Vampire {
+            return monster_team == Team::Vampire;
         }
         let role = self.players[seat].effective_role();
+        if monster_team == Team::Alien && matches!(role.id(), "groob" | "zerb") {
+            return true;
+        }
         role.team() == monster_team && !role.is_minion()
     }
 

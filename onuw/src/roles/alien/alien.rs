@@ -28,7 +28,7 @@ impl Role for Alien {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(110, Self::wake_group).mutates())
+        Some(Wake::pack(110, RoleTag::AlienPack, Self::wake_group).mutates())
     }
 }
 
@@ -40,6 +40,8 @@ impl Alien {
         Box::pin(async move {
             let visible_aliens = ctx.seats_with_tag(RoleTag::AlienPack);
             let alien_list = ctx.roster.format_indices(&visible_aliens);
+            let cow_seats = ctx.seats_with_role(&super::cow::COW);
+            let cow_list = ctx.roster.format_indices(&cow_seats);
 
             for &s in &active_seats {
                 ctx.dm(
@@ -49,6 +51,21 @@ impl Alien {
                         alien_list.as_str().bold().green(),
                     ),
                 );
+                if !cow_seats.is_empty() {
+                    ctx.dm(
+                        s,
+                        irc_format!(
+                            "🐄🛸 Alien Hoof-Scan: {} holds the Cow card!",
+                            cow_list.as_str().bold().yellow(),
+                        ),
+                    );
+                }
+                if ctx.waking_roles[s].id() == "synthetic_alien" {
+                    ctx.dm(
+                        s,
+                        "🤖👽 Synthetic Alien: You blended into the Alien scan! Get YOURSELF killed at Dawn to win!",
+                    );
+                }
             }
 
             let non_aliens: Vec<usize> = (0..ctx.roster.len())
@@ -57,7 +74,11 @@ impl Alien {
             let directive = if non_aliens.is_empty() {
                 AlienDirective::None
             } else {
-                let commander = active_seats[0];
+                let commander = active_seats
+                    .iter()
+                    .copied()
+                    .find(|&s| ctx.waking_roles[s].id() == "alien")
+                    .unwrap_or(active_seats[0]);
                 let (roster, shielded) = (ctx.roster, ctx.shielded);
                 let prompt = irc_format!(
                     "👽 Mother Ship Directive: Reply {} (or {}) to bio-scan a non-Alien, {} to swap two non-Aliens, or {}! Players: {}",
@@ -159,14 +180,16 @@ impl Alien {
                 board.record_card_interaction(actor);
                 let seen = board.players[target];
                 let target_nick = ctx.nick(target);
-                ctx.dm(
-                    actor,
-                    irc_format!(
-                        "👽 Bio-Scan Result: {} holds {}!",
-                        target_nick.as_str().bold(),
-                        seen.display_for_peek(),
-                    ),
-                );
+                for &s in active_seats {
+                    ctx.dm(
+                        s,
+                        irc_format!(
+                            "👽 Bio-Scan Result: {} holds {}!",
+                            target_nick.as_str().bold(),
+                            seen.display_for_peek(),
+                        ),
+                    );
+                }
                 ctx.record(irc_format!(
                     "👽 {} ({}) bio-scanned {} and saw {}.",
                     "Alien".bold().red(),
@@ -182,6 +205,18 @@ impl Alien {
                 let card_a = board.players[a];
                 let card_b = board.players[b];
                 board.players.swap(a, b);
+                for &s in active_seats {
+                    if s != actor {
+                        ctx.dm(
+                            s,
+                            irc_format!(
+                                "🛸 Mother Ship Tractor Beam swapped {} and {}!",
+                                ctx.nick(a).bold(),
+                                ctx.nick(b).bold(),
+                            ),
+                        );
+                    }
+                }
                 ctx.record(irc_format!(
                     "🛸 {} ({}) tractor-beamed a swap between {} ({}) and {} ({}).",
                     "Alien".bold().red(),
@@ -206,6 +241,14 @@ impl Alien {
 pub struct SyntheticAlien;
 pub static SYNTHETIC_ALIEN: SyntheticAlien = SyntheticAlien;
 
+const ALL_TEAMS: &[Team] = &[
+    Team::Village,
+    Team::Werewolf,
+    Team::Vampire,
+    Team::Alien,
+    Team::SuperVillain,
+];
+
 impl Role for SyntheticAlien {
     fn info(&self) -> RoleInfo {
         RoleInfo::new(
@@ -213,48 +256,15 @@ impl Role for SyntheticAlien {
             "Synthetic Alien",
             GameSet::Alien,
             Team::Independent,
-            "You appear as an Alien to other Aliens, Leader, & Cow, but you ONLY win if YOU are killed!",
+            "Wake with the Aliens and appear Alien to Leader & Cow, but you ONLY win if YOU are killed!",
         )
         .aliases(&["synth", "synthalien"])
         .tags(&[RoleTag::AlienPack])
     }
 
-    fn wake(&self) -> Option<Wake> {
-        Some(Wake::group(111, Self::wake_group))
-    }
-
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         ctx.is_dead(seat)
-            .then_some(SpecialVictory::independent_blocking(Team::MONSTER_TEAMS))
-    }
-}
-
-impl SyntheticAlien {
-    fn wake_group<'a>(
-        active_seats: Vec<usize>,
-        ctx: GroupPromptCtx<'a>,
-    ) -> BoxFuture<'a, Result<GroupEffect>> {
-        Box::pin(async move {
-            let visible_aliens = ctx.seats_with_tag(RoleTag::AlienPack);
-            let list = ctx.roster.format_indices(&visible_aliens);
-            for &s in &active_seats {
-                ctx.dm(
-                    s,
-                    irc_format!(
-                        "🤖👽 Synthetic Alien: You blended into the Alien scan ({})! Get YOURSELF killed at Dawn to win!",
-                        list.as_str().bold().orange(),
-                    ),
-                );
-            }
-            Ok(GroupEffect::new(move |_board, rctx| {
-                let names = rctx.roster.format_indices(&active_seats);
-                rctx.record(irc_format!(
-                    "🤖 {} ({}) infiltrated the Alien scan.",
-                    SYNTHETIC_ALIEN.info().styled_name(),
-                    names.bold(),
-                ));
-            }))
-        })
+            .then_some(SpecialVictory::independent_blocking(ALL_TEAMS))
     }
 }
 

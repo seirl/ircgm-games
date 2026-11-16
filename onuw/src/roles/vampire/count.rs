@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::BoardCards;
 use crate::marks::Mark;
 use crate::role::{
     BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
@@ -13,12 +13,12 @@ impl Role for Count {
     fn info(&self) -> RoleInfo {
         RoleInfo::new(
             "count",
-            "Count",
+            "The Count",
             GameSet::Vampire,
             Team::Vampire,
-            "Vampire who places the Mark of Fear on a non-Vampire player in Dusk, preventing them from waking in Night!",
+            "Vampire who MUST place the Mark of Fear on a non-Vampire player in Dusk, preventing them from waking in Night!",
         )
-        .aliases(&["the count"])
+        .aliases(&["count", "the count"])
         .tags(&[RoleTag::VampirePack, RoleTag::PlacesMarks])
     }
 
@@ -40,38 +40,41 @@ impl Count {
                         || board.marks[i] == Mark::Vampire
                 })
                 .collect();
+            let valid_targets: Vec<usize> = (0..ctx.roster.len())
+                .filter(|&i| i != seat && !vamp_seats.contains(&i))
+                .collect();
+            if valid_targets.is_empty() {
+                return Ok(SeatEffect::noop());
+            }
 
             let roster = ctx.roster;
+            let valid_for_match = valid_targets.clone();
             let prompt = irc_format!(
-                "🦇 Count: Reply {} to place the Mark of Fear (suppressing their Night wake!), or {}. Players: {}",
+                "🦇 The Count: You MUST reply {} to place the Mark of Fear on a non-Vampire (suppressing their Night wake)! Players: {}",
                 "<nick>".bold(),
-                "pass".bold(),
                 roster.format_players(),
             );
             let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
-                    }
-                    match roster.resolve_nick(&m.text) {
-                        Some(idx) if idx == seat || vamp_seats.contains(&idx) => {
-                            AskMatch::reject("You cannot terrify a fellow Vampire!".yellow())
-                        }
-                        Some(idx) => AskMatch::accept_say(
-                            Some(idx),
-                            irc_format!(
-                                "🦇 Placed {} on {}!",
-                                Mark::Fear.styled(),
-                                roster.seats[idx].user.nick().bold(),
-                            ),
+                .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
+                    Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
+                        idx,
+                        irc_format!(
+                            "🦇 Placed {} on {}!",
+                            Mark::Fear.styled(),
+                            roster.seats[idx].user.nick().bold(),
                         ),
-                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
-                    }
+                    ),
+                    Some(_) => AskMatch::reject("You cannot terrify a fellow Vampire!".yellow()),
+                    None => AskMatch::reject("Unknown player nickname.".yellow()),
                 })
                 .await?;
 
+            let target = ans
+                .ok()
+                .unwrap_or_else(|| valid_targets[fastrand::usize(..valid_targets.len())]);
+
             Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
+                Self::resolve(seat, label, target, board, rctx);
             }))
         })
     }
@@ -79,18 +82,16 @@ impl Count {
     fn resolve(
         seat: usize,
         actor_label: &str,
-        ans: Answer<Option<usize>>,
+        target: usize,
         board: &mut BoardCards,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        if let Answer::Ok(Some(target)) = ans {
-            board.marks[target] = Mark::Fear;
-            ctx.record(irc_format!(
-                "🦇 {actor_label} ({}) placed {} on {}.",
-                ctx.nick(seat).bold(),
-                Mark::Fear.styled(),
-                ctx.nick(target).bold(),
-            ));
-        }
+        board.marks[target] = Mark::Fear;
+        ctx.record(irc_format!(
+            "🦇 {actor_label} ({}) placed {} on {}.",
+            ctx.nick(seat).bold(),
+            Mark::Fear.styled(),
+            ctx.nick(target).bold(),
+        ));
     }
 }

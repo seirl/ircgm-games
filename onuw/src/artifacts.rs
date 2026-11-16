@@ -1,4 +1,4 @@
-//! Daybreak **Artifact** tokens (`Claw`, `Brand`, `Cudgel`, `Token of Mute`, `Shroud of Shame`, `Void`)
+//! Daybreak **Artifact** tokens (`Claw`, `Brand`, `Cudgel`, `Mask of Muting`, `Shroud of Shame`, `Void`)
 //! and their Day/Voting channel-conduct rules (`DayConductTracker`).
 
 use std::collections::{HashMap, HashSet};
@@ -44,6 +44,20 @@ impl Artifact {
         Self::ALL[fastrand::usize(..Self::ALL.len())]
     }
 
+    /// Draws a random Artifact not yet present in `existing` (without replacement when multiple Curators act).
+    pub fn random_unused(existing: &HashMap<usize, Artifact>) -> Artifact {
+        let unused: Vec<Artifact> = Self::ALL
+            .iter()
+            .copied()
+            .filter(|cand| !existing.values().any(|&a| a == *cand))
+            .collect();
+        if unused.is_empty() {
+            Self::random()
+        } else {
+            unused[fastrand::usize(..unused.len())]
+        }
+    }
+
     pub fn id(self) -> &'static str {
         match self {
             Artifact::ClawOfTheWerewolf => "claw_of_the_werewolf",
@@ -60,7 +74,7 @@ impl Artifact {
             Artifact::ClawOfTheWerewolf => "Claw of the Werewolf",
             Artifact::BrandOfTheVillager => "Brand of the Villager",
             Artifact::CudgelOfTheTanner => "Cudgel of the Tanner",
-            Artifact::TokenOfMute => "Token of Mute",
+            Artifact::TokenOfMute => "Mask of Muting",
             Artifact::ShroudOfShame => "Shroud of Shame",
             Artifact::VoidOfNothingness => "Void of Nothingness",
         }

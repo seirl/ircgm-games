@@ -14,18 +14,14 @@ impl Role for Renfield {
             "Renfield",
             GameSet::Vampire,
             Team::Vampire,
-            "Start with the Mark of the Bat and wake in Dusk to see all Vampires AND whoever received the Mark of the Vampire!",
+            "Wake in Dusk to see all Vampires and whoever received the Mark of the Vampire, then give yourself the Mark of the Bat! If no Vampires are in play, you are on the Village team.",
         )
         .minion()
         .tags(&[RoleTag::PlacesMarks])
     }
 
-    fn on_deal(&self, seat: usize, board: &mut BoardCards, _ctx: &mut ResolveCtx<'_>) {
-        board.marks[seat] = Mark::Bat;
-    }
-
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::passive(32, Self::inspect).dusk())
+        Some(Wake::passive(32, Self::inspect).dusk().mutates())
     }
 }
 
@@ -36,42 +32,54 @@ impl Renfield {
         board: &mut BoardCards,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        let vamps: Vec<usize> = (0..ctx.roster.len())
+        let card_vamps: Vec<usize> = (0..ctx.roster.len())
             .filter(|&i| {
-                board.players[i]
-                    .effective_role()
-                    .tags()
-                    .contains(&RoleTag::VampirePack)
-                    || board.marks[i] == Mark::Vampire
+                ctx.waking_roles[i].tags().contains(&RoleTag::VampirePack)
+                    || board.players[i]
+                        .effective_role()
+                        .tags()
+                        .contains(&RoleTag::VampirePack)
             })
             .collect();
+        let marked_vamps: Vec<usize> = (0..ctx.roster.len())
+            .filter(|&i| board.marks[i] == Mark::Vampire)
+            .collect();
 
-        if vamps.is_empty() {
-            if ctx.roster.deck_has_tanner_hazard() {
-                ctx.dm(
-                    seat,
-                    "🦇 Renfield: No players are Vampires tonight! Survive and get another non-Tanner killed!",
-                );
-            } else {
-                ctx.dm(
-                    seat,
-                    "🦇 Renfield: No players are Vampires tonight! Survive and get another player killed!",
-                );
-            }
+        // Renfield places Mark of the Bat on himself at #-6C (overwriting any Mark::Vampire or Mark::Fear placed on him):
+        board.marks[seat] = Mark::Bat;
+
+        if card_vamps.is_empty() && marked_vamps.is_empty() {
+            ctx.dm(
+                seat,
+                "🦇 Renfield: No players are Vampires tonight! You are on the Village team — win if no Villager dies!",
+            );
         } else {
+            let vamps_str = if card_vamps.is_empty() {
+                "none".to_owned()
+            } else {
+                ctx.roster.format_indices(&card_vamps)
+            };
+            let thrall_str = if marked_vamps.is_empty() {
+                "none".to_owned()
+            } else {
+                ctx.roster.format_indices(&marked_vamps)
+            };
             ctx.dm(
                 seat,
                 irc_format!(
-                    "🦇 Renfield: Your Vampire masters (including marked thrall) are: {}",
-                    ctx.roster.format_indices(&vamps).bold().red()
+                    "🦇 Renfield: Vampires: {} · Marked with {}: {}",
+                    vamps_str.as_str().bold().red(),
+                    Mark::Vampire.styled(),
+                    thrall_str.as_str().bold().red(),
                 ),
             );
         }
         ctx.record(irc_format!(
-            "🦇 {actor_label} ({}) took the {} and saw {} Vampire(s).",
+            "🦇 {actor_label} ({}) placed {} on themselves and saw {} Vampire(s) + {} marked thrall(s).",
             ctx.nick(seat).bold(),
             Mark::Bat.styled(),
-            vamps.len(),
+            card_vamps.len(),
+            marked_vamps.len(),
         ));
     }
 }

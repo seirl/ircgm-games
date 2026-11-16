@@ -16,7 +16,7 @@ use crate::roles::{
         alpha_wolf::ALPHA_WOLF, aura_seer::AURA_SEER, prince::PRINCE, revealer::REVEALER,
         sentinel::SENTINEL, witch::WITCH,
     },
-    super_villains::rapscallion::RAPSCALLION,
+    super_villains::temptress::TEMPTRESS,
     vampire::{
         assassin::ASSASSIN, copycat::COPYCAT, count::COUNT, cupid::CUPID, gremlin::GREMLIN,
         pickpocket::PICKPOCKET, priest::PRIEST, thing::THING, vampire::VAMPIRE,
@@ -80,7 +80,7 @@ fn deck_schedule_is_purely_deck_derived_and_invariant_to_card_order() {
                 40
             ),
             (TierPhase::Dusk, "Vampire".into(), 40, 60),
-            (TierPhase::Dusk, "Count".into(), 60, 80),
+            (TierPhase::Dusk, "The Count".into(), 60, 80),
             (TierPhase::Night, "Sentinel".into(), 80, 100),
             (TierPhase::Night, "Werewolf".into(), 100, 120),
             (TierPhase::Night, "Alpha Wolf, Seer".into(), 120, 140),
@@ -515,11 +515,11 @@ async fn duplicate_witches_run_sequentially_and_alpha_wolf_and_rapscallion_extra
     assert_eq!(report.effective_role_at(&h.roster, "Alice"), "Villager");
     assert_eq!(report.center_role(1), "Witch");
 
-    // 2. Alpha Wolf + Rapscallion crossover uses independent extra_evil_card (Werewolf) & extra_villain_card (Henchman):
+    // 2. Alpha Wolf + Temptress crossover uses independent extra_evil_card (Werewolf) & extra_villain_card (Henchman #7):
     let mut h_cross = OnuwTestHarness::new(
         &[
             ("Alice", &ALPHA_WOLF),
-            ("Bob", &RAPSCALLION),
+            ("Bob", &TEMPTRESS),
             ("Carol", &VILLAGER),
             ("Dave", &VILLAGER),
         ],
@@ -529,8 +529,7 @@ async fn duplicate_witches_run_sequentially_and_alpha_wolf_and_rapscallion_extra
     let n_cross = h_cross.spawn_night();
     h_cross.reply_dm("Alice", "pass").await; // Lone Wolf peek
     h_cross.reply_dm("Alice", "Carol").await; // Alpha Wolf bites Carol -> Werewolf
-    h_cross.reply_dm("Bob", "pass").await; // Solo Villain peek
-    h_cross.reply_dm("Bob", "Dave").await; // Rapscallion recruits Dave -> Henchman
+    h_cross.reply_dm("Bob", "Dave").await; // Temptress recruits Dave -> Henchman #7
     let rep_cross = h_cross.finish_night(n_cross).await;
     assert_eq!(
         rep_cross.effective_role_at(&h_cross.roster, "Carol"),
@@ -538,6 +537,6 @@ async fn duplicate_witches_run_sequentially_and_alpha_wolf_and_rapscallion_extra
     );
     assert_eq!(
         rep_cross.effective_role_at(&h_cross.roster, "Dave"),
-        "Henchman"
+        "Henchman #7"
     );
 }

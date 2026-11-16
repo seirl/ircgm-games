@@ -641,8 +641,6 @@ pub struct VoteProtection {
 pub enum DeathEffect {
     /// Immediately kills another seat (`Hunter`), cascading in the Dawn fixpoint loop.
     Kill { seat: usize, announcement: Text },
-    /// Prevents the listed seats from winning (`Diseased` neighbors).
-    ForfeitWins(Vec<usize>),
 }
 
 pub struct VictoryCtx<'a> {
@@ -774,6 +772,12 @@ impl dyn Role {
             self.team(),
             Team::Werewolf | Team::Vampire | Team::Alien | Team::SuperVillain
         ) && !self.is_minion()
+    }
+
+    /// True for roles that cause `Paranormal Investigator` to stop & transform and `Revealer`
+    /// to flip a card back face-down (monster threats and `Independent` roles, excluding minions).
+    pub fn triggers_pi_and_revealer(&self) -> bool {
+        self.team() != Team::Village && !self.is_minion()
     }
 
     pub fn is_doppelganger(&self) -> bool {

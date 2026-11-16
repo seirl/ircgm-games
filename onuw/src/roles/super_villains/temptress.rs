@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster};
+use crate::board::BoardCards;
 use crate::role::{
     BoxFuture, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, RoleTag, SeatEffect, Team, Wake,
 };
@@ -15,13 +15,13 @@ impl Role for Temptress {
             "Temptress",
             GameSet::SuperVillains,
             Team::SuperVillain,
-            "Wake with the Super Villains, then optionally swap YOUR Temptress card with a non-Villain player's card without looking!",
+            "Wake with the Super Villains, then MUST swap the extra Villain card onto a non-Villain player!",
         )
         .tags(&[RoleTag::VillainPack])
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(126, Self::prompt).mutates())
+        Some(Wake::solo(128, Self::prompt).mutates().follow_on_copy())
     }
 }
 
@@ -29,46 +29,49 @@ impl Temptress {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
             let villains = ctx.seats_with_tag(RoleTag::VillainPack);
-            let non_villains: Vec<usize> = (0..ctx.roster.len())
+            let valid_targets: Vec<usize> = (0..ctx.roster.len())
                 .filter(|&i| i != seat && !ctx.shielded.contains(&i) && !villains.contains(&i))
                 .collect();
 
-            if non_villains.is_empty() {
+            if valid_targets.is_empty() {
                 ctx.say("💋 Temptress: No valid non-Villain targets available!");
                 return Ok(SeatEffect::noop());
             }
 
             let (roster, shielded) = (ctx.roster, ctx.shielded);
             let prompt = irc_format!(
-                "💋 Temptress: Reply {} to swap your Temptress card with a non-Villain (without looking at your new card!), or {}. Players: {}",
+                "💋 Temptress: You MUST plant the extra Villain card on a non-Villain player ({})! Players: {}",
                 "<nick>".bold(),
-                "pass".bold(),
                 roster.format_players_marking_shields(shielded),
             );
+            let valid_for_match = valid_targets.clone();
             let ans = ctx
-                .ask(prompt, move |m| {
-                    if Roster::is_pass(&m.text) {
-                        return AskMatch::accept(None);
-                    }
-                    match roster.resolve_nick(&m.text) {
-                        Some(idx) if non_villains.contains(&idx) => AskMatch::accept_say(
-                            Some(idx),
-                            irc_format!(
-                                "💋 Swapped your Temptress card with {}!",
-                                roster.seats[idx].user.nick().bold(),
-                            ),
+                .ask(prompt, move |m| match roster.resolve_nick(&m.text) {
+                    Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
+                        idx,
+                        irc_format!(
+                            "💋 Lured {} into Villainy!",
+                            roster.seats[idx].user.nick().bold().red(),
                         ),
-                        Some(idx) if shielded.contains(&idx) => {
-                            AskMatch::reject("🛡️ That player is shielded!".yellow())
-                        }
-                        Some(_) => AskMatch::reject("Pick a non-Villain player!".yellow()),
-                        None => AskMatch::reject("Unknown player nickname (or pass).".yellow()),
+                    ),
+                    Some(idx) if shielded.contains(&idx) => {
+                        AskMatch::reject("🛡️ That player is shielded!".yellow())
                     }
+                    Some(_) => AskMatch::reject("Pick a non-Villain player!".yellow()),
+                    None => AskMatch::reject("Unknown player nickname.".yellow()),
                 })
                 .await?;
 
+            let (chosen, timed_out) = match ans.ok() {
+                Some(idx) => (idx, false),
+                None => {
+                    let idx = valid_targets[fastrand::usize(..valid_targets.len())];
+                    (idx, true)
+                }
+            };
+
             Ok(SeatEffect::new(move |label, board, rctx| {
-                Self::resolve(seat, label, ans, board, rctx);
+                Self::resolve(seat, label, chosen, timed_out, board, rctx);
             }))
         })
     }
@@ -76,24 +79,31 @@ impl Temptress {
     fn resolve(
         seat: usize,
         actor_label: &str,
-        ans: Answer<Option<usize>>,
+        target: usize,
+        timed_out: bool,
         board: &mut BoardCards,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        if let Answer::Ok(Some(target)) = ans {
-            if board.is_shielded(seat) || board.is_shielded(target) {
-                return;
-            }
+        if !board.is_shielded(target) {
             board.record_card_interaction(seat);
-            let old_self = board.players[seat];
-            let old_target = board.players[target];
-            board.players.swap(seat, target);
+            let old_card = board.players[target];
+            let planted = board.extra_villain_card;
+            std::mem::swap(&mut board.players[target], &mut board.extra_villain_card);
+            if timed_out {
+                ctx.dm(
+                    seat,
+                    irc_format!(
+                        "💋 Time's up — automatically planted the extra Villain card onto {}!",
+                        ctx.nick(target).bold(),
+                    ),
+                );
+            }
             ctx.record(irc_format!(
-                "💋 {actor_label} ({}) lured {} into taking {} (taking {} unseen).",
+                "💋 {actor_label} ({}) planted {} onto {} (replacing {}).",
                 ctx.nick(seat).bold(),
+                planted.display_for_peek(),
                 ctx.nick(target).bold(),
-                old_self.display_for_peek(),
-                old_target.display_for_peek(),
+                old_card.display_for_peek(),
             ));
         }
     }

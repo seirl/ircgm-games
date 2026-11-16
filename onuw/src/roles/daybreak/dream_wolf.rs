@@ -10,7 +10,7 @@ impl Role for DreamWolf {
             "Dream Wolf",
             GameSet::Daybreak,
             Team::Werewolf,
-            "You sleep through the night (do NOT wake with other Werewolves), though the Minion still sees your thumb!",
+            "You sleep through the night, but put out your thumb so waking Werewolves and the Minion know who you are!",
         )
         .aliases(&["dw"])
         .tags(&[RoleTag::DreamWolfThumb])

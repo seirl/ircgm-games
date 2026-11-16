@@ -27,6 +27,18 @@ impl Role for Robber {
 impl Robber {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
+            if ctx.shielded.contains(&seat) {
+                ctx.say(
+                    "🛡️ Robber: Your own card has a Shield token — you cannot swap it tonight!"
+                        .yellow(),
+                );
+                return Ok(SeatEffect::new(move |label, _board, rctx| {
+                    rctx.record(irc_format!(
+                        "🦹 {label} ({}) could not rob (own card shielded).",
+                        rctx.nick(seat).bold(),
+                    ));
+                }));
+            }
             let (roster, shielded) = (ctx.roster, ctx.shielded);
             let prompt = irc_format!(
                 "🦹 Robber: Reply with {} to steal their card, or {}. Players: {}",

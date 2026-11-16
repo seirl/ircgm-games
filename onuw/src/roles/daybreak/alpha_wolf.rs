@@ -22,14 +22,19 @@ impl Role for AlphaWolf {
     }
 
     fn wake(&self) -> Option<Wake> {
-        Some(Wake::solo(122, Self::prompt).mutates())
+        Some(Wake::solo(122, Self::prompt).mutates().follow_on_copy())
     }
 }
 
 impl AlphaWolf {
     fn prompt<'a>(seat: usize, mut ctx: PromptCtx<'a>) -> BoxFuture<'a, Result<SeatEffect>> {
         Box::pin(async move {
-            let wolves = ctx.seats_with_tag(RoleTag::WolfPack);
+            let mut wolves = ctx.seats_with_tag(RoleTag::WolfPack);
+            for dw in ctx.seats_with_tag(RoleTag::DreamWolfThumb) {
+                if !wolves.contains(&dw) {
+                    wolves.push(dw);
+                }
+            }
             let valid_targets: Vec<usize> = (0..ctx.roster.len())
                 .filter(|&i| i != seat && !ctx.shielded.contains(&i) && !wolves.contains(&i))
                 .collect();
@@ -51,7 +56,7 @@ impl AlphaWolf {
                     Some(idx) if valid_for_match.contains(&idx) => AskMatch::accept_say(
                         idx,
                         irc_format!(
-                            "🐺 Turned {} into a Werewolf!",
+                            "🐺 Swapped the center Wolf card with {}'s card!",
                             roster.seats[idx].user.nick().bold().red()
                         ),
                     ),
@@ -68,7 +73,7 @@ impl AlphaWolf {
                 Answer::TimedOut | Answer::Left { .. } | Answer::Unreachable { .. } => {
                     let auto = valid_targets[fastrand::usize(..valid_targets.len())];
                     ctx.say(format!(
-                        "🐺 Randomly turned {} into a Werewolf!",
+                        "🐺 Randomly swapped the center Wolf card with {}'s card!",
                         ctx.nick(auto)
                     ));
                     auto

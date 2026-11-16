@@ -10,7 +10,7 @@ pub struct Werewolf;
 pub static WEREWOLF: Werewolf = Werewolf;
 
 enum WolfIntent {
-    Pack,
+    Pack { dream_wolves: Vec<usize> },
     LonePeek(Answer<Option<usize>>),
 }
 
@@ -38,6 +38,12 @@ impl Werewolf {
         ctx: GroupPromptCtx<'a>,
     ) -> BoxFuture<'a, Result<GroupEffect>> {
         Box::pin(async move {
+            let dream_wolves: Vec<usize> = ctx
+                .waking_seats_with_tag(RoleTag::DreamWolfThumb)
+                .into_iter()
+                .filter(|s| !active_seats.contains(s))
+                .collect();
+
             let intent = if active_seats.len() >= 2 {
                 for &w_seat in &active_seats {
                     let partners: Vec<usize> = active_seats
@@ -45,16 +51,36 @@ impl Werewolf {
                         .copied()
                         .filter(|&o| o != w_seat)
                         .collect();
-                    ctx.dm(
-                        w_seat,
-                        irc_format!(
-                            "🐺 Fellow Werewolf pack: {} (chat here to coordinate!)",
-                            ctx.roster.format_indices(&partners).bold().red()
-                        ),
-                    );
+                    if dream_wolves.is_empty() {
+                        ctx.dm(
+                            w_seat,
+                            irc_format!(
+                                "🐺 Fellow Werewolf pack: {} (chat here to coordinate!)",
+                                ctx.roster.format_indices(&partners).bold().red()
+                            ),
+                        );
+                    } else {
+                        ctx.dm(
+                            w_seat,
+                            irc_format!(
+                                "🐺 Fellow Werewolf pack: {} · 💤 Dream Wolf (asleep): {} (chat here to coordinate!)",
+                                ctx.roster.format_indices(&partners).bold().red(),
+                                ctx.roster.format_indices(&dream_wolves).bold().red(),
+                            ),
+                        );
+                    }
                 }
                 ctx.relay_huddle("Pack".red().bold(), &active_seats).await?;
-                WolfIntent::Pack
+                WolfIntent::Pack { dream_wolves }
+            } else if !dream_wolves.is_empty() {
+                ctx.dm(
+                    active_seats[0],
+                    irc_format!(
+                        "🐺 Fellow Werewolf pack: 💤 Dream Wolf {} (asleep — you are not the Lone Wolf!).",
+                        ctx.roster.format_indices(&dream_wolves).bold().red(),
+                    ),
+                );
+                WolfIntent::Pack { dream_wolves }
             } else {
                 let choice = ctx
                     .ask(
@@ -94,12 +120,21 @@ impl Werewolf {
         ctx: &mut ResolveCtx<'_>,
     ) {
         match intent {
-            WolfIntent::Pack => {
+            WolfIntent::Pack { dream_wolves } => {
                 let names = ctx.roster.format_indices(active_seats);
-                ctx.record(irc_format!(
-                    "🐺 Werewolves ({}) recognized each other.",
-                    names.bold().red(),
-                ));
+                if dream_wolves.is_empty() {
+                    ctx.record(irc_format!(
+                        "🐺 Werewolves ({}) recognized each other.",
+                        names.bold().red(),
+                    ));
+                } else {
+                    let dw_names = ctx.roster.format_indices(&dream_wolves);
+                    ctx.record(irc_format!(
+                        "🐺 Werewolves ({}) saw sleeping Dream Wolf ({}).",
+                        names.bold().red(),
+                        dw_names.bold().red(),
+                    ));
+                }
             }
             WolfIntent::LonePeek(Answer::Ok(Some(c_idx))) => {
                 let seat = active_seats[0];

@@ -23,7 +23,7 @@ async fn renfield_starts_with_bat_mark_and_sees_vampires_and_marked_thrall() {
     assert_eq!(report.mark_at(&h.roster, "Carol"), Mark::Bat);
     assert!(report
         .dms_to("Carol")
-        .contains("Your Vampire masters (including marked thrall) are: Alice, Bob"));
+        .contains("Vampires: Alice · Marked with Mark of the Vampire: Bob"));
 }
 
 #[tokio::test(start_paused = true)]
@@ -45,4 +45,17 @@ async fn renfield_sees_message_when_no_vampires_are_in_play() {
     assert!(report
         .dms_to("Alice")
         .contains("No players are Vampires tonight!"));
+
+    // With 0 Vampires in play, Renfield is on Team::Village and wins with Village when nobody dies!
+    let dawn = h
+        .resolve_dawn(
+            report,
+            &[
+                ("Alice", Some("Bob")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Alice")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn.winner_nicks(&h.roster), vec!["Alice", "Bob", "Carol"]);
 }

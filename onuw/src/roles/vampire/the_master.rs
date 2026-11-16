@@ -1,6 +1,5 @@
 use ircgm::prelude::*;
 
-use crate::marks::Mark;
 use crate::role::{DeathCtx, GameSet, Role, RoleInfo, RoleTag, Team, VoteProtection};
 
 pub struct TheMaster;
@@ -23,15 +22,11 @@ impl Role for TheMaster {
         let supported = (0..ctx.roster.len()).any(|voter| {
             voter != seat
                 && ctx.votes[voter] == Some(seat)
-                && (ctx.board.marks[voter] == Mark::Vampire
-                    || ctx.board.players[voter]
-                        .effective_role()
-                        .tags()
-                        .contains(&RoleTag::VampirePack))
+                && ctx.board.is_vampire_threat(voter)
         });
         supported.then(|| VoteProtection {
             protected_seat: seat,
-            blocks_hunter_shot: false,
+            blocks_hunter_shot: true,
             announcement: irc_format!(
                 "🧛 {} ({}) was shielded by a Vampire's loyalty vote and cannot die!",
                 ctx.roster.seats[seat].user.nick().bold(),

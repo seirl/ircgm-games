@@ -79,7 +79,7 @@ impl ParanormalInvestigator {
                 let face_role = seen_card.face_role();
                 let target_nick = ctx.nick(target);
 
-                if face_role.team() != Team::Village {
+                if face_role.triggers_pi_and_revealer() {
                     ctx.say(irc_format!(
                         "😱 {} is {}! You STOP investigating and become {}!",
                         target_nick.bold(),
@@ -89,11 +89,19 @@ impl ParanormalInvestigator {
                     became = Some(face_role);
                     break;
                 }
-                ctx.say(irc_format!(
-                    "🕵️ {} is {} (Village).",
-                    target_nick.bold(),
-                    seen_card.display_for_peek(),
-                ));
+                if face_role.is_minion() {
+                    ctx.say(irc_format!(
+                        "🕵️ {} is {} (minion — does not transform you).",
+                        target_nick.bold(),
+                        seen_card.display_for_peek(),
+                    ));
+                } else {
+                    ctx.say(irc_format!(
+                        "🕵️ {} is {} (Village).",
+                        target_nick.bold(),
+                        seen_card.display_for_peek(),
+                    ));
+                }
             }
 
             Ok(SeatEffect::new(move |label, board, rctx| {
