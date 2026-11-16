@@ -79,14 +79,24 @@ fn deck_schedule_is_purely_deck_derived_and_invariant_to_card_order() {
                 20,
                 40
             ),
-            (TierPhase::Dusk, "Vampire".into(), 40, 60),
+            (TierPhase::Dusk, "Vampires".into(), 40, 60),
             (TierPhase::Dusk, "The Count".into(), 60, 80),
             (TierPhase::Night, "Sentinel".into(), 80, 100),
-            (TierPhase::Night, "Werewolf".into(), 100, 120),
+            (TierPhase::Night, "Werewolves".into(), 100, 120),
             (TierPhase::Night, "Alpha Wolf, Seer".into(), 120, 140),
             (TierPhase::Night, "Witch, Insomniac".into(), 140, 160),
         ]
     );
+
+    let villain_alien_sched = build_deck_schedule(
+        &[&TEMPTRESS, &VILLAGER, &VILLAGER, &VILLAGER, &VILLAGER, &VILLAGER],
+        &timings,
+    );
+    let labels: Vec<String> = villain_alien_sched
+        .iter()
+        .map(crate::night::ScheduledTier::callout_label)
+        .collect();
+    assert_eq!(labels, vec!["Super Villains", "Temptress"]);
 }
 
 #[tokio::test(start_paused = true)]

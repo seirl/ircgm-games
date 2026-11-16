@@ -94,7 +94,7 @@ impl ScheduledTier {
         match &self.kind {
             TierKind::Roles(roles) => roles
                 .iter()
-                .map(|r| r.name())
+                .map(|r| r.wake_callout_name())
                 .collect::<Vec<_>>()
                 .join(", "),
             TierKind::RoleSlot {
@@ -109,7 +109,7 @@ impl ScheduledTier {
     pub fn styled_callout(&self) -> Text {
         match &self.kind {
             TierKind::Roles(roles) => {
-                let parts: Vec<Text> = roles.iter().map(|r| r.styled_name()).collect();
+                let parts: Vec<Text> = roles.iter().map(|r| r.wake_styled_callout()).collect();
                 Text::join(&parts, ", ".grey())
             }
             TierKind::RoleSlot {

@@ -144,6 +144,19 @@ pub enum RoleTag {
     PlacesMarks,
 }
 
+impl RoleTag {
+    /// Channel callout label and styled text for pack wakes (`Wake::pack`).
+    pub fn pack_callout(self) -> Option<(&'static str, Text)> {
+        match self {
+            RoleTag::WolfPack => Some(("Werewolves", "Werewolves".bold().red())),
+            RoleTag::VampirePack => Some(("Vampires", "Vampires".bold().magenta())),
+            RoleTag::AlienPack => Some(("Aliens", "Aliens".bold().green())),
+            RoleTag::VillainPack => Some(("Super Villains", "Super Villains".bold().red())),
+            RoleTag::DreamWolfThumb | RoleTag::PlacesMarks => None,
+        }
+    }
+}
+
 /// Static card identity, team alignment, and deck metadata returned by [`Role::info`].
 #[derive(Clone, Copy, Debug)]
 pub struct RoleInfo {
@@ -773,6 +786,30 @@ impl dyn Role {
 
     pub fn styled_name(&self) -> Text {
         self.info().styled_name()
+    }
+
+    pub fn wake_callout_name(&self) -> &'static str {
+        if let Some(WakeKind::Group {
+            pack: Some(tag), ..
+        }) = self.wake().map(|w| w.kind)
+        {
+            if let Some((label, _)) = tag.pack_callout() {
+                return label;
+            }
+        }
+        self.name()
+    }
+
+    pub fn wake_styled_callout(&self) -> Text {
+        if let Some(WakeKind::Group {
+            pack: Some(tag), ..
+        }) = self.wake().map(|w| w.kind)
+        {
+            if let Some((_, styled)) = tag.pack_callout() {
+                return styled;
+            }
+        }
+        self.styled_name()
     }
 
     /// True for primary Werewolf/Vampire/Alien/SuperVillain threats (excluding `Minion` and `Renfield`).
