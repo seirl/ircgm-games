@@ -1,5 +1,5 @@
 //! Persistent lobby supervisor (`run_lobby_bot`), pre-game recruitment (`recruit_players`),
-//! and `!roles` / `!scenarios` catalog commands.
+//! and `!roles` / `!marks` / `!artifacts` / `!scenarios` catalog commands.
 
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -10,10 +10,12 @@ use futures::FutureExt as _;
 use ircgm::prelude::*;
 use tokio::time::Instant;
 
+use crate::artifacts::{find_artifact, Artifact};
 use crate::voting::GameReveal;
 use crate::day::is_active_in_room;
 use crate::deck::{parse_role_spec_tokens, DeckBase, DeckSpec};
 use crate::game::{run_single_game_tracked, GameConfig, PlayOutcome, MAX_PLAYERS, MIN_PLAYERS};
+use crate::marks::{find_mark, Mark};
 use crate::role::{GameSet, Phase, Role};
 use crate::roles::{find_role, roles_in_game, ALL_ROLES};
 use crate::scenarios::{
@@ -63,13 +65,13 @@ enum StopReason {
 }
 
 // ============================================================================
-// Catalog & Help Formatters (`!help`, `!scenarios`, `!scenario`, `!roles`, `!role`)
+// Catalog & Help Formatters (`!help`, `!scenarios`, `!roles`, `!marks`, `!artifacts`)
 // ============================================================================
 
 pub fn send_lobby_help(lobby: &Room) -> Result<()> {
     let sep = " · ".grey();
     lobby.say(irc_format!(
-        "🐺 {} — {}{}{}{}{}{}{}{}{}{}{}",
+        "🐺 {} — {}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
         "One Night Ultimate Werewolf".bold().yellow(),
         "!onuw [pack|scenario]".bold().green(),
         sep.clone(),
@@ -80,6 +82,10 @@ pub fn send_lobby_help(lobby: &Room) -> Result<()> {
         "!roles [set]".bold().cyan(),
         sep.clone(),
         "!role <name>".bold().cyan(),
+        sep.clone(),
+        "!marks [name]".bold().cyan(),
+        sep.clone(),
+        "!artifacts [name]".bold().cyan(),
         sep,
         "!reveal".bold().yellow(),
     ))
@@ -88,7 +94,7 @@ pub fn send_lobby_help(lobby: &Room) -> Result<()> {
 pub fn send_open_lobby_help(reply_to: &ChatMessage, host: &User) -> Result<()> {
     let sep = " · ".grey();
     reply_to.reply(irc_format!(
-        "🌕 {} — {}{}{}{}{}{}{}{}{}{}{}",
+        "🌕 {} — {}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
         "Open Lobby".bold().yellow(),
         "!join".bold().green(),
         sep.clone(),
@@ -101,6 +107,10 @@ pub fn send_open_lobby_help(reply_to: &ChatMessage, host: &User) -> Result<()> {
         "!scenarios [pack|Np]".bold().cyan(),
         sep.clone(),
         "!roles [set]".bold().cyan(),
+        sep.clone(),
+        "!marks".bold().cyan(),
+        sep,
+        "!artifacts".bold().cyan(),
     ))?;
     reply_to.reply(irc_format!(
         "  {} {}{}{}{}{}{}{}{}{}{}{}",
@@ -122,7 +132,7 @@ pub fn send_open_lobby_help(reply_to: &ChatMessage, host: &User) -> Result<()> {
 pub fn send_active_game_help(reply_to: &ChatMessage) -> Result<()> {
     let sep = " · ".grey();
     reply_to.reply(irc_format!(
-        "🐺 {} — {}{}{}{}{}{}{}{}Day: {} / {}{}Vote: {}{}Cancel: {}",
+        "🐺 {} — {}{}{}{}{}{}{}{}{}{}{}{}Day: {} / {}{}Vote: {}{}Cancel: {}",
         "Active Game".bold().yellow(),
         "!deck".bold().cyan(),
         sep.clone(),
@@ -131,6 +141,10 @@ pub fn send_active_game_help(reply_to: &ChatMessage) -> Result<()> {
         "!players".bold().cyan(),
         sep.clone(),
         "!role <name>".bold().cyan(),
+        sep.clone(),
+        "!marks [name]".bold().cyan(),
+        sep.clone(),
+        "!artifacts [name]".bold().cyan(),
         sep.clone(),
         "!ready".bold(),
         "!time".bold(),
@@ -402,6 +416,103 @@ pub fn send_single_role_info(reply_to: &ChatMessage, role: &'static dyn Role) ->
     ))
 }
 
+pub fn send_marks_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) -> Result<()> {
+    let filter = raw_filter.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(q) = filter {
+        return match find_mark(q) {
+            Some(mark) => send_single_mark_info(reply_to, mark),
+            None => reply_to.reply(format_args!("Unknown mark '{q}' (try !marks).").yellow()),
+        };
+    }
+
+    let styled: Vec<Text> = Mark::ALL.iter().copied().map(Mark::styled).collect();
+    reply_to.reply(irc_format!(
+        "🔖 {} ({}): {} {} {} for details",
+        "Marks".bold().cyan(),
+        styled.len(),
+        Text::join(&styled, ", ".grey()),
+        "—".grey(),
+        "!mark <name>".bold().cyan(),
+    ))
+}
+
+pub fn send_single_mark_info(reply_to: &ChatMessage, mark: Mark) -> Result<()> {
+    let sep = " · ".grey();
+    reply_to.reply(irc_format!(
+        "🔖 {}{}{}{}{} {} {}",
+        mark.styled(),
+        sep.clone(),
+        GameSet::Vampire.label(),
+        sep,
+        mark.source().grey(),
+        "—".grey(),
+        mark.summary(),
+    ))
+}
+
+pub fn send_artifacts_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) -> Result<()> {
+    let filter = raw_filter.map(str::trim).filter(|s| !s.is_empty());
+    if let Some(q) = filter {
+        return match find_artifact(q) {
+            Some(art) => send_single_artifact_info(reply_to, art),
+            None => {
+                reply_to.reply(format_args!("Unknown artifact '{q}' (try !artifacts).").yellow())
+            }
+        };
+    }
+
+    let role_arts: Vec<Text> = Artifact::ALL
+        .iter()
+        .copied()
+        .filter(|a| a.replaces_role_card())
+        .map(Artifact::styled)
+        .collect();
+    let mod_arts: Vec<Text> = Artifact::ALL
+        .iter()
+        .copied()
+        .filter(|a| !a.replaces_role_card())
+        .map(Artifact::styled)
+        .collect();
+
+    reply_to.reply(irc_format!(
+        "🏺 {} ({} total) — {} for details:",
+        "Artifacts".bold().cyan(),
+        Artifact::ALL.len(),
+        "!artifact <name>".bold(),
+    ))?;
+    reply_to.reply(irc_format!(
+        "  {} {}: {}",
+        "Role-Replacing".bold(),
+        format!("({})", role_arts.len()).grey(),
+        Text::join(&role_arts, ", ".grey()),
+    ))?;
+    reply_to.reply(irc_format!(
+        "  {} {}: {}",
+        "Other Effects".bold(),
+        format!("({})", mod_arts.len()).grey(),
+        Text::join(&mod_arts, ", ".grey()),
+    ))
+}
+
+pub fn send_single_artifact_info(reply_to: &ChatMessage, art: Artifact) -> Result<()> {
+    let kind_str = if art.replaces_role_card() {
+        "Replaces role"
+    } else {
+        "Keeps role"
+    };
+    let sep = " · ".grey();
+    reply_to.reply(irc_format!(
+        "🏺 {}{}{}{}{} {} {}",
+        art.styled(),
+        sep.clone(),
+        "Daybreak (Curator)",
+        sep,
+        kind_str.grey(),
+        "—".grey(),
+        art.summary(),
+    ))
+}
+
 /// Shared catalog command handler used in both idle and open recruitment lobbies.
 pub fn handle_catalog_query(room: &Room, msg: &ChatMessage) -> Result<bool> {
     if let Some(arg) = msg.cmd_args("!presets") {
@@ -435,10 +546,38 @@ pub fn handle_catalog_query(room: &Room, msg: &ChatMessage) -> Result<bool> {
         send_roles_catalog(msg, Some(arg))?;
         return Ok(true);
     }
-    if let Some(arg) = msg.cmd_arg("!role").or_else(|| msg.cmd_arg("!info")) {
+    if let Some(arg) = msg.cmd_arg("!role") {
         match find_role(arg) {
             Some(r) => send_single_role_info(msg, r)?,
             None => msg.reply(format_args!("Unknown role '{arg}' (try !roles).").yellow())?,
+        }
+        return Ok(true);
+    }
+    if let Some(arg) = msg.cmd_args("!marks").or_else(|| msg.cmd_args("!mark")) {
+        send_marks_catalog(msg, Some(arg))?;
+        return Ok(true);
+    }
+    if let Some(arg) = msg
+        .cmd_args("!artifacts")
+        .or_else(|| msg.cmd_args("!artifact"))
+    {
+        send_artifacts_catalog(msg, Some(arg))?;
+        return Ok(true);
+    }
+    if let Some(arg) = msg.cmd_arg("!info") {
+        if let Some(r) = find_role(arg) {
+            send_single_role_info(msg, r)?;
+        } else if let Some(m) = find_mark(arg) {
+            send_single_mark_info(msg, m)?;
+        } else if let Some(a) = find_artifact(arg) {
+            send_single_artifact_info(msg, a)?;
+        } else {
+            msg.reply(
+                format_args!(
+                    "Unknown role, mark, or artifact '{arg}' (try !roles, !marks, !artifacts)."
+                )
+                .yellow(),
+            )?;
         }
         return Ok(true);
     }

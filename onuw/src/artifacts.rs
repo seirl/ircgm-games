@@ -8,7 +8,7 @@ use ircgm::prelude::*;
 use ircgm::CaseMap;
 
 use crate::board::{deck_has_monster_faction, BoardCards, Roster, SeatSet};
-use crate::marks::apply_traitor_win_override;
+use crate::marks::{apply_traitor_win_override, find_mark};
 use crate::role::{
     DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, Role, SpecialVictory, Team,
     VictoryCtx, VoteDefense, WinnerFilterCtx, WinnerMap,
@@ -153,6 +153,74 @@ impl Artifact {
             Artifact::TokenOfMute => "Mask of Muting",
             Artifact::ShroudOfShame => "Shroud of Shame",
             Artifact::VoidOfNothingness => "Void of Nothingness",
+        }
+    }
+
+    pub fn aliases(self) -> &'static [&'static str] {
+        match self {
+            Artifact::ClawOfTheWerewolf => &["claw", "werewolf", "wolf", "claw of werewolf"],
+            Artifact::BrandOfTheVillager => &["brand", "villager", "brand of villager"],
+            Artifact::CudgelOfTheTanner => &["cudgel", "tanner", "club", "cudgel of tanner"],
+            Artifact::BowOfTheHunter => &["bow", "hunter", "bow of hunter"],
+            Artifact::CloakOfThePrince => &["cloak", "prince", "cloak of prince"],
+            Artifact::SwordOfTheBodyguard => &["sword", "bodyguard", "sword of bodyguard"],
+            Artifact::MistOfTheVampire => &["mist", "vampire", "vamp", "mist of vampire"],
+            Artifact::DaggerOfTheTraitor => &["dagger", "traitor", "dagger of traitor"],
+            Artifact::AlienArtifact => &["alien", "artifact of the alien", "artifact of alien"],
+            Artifact::TokenOfMute => &[
+                "mask",
+                "mute",
+                "muting",
+                "mask of mute",
+                "token of muting",
+            ],
+            Artifact::ShroudOfShame => &[
+                "shroud",
+                "shame",
+                "shroud of the shame",
+                "facing the wall",
+                "wall",
+            ],
+            Artifact::VoidOfNothingness => &["void", "nothing", "nothingness", "void of nothing"],
+        }
+    }
+
+    pub fn summary(self) -> &'static str {
+        match self {
+            Artifact::ClawOfTheWerewolf => {
+                "Turns you into a Werewolf (only in pool when Werewolf faction is in the deck)."
+            }
+            Artifact::BrandOfTheVillager => {
+                "Turns you into an ordinary Villager on the Village team."
+            }
+            Artifact::CudgelOfTheTanner => {
+                "Turns you into a Tanner (Independent — you win ONLY if you get killed)."
+            }
+            Artifact::BowOfTheHunter => {
+                "Turns you into a Hunter on the Village team (if you die, whoever you vote for also dies)."
+            }
+            Artifact::CloakOfThePrince => {
+                "Turns you into a Prince on the Village team (votes against you do not count)."
+            }
+            Artifact::SwordOfTheBodyguard => {
+                "Turns you into a Bodyguard on the Village team (whoever you vote for cannot die)."
+            }
+            Artifact::MistOfTheVampire => {
+                "Turns you into a Vampire (only in pool when Vampire faction is in the deck)."
+            }
+            Artifact::DaggerOfTheTraitor => {
+                "Makes you a Traitor to your team: if you have teammates, you win ONLY if a teammate dies."
+            }
+            Artifact::AlienArtifact => {
+                "Turns you into an Alien (only in pool when Alien faction is in the deck)."
+            }
+            Artifact::TokenOfMute => {
+                "You personally lose if you send letters/numbers in channel before voting ends (except allowed /me gestures, !ready, !vote)."
+            }
+            Artifact::ShroudOfShame => {
+                "Facing the Wall: before voting ends you MUST send /me turns around before speaking and never mention any player's nick in channel, or you personally lose."
+            }
+            Artifact::VoidOfNothingness => "Harmless trinket — does nothing.",
         }
     }
 
@@ -494,8 +562,36 @@ impl DayConductTracker {
     }
 }
 
+fn normalize_artifact_key(s: &str) -> String {
+    s.trim()
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect()
+}
+
+/// Resolves an [`Artifact`] by ID, display name, or alias (case- and punctuation-insensitive).
+pub fn find_artifact(query: &str) -> Option<Artifact> {
+    let key = normalize_artifact_key(query);
+    if key.is_empty() {
+        return None;
+    }
+    for &art in Artifact::ALL {
+        if normalize_artifact_key(art.id()) == key || normalize_artifact_key(art.name()) == key {
+            return Some(art);
+        }
+        for &alias in art.aliases() {
+            if normalize_artifact_key(alias) == key {
+                return Some(art);
+            }
+        }
+    }
+    None
+}
+
 /// True iff `msg` is a public game-control command (`!vote <valid_nick>`, `!ready`, `!time`,
-/// `!players`, `!who`, `!deck`, `!order`, `!help`, `!role <name>`) that is exempt from both `TokenOfMute` and `ShroudOfShame`.
+/// `!players`, `!who`, `!deck`, `!order`, `!help`, `!role <name>`, `!mark(s)`, `!artifact(s)`)
+/// that is exempt from both `TokenOfMute` and `ShroudOfShame`.
 pub fn is_exempt_public_command(msg: &ChatMessage, roster: &Roster) -> bool {
     if msg.is_action() {
         return false;
@@ -503,12 +599,34 @@ pub fn is_exempt_public_command(msg: &ChatMessage, roster: &Roster) -> bool {
     let trimmed = msg.text.trim();
     if matches!(
         trimmed.to_ascii_lowercase().as_str(),
-        "!ready" | "!time" | "!players" | "!who" | "!deck" | "!order" | "!help"
+        "!ready"
+            | "!time"
+            | "!players"
+            | "!who"
+            | "!deck"
+            | "!order"
+            | "!help"
+            | "!marks"
+            | "!mark"
+            | "!artifacts"
+            | "!artifact"
     ) {
         return true;
     }
-    if let Some(arg) = msg.cmd_arg("!role").or_else(|| msg.cmd_arg("!info")) {
+    if let Some(arg) = msg.cmd_arg("!role") {
         return find_role(arg).is_some();
+    }
+    if let Some(arg) = msg.cmd_arg("!mark").or_else(|| msg.cmd_arg("!marks")) {
+        return find_mark(arg).is_some();
+    }
+    if let Some(arg) = msg
+        .cmd_arg("!artifact")
+        .or_else(|| msg.cmd_arg("!artifacts"))
+    {
+        return find_artifact(arg).is_some();
+    }
+    if let Some(arg) = msg.cmd_arg("!info") {
+        return find_role(arg).is_some() || find_mark(arg).is_some() || find_artifact(arg).is_some();
     }
     if let Some(arg) = msg.cmd_arg("!vote") {
         return !arg.contains(char::is_whitespace) && roster.resolve_nick(arg).is_some();

@@ -23,7 +23,7 @@ pub mod seat_set;
 pub mod testing;
 pub mod voting;
 
-pub use artifacts::{Artifact, DayConductTracker};
+pub use artifacts::{find_artifact, Artifact, DayConductTracker};
 pub use board::{BoardAccess, BoardCards, BoardKey, BoardMut, Card, Roster, SeatInfo};
 pub use seat_set::{SeatIter, SeatSet};
 pub use day::{run_day_phase, run_voting_phase};
@@ -33,7 +33,7 @@ pub use game::{
     MAX_PLAYERS, MIN_PLAYERS,
 };
 pub use lobby::{recruit_players, recruit_players_tracked, run_lobby_bot, LobbyPhaseTracker};
-pub use marks::Mark;
+pub use marks::{find_mark, Mark};
 pub use night::{
     build_deck_schedule, format_role_order, run_night_phase, NightTimings, ScheduledTier, TierKind,
     TierPhase,

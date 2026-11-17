@@ -759,11 +759,15 @@ async fn conduct_exempts_valid_role_queries_rejects_smuggled_chat_and_handles_ut
         .board
         .insert_artifact_for_test(h.seat_of("Bob"), Artifact::ShroudOfShame);
 
-    // Valid multi-word `!role mystic wolf` is exempt; smuggling free text in `!role vote Carol` is caught!
+    // Valid multi-word `!role`, `!mark(s)`, and `!artifact(s)` queries are exempt; smuggling free text is caught!
     h.day_chat("Alice", "!role mystic wolf").await;
+    h.day_chat("Alice", "!marks").await;
+    h.day_chat("Alice", "!mark fear").await;
+    h.day_chat("Alice", "!artifacts").await;
+    h.day_chat("Alice", "!artifact mask of muting").await;
     h.day_action("Bob", "turns around").await;
     // Prefix with `'İ'` (3-byte UTF-8 lowercase fold vs 2-byte uppercase) before mentioning Carol:
-    h.day_chat("Bob", "!role İ vote Carol now").await;
+    h.day_chat("Bob", "!artifact İ vote Carol now").await;
 
     let dawn = h
         .resolve_voting(
@@ -775,9 +779,38 @@ async fn conduct_exempts_valid_role_queries_rejects_smuggled_chat_and_handles_ut
             ],
         )
         .await;
-    // Alice complied (`!role mystic wolf` is a valid role lookup); Bob broke Shroud of Shame by smuggling `Carol` inside an invalid `!role` command!
+    // Alice complied (`!role`/`!mark(s)`/`!artifact(s)` lookups are valid); Bob broke Shroud of Shame by smuggling `Carol` inside an invalid `!artifact` command!
     assert_eq!(dawn.winner_nicks(&h.roster), vec!["Alice"]);
     assert!(dawn
         .channel_text()
         .contains("Bob broke the Shroud of Shame (mentioned player Carol)"));
+}
+
+#[test]
+fn all_artifact_ids_names_and_aliases_are_unique_and_resolvable() {
+    use super::find_artifact;
+
+    assert_eq!(Artifact::ALL.len(), 12);
+    let mut ids = std::collections::HashSet::new();
+    let mut names = std::collections::HashSet::new();
+    for &art in Artifact::ALL {
+        assert!(ids.insert(art.id()), "duplicate artifact id `{}`", art.id());
+        assert!(
+            names.insert(art.name()),
+            "duplicate artifact name `{}`",
+            art.name()
+        );
+        assert!(!art.summary().contains('`'));
+        assert_eq!(find_artifact(art.id()), Some(art));
+        assert_eq!(find_artifact(art.name()), Some(art));
+        for &alias in art.aliases() {
+            assert_eq!(
+                find_artifact(alias),
+                Some(art),
+                "alias `{alias}` did not resolve to `{art:?}`"
+            );
+        }
+    }
+    assert_eq!(find_artifact(""), None);
+    assert_eq!(find_artifact("unknown_artifact"), None);
 }

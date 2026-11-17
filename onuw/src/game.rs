@@ -5,11 +5,16 @@ use std::time::Duration;
 
 use ircgm::prelude::*;
 
+use crate::artifacts::find_artifact;
 use crate::board::{BoardCards, Roster, SeatSet};
 use crate::voting::{resolve_and_announce_winners, GameReveal};
 use crate::day::{run_day_phase, run_voting_phase};
 use crate::deck::DeckSpec;
-use crate::lobby::{recruit_players_tracked, send_active_game_help, send_single_role_info, LobbyPhaseTracker};
+use crate::lobby::{
+    recruit_players_tracked, send_active_game_help, send_artifacts_catalog, send_marks_catalog,
+    send_single_artifact_info, send_single_mark_info, send_single_role_info, LobbyPhaseTracker,
+};
+use crate::marks::find_mark;
 use crate::night::{format_role_order, run_night_phase, NightTimings};
 use crate::roles::find_role;
 
@@ -185,9 +190,34 @@ pub async fn run_dealt_game(
             ));
         } else if msg.is_cmd("!help") {
             let _ = send_active_game_help(msg);
-        } else if let Some(arg) = msg.cmd_arg("!role").or_else(|| msg.cmd_arg("!info")) {
+        } else if let Some(arg) = msg.cmd_arg("!role") {
             if let Some(r) = find_role(arg) {
                 let _ = send_single_role_info(msg, r);
+            }
+        } else if let Some(arg) = msg.cmd_args("!marks").or_else(|| msg.cmd_args("!mark")) {
+            let q = arg.trim();
+            if q.is_empty() {
+                let _ = send_marks_catalog(msg, None);
+            } else if let Some(m) = find_mark(q) {
+                let _ = send_single_mark_info(msg, m);
+            }
+        } else if let Some(arg) = msg
+            .cmd_args("!artifacts")
+            .or_else(|| msg.cmd_args("!artifact"))
+        {
+            let q = arg.trim();
+            if q.is_empty() {
+                let _ = send_artifacts_catalog(msg, None);
+            } else if let Some(a) = find_artifact(q) {
+                let _ = send_single_artifact_info(msg, a);
+            }
+        } else if let Some(arg) = msg.cmd_arg("!info") {
+            if let Some(r) = find_role(arg) {
+                let _ = send_single_role_info(msg, r);
+            } else if let Some(m) = find_mark(arg) {
+                let _ = send_single_mark_info(msg, m);
+            } else if let Some(a) = find_artifact(arg) {
+                let _ = send_single_artifact_info(msg, a);
             }
         }
         None::<Infallible>

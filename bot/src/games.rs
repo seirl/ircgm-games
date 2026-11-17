@@ -71,7 +71,7 @@ pub static REGISTRY: &[GameEntry] = &[GameEntry {
     aliases: &["werewolf"],
     summary: "One Night Ultimate Werewolf",
     help_hint: Some(
-        "Start with !onuw [pack|scenario] · !reveal post-game · browse with !scenarios, !roles, !role <name>",
+        "Start with !onuw [pack|scenario] · !reveal post-game · browse with !scenarios, !roles, !role <name>, !marks, !artifacts",
     ),
     validate_args: validate_onuw_args,
     handle_query: onuw_catalog_query,

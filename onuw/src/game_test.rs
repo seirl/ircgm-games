@@ -280,3 +280,85 @@ async fn night_announces_canonical_order_and_anyone_can_call_order_command_durin
     bot.request_shutdown();
     bot_task.await.unwrap().unwrap();
 }
+
+#[tokio::test(start_paused = true)]
+async fn marks_and_artifacts_catalog_and_lookup_work_in_lobby_and_active_game() {
+    let (bot, mut srv) = test_harness("GM");
+    srv.complete_join("#onuw", &["Alice", "Bob", "Carol"]);
+    srv.settle().await;
+
+    let lobby = bot.room("#onuw").unwrap();
+    let cfg = GameConfig::for_tests();
+    let bot_task = tokio::spawn({
+        let bot = bot.clone();
+        let lobby = lobby.clone();
+        async move { run_lobby_bot(&bot, &lobby, &[], &cfg).await }
+    });
+    srv.settle().await;
+    let greeting = Text::parse(&srv.take_messages_to("#onuw").join("\n")).plain();
+    assert!(greeting.contains("!marks"));
+    assert!(greeting.contains("!artifacts"));
+    assert!(!greeting.contains('`'));
+
+    // Idle lobby: `!marks`, `!mark <name>`, `!artifacts`, `!artifact <name>`, and unknown errors:
+    srv.chat("Alice", "#onuw", "!marks");
+    srv.chat("Alice", "#onuw", "!mark fear");
+    srv.chat("Alice", "#onuw", "!mark nope");
+    srv.chat("Alice", "#onuw", "!artifacts");
+    srv.chat("Alice", "#onuw", "!artifact shroud");
+    srv.chat("Alice", "#onuw", "!artifact nope");
+    srv.settle().await;
+
+    let idle_out = Text::parse(&srv.take_messages_to("#onuw").join("\n")).plain();
+    assert!(idle_out.contains("🔖 Marks (8): Mark of Clarity"));
+    assert!(idle_out.contains("🔖 Mark of Fear · Vampire · The Count —"));
+    assert!(idle_out.contains("Unknown mark 'nope' (try !marks)."));
+    assert!(idle_out.contains("🏺 Artifacts (12 total) — !artifact <name> for details:"));
+    assert!(idle_out.contains("Role-Replacing (8): Claw of the Werewolf"));
+    assert!(idle_out.contains("Other Effects (4): Dagger of the Traitor"));
+    assert!(idle_out.contains("🏺 Shroud of Shame · Daybreak (Curator) · Keeps role —"));
+    assert!(idle_out.contains("Unknown artifact 'nope' (try !artifacts)."));
+    assert!(!idle_out.contains('`'));
+
+    // Open recruitment lobby + active game (channel & DM):
+    srv.chat("Alice", "#onuw", "!onuw");
+    srv.settle().await;
+    let _ = srv.take_messages_to("#onuw");
+
+    srv.chat("Bob", "#onuw", "!join");
+    srv.chat("Carol", "#onuw", "!join");
+    srv.chat("Bob", "#onuw", "!marks love");
+    srv.chat("Carol", "#onuw", "!artifacts claw");
+    srv.settle().await;
+    let open_out = Text::parse(&srv.take_messages_to("#onuw").join("\n")).plain();
+    assert!(open_out.contains("🔖 Mark of Love · Vampire · Cupid —"));
+    assert!(open_out.contains("🏺 Claw of the Werewolf · Daybreak (Curator) · Replaces role —"));
+    assert!(!open_out.contains('`'));
+
+    srv.chat("Alice", "#onuw", "!clear");
+    srv.chat("Alice", "#onuw", "!add 6x insomniac");
+    srv.chat("Alice", "#onuw", "!go");
+    srv.advance(Duration::from_secs(5)).await;
+    let _ = srv.take_messages_to("#onuw");
+    let _ = srv.take_messages_to("Bob");
+
+    // During Day, channel & DM lookups work while unknown args do not spam channel:
+    srv.chat("Alice", "#onuw", "!mark clarity");
+    srv.chat("Alice", "#onuw", "!mark bogus");
+    srv.dm("Bob", "!artifacts");
+    srv.dm("Bob", "!artifact mute");
+    srv.settle().await;
+
+    let day_chan = Text::parse(&srv.take_messages_to("#onuw").join("\n")).plain();
+    assert!(day_chan.contains("🔖 Mark of Clarity · Vampire · Initial / Priest —"));
+    assert!(!day_chan.contains("Unknown mark"));
+    assert!(!day_chan.contains('`'));
+
+    let bob_dm = Text::parse(&srv.take_messages_to("Bob").join("\n")).plain();
+    assert!(bob_dm.contains("🏺 Artifacts (12 total)"));
+    assert!(bob_dm.contains("🏺 Mask of Muting · Daybreak (Curator) · Keeps role —"));
+    assert!(!bob_dm.contains('`'));
+
+    bot.request_shutdown();
+    bot_task.await.unwrap().unwrap();
+}

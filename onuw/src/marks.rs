@@ -23,6 +23,30 @@ pub enum Mark {
 }
 
 impl Mark {
+    pub const ALL: &'static [Mark] = &[
+        Mark::Clarity,
+        Mark::Vampire,
+        Mark::Bat,
+        Mark::Fear,
+        Mark::Disease,
+        Mark::Love,
+        Mark::Traitor,
+        Mark::Assassin,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Mark::Clarity => "mark_of_clarity",
+            Mark::Vampire => "mark_of_the_vampire",
+            Mark::Bat => "mark_of_the_bat",
+            Mark::Fear => "mark_of_fear",
+            Mark::Disease => "mark_of_disease",
+            Mark::Love => "mark_of_love",
+            Mark::Traitor => "mark_of_the_traitor",
+            Mark::Assassin => "mark_of_the_assassin",
+        }
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Mark::Clarity => "Mark of Clarity",
@@ -33,6 +57,61 @@ impl Mark {
             Mark::Love => "Mark of Love",
             Mark::Traitor => "Mark of the Traitor",
             Mark::Assassin => "Mark of the Assassin",
+        }
+    }
+
+    pub fn aliases(self) -> &'static [&'static str] {
+        match self {
+            Mark::Clarity => &["clarity", "clear", "clean", "mark of the clarity"],
+            Mark::Vampire => &["vampire", "vamp", "mark of vampire"],
+            Mark::Bat => &["bat", "mark of bat"],
+            Mark::Fear => &["fear", "mark of the fear"],
+            Mark::Disease => &["disease", "diseased", "mark of the disease"],
+            Mark::Love => &["love", "lover", "lovers", "mark of the love"],
+            Mark::Traitor => &["traitor", "mark of traitor"],
+            Mark::Assassin => &["assassin", "mark of assassin"],
+        }
+    }
+
+    pub fn source(self) -> &'static str {
+        match self {
+            Mark::Clarity => "Initial / Priest",
+            Mark::Vampire => "Vampire Coven",
+            Mark::Bat => "Renfield",
+            Mark::Fear => "The Count",
+            Mark::Disease => "Diseased",
+            Mark::Love => "Cupid",
+            Mark::Traitor => "Instigator",
+            Mark::Assassin => "Assassin",
+        }
+    }
+
+    pub fn summary(self) -> &'static str {
+        match self {
+            Mark::Clarity => {
+                "Default starting Mark with no special effect; Priest cleanses Dusk Marks back to Clarity."
+            }
+            Mark::Vampire => {
+                "Turns the holder into a Vampire on the Vampire team (unless overridden by a role-changing Artifact)."
+            }
+            Mark::Bat => {
+                "Placed by Renfield on themselves in Dusk (overwriting earlier Marks); has no additional endgame effect."
+            }
+            Mark::Fear => {
+                "Placed on a non-Vampire in Dusk; prevents the holder from waking up to act during Night."
+            }
+            Mark::Disease => {
+                "Placed on a neighbor in Dusk; anyone who votes for the holder cannot win (even if their team wins)."
+            }
+            Mark::Love => {
+                "Lovers wake at the end of Dusk to recognize each other; if one Lover dies, the other dies of heartbreak too."
+            }
+            Mark::Traitor => {
+                "If at least one other player shares your effective team, you win ONLY if a teammate dies."
+            }
+            Mark::Assassin => {
+                "Marks a target in Dusk; Assassin (or solo Apprentice Assassin) wins ONLY if the holder dies."
+            }
         }
     }
 
@@ -220,5 +299,65 @@ pub(crate) fn apply_traitor_win_override(
                 winners.remove(&holder);
             }
         }
+    }
+}
+
+fn normalize_mark_key(s: &str) -> String {
+    s.trim()
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect()
+}
+
+/// Resolves a [`Mark`] by ID, display name, or alias (case- and punctuation-insensitive).
+pub fn find_mark(query: &str) -> Option<Mark> {
+    let key = normalize_mark_key(query);
+    if key.is_empty() {
+        return None;
+    }
+    for &mark in Mark::ALL {
+        if normalize_mark_key(mark.id()) == key || normalize_mark_key(mark.name()) == key {
+            return Some(mark);
+        }
+        for &alias in mark.aliases() {
+            if normalize_mark_key(alias) == key {
+                return Some(mark);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod test {
+    use super::{find_mark, Mark};
+
+    #[test]
+    fn all_mark_ids_names_and_aliases_are_unique_and_resolvable() {
+        assert_eq!(Mark::ALL.len(), 8);
+        let mut ids = std::collections::HashSet::new();
+        let mut names = std::collections::HashSet::new();
+        for &mark in Mark::ALL {
+            assert!(ids.insert(mark.id()), "duplicate mark id `{}`", mark.id());
+            assert!(
+                names.insert(mark.name()),
+                "duplicate mark name `{}`",
+                mark.name()
+            );
+            assert!(!mark.summary().contains('`'));
+            assert!(!mark.source().contains('`'));
+            assert_eq!(find_mark(mark.id()), Some(mark));
+            assert_eq!(find_mark(mark.name()), Some(mark));
+            for &alias in mark.aliases() {
+                assert_eq!(
+                    find_mark(alias),
+                    Some(mark),
+                    "alias `{alias}` did not resolve to `{mark:?}`"
+                );
+            }
+        }
+        assert_eq!(find_mark(""), None);
+        assert_eq!(find_mark("unknown_mark"), None);
     }
 }
