@@ -16,7 +16,7 @@ use crate::day::is_active_in_room;
 use crate::deck::{parse_role_spec_tokens, DeckBase, DeckSpec};
 use crate::game::{run_single_game_tracked, GameConfig, PlayOutcome, MAX_PLAYERS, MIN_PLAYERS};
 use crate::marks::{find_mark, Mark};
-use crate::role::{GameSet, Phase, Role};
+use crate::role::{GameSet, Role};
 use crate::roles::{find_role, roles_in_game, ALL_ROLES};
 use crate::scenarios::{
     all_scenarios, find_scenario, parse_player_count_filter, scenario_count, scenarios_in_pack,
@@ -396,10 +396,7 @@ pub fn send_roles_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) -> R
 pub fn send_single_role_info(reply_to: &ChatMessage, role: &'static dyn Role) -> Result<()> {
     let wake_str = match role.steps().last() {
         None => "Sleeps".to_owned(),
-        Some(w) => match w.phase {
-            Phase::Dusk => format!("Dusk #{}", w.order),
-            Phase::Night => format!("Night #{}", w.order),
-        },
+        Some(w) => crate::roles::step_wake_badge(w),
     };
     let sep = " · ".grey();
     reply_to.reply(irc_format!(

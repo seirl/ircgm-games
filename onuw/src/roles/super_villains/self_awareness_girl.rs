@@ -19,7 +19,7 @@ impl Role for SelfAwarenessGirl {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::passive(&SELF_AWARENESS_GIRL, 187, Self::inspect)] }
+        const { &[WakeStep::passive(&SELF_AWARENESS_GIRL, Self::inspect)] }
     }
 }
 

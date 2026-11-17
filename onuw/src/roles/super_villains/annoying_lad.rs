@@ -19,7 +19,7 @@ impl Role for AnnoyingLad {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&ANNOYING_LAD, 142, |s, ctx| {
+            &[WakeStep::solo(&ANNOYING_LAD, |s, ctx| {
                 Box::pin(Self::prompt(s, ctx))
             })]
         }

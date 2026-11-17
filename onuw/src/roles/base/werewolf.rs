@@ -10,7 +10,6 @@ pub static WEREWOLF: Werewolf = Werewolf;
 
 pub(crate) const WOLF_PACK_STEP: WakeStep = WakeStep::pack(
     NightFaction::Werewolf,
-    120,
     |seats, ctx| Box::pin(Werewolf::wake_group(seats, ctx)),
 );
 

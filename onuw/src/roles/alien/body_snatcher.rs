@@ -66,7 +66,7 @@ pub struct BodySnatcher;
 pub static BODY_SNATCHER: BodySnatcher = BodySnatcher;
 
 const BODY_SNATCHER_SOLO_STEP: WakeStep =
-    WakeStep::group(&BODY_SNATCHER, 116, |seats, ctx| {
+    WakeStep::group(&BODY_SNATCHER, |seats, ctx| {
         Box::pin(BodySnatcher::wake(seats, ctx))
     })
     .run_when_unheld()

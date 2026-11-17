@@ -11,7 +11,6 @@ pub static HENCHMAN: Henchman = Henchman;
 
 pub(crate) const VILLAIN_PACK_STEP: WakeStep = WakeStep::pack(
     NightFaction::SuperVillain,
-    124,
     |seats, ctx| Box::pin(Henchman::wake_group(seats, ctx)),
 );
 

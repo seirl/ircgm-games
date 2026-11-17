@@ -19,7 +19,7 @@ impl Role for Copycat {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::center_copier(&COPYCAT, 8, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
+        const { &[WakeStep::center_copier(&COPYCAT, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
     }
 }
 
@@ -92,7 +92,7 @@ impl Copycat {
                 copied.styled_name(),
             ),
         );
-        if copied.wakes_after_center_copy(8) {
+        if crate::roles::wakes_after_center_copy(&COPYCAT, copied) {
             ctx.dm(
                 seat,
                 "🌙 Stand by—your copied role's action will fire on schedule!",

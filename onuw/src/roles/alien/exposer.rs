@@ -33,7 +33,7 @@ impl Role for Exposer {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::group(&EXPOSER, 193, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+            &[WakeStep::group(&EXPOSER, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
                 .run_when_unheld()
                 .reads(BoardAccess::FACE_UP)
                 .writes(BoardAccess::FACE_UP | BoardAccess::PUBLIC_ANNOUNCE)]

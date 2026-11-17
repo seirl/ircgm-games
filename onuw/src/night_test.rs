@@ -543,9 +543,9 @@ async fn duplicate_witches_run_sequentially_and_alpha_wolf_and_rapscallion_extra
     )
     .await;
     let n_cross = h_cross.spawn_night();
-    h_cross.reply_dm("Alice", "pass").await; // Lone Wolf peek
-    h_cross.reply_dm("Alice", "Carol").await; // Alpha Wolf bites Carol -> Werewolf
-    h_cross.reply_dm("Bob", "Dave").await; // Temptress recruits Dave -> Henchman #7
+    h_cross.reply_dm("Bob", "Dave").await; // Temptress (1-SV-B) recruits Dave -> Henchman #7
+    h_cross.reply_dm("Alice", "pass").await; // Lone Wolf peek (2)
+    h_cross.reply_dm("Alice", "Carol").await; // Alpha Wolf (2-B) bites Carol -> Werewolf
     let rep_cross = h_cross.finish_night(n_cross).await;
     assert_eq!(
         rep_cross.effective_role_at(&h_cross.roster, "Carol"),
@@ -615,53 +615,21 @@ fn artifact_chaos_merges_false_splits_and_curator_merges_without_revealer() {
 
 #[tokio::test(start_paused = true)]
 async fn public_announce_sequentializes_later_roles_including_eyes_closed_and_runs_when_unheld() {
-    use crate::board::BoardAccess;
-    use crate::role::{GameSet, PromptCtx, RoleInfo, SeatEffect, WakeStep};
     use crate::roles::alien::{
+        blob::BLOB,
         nostradamus::NOSTRADAMUS,
         oracle::{ForcedOracleQuestion, OracleQuestion, ORACLE},
         rascal::{ForcedRascalMode, RascalMode, RASCAL},
     };
     use crate::roles::base::drunk::DRUNK;
 
-    // Dummy eyes-closed interactive role waking at order 157 (right after Nostradamus at 156):
-    struct BlindListener;
-    static BLIND_LISTENER: BlindListener = BlindListener;
-    impl Role for BlindListener {
-        fn info(&self) -> RoleInfo {
-            RoleInfo::new(
-                "blind_listener",
-                "Blind Listener",
-                GameSet::Alien,
-                Team::Village,
-                "Eyes-closed interactive test role.",
-            )
-        }
-        fn steps(&self) -> &'static [WakeStep] {
-            const {
-                &[
-                    WakeStep::solo(&BLIND_LISTENER, 157, |_s, mut ctx: PromptCtx<'_>| {
-                        Box::pin(async move {
-                            let _ = ctx
-                                .ask("Blind?", |m| ircgm::AskMatch::accept(m.text.clone()))
-                                .await?;
-                            Ok(SeatEffect::noop())
-                        })
-                    })
-                    .eyes_closed()
-                    .reads(BoardAccess::NONE),
-                ]
-            }
-        }
-    }
-
-    // 1. Even an `.eyes_closed()` interactive role splits into a new tier after a `PUBLIC_ANNOUNCE` writer:
+    // 1. Even an `.eyes_closed()` role (`Blob`) splits into a new tier after `PUBLIC_ANNOUNCE` writers:
     let timings = NightTimings::default();
     let deck: Vec<&'static dyn Role> = vec![
         &NOSTRADAMUS,
-        &BLIND_LISTENER,
         &RASCAL,
-        &DRUNK,
+        &BLOB,
+        &VILLAGER,
         &VILLAGER,
         &VILLAGER,
     ];
@@ -669,10 +637,7 @@ async fn public_announce_sequentializes_later_roles_including_eyes_closed_and_ru
         .iter()
         .map(crate::night::ScheduledTier::callout_label)
         .collect();
-    assert_eq!(
-        labels,
-        vec!["Nostradamus", "Blind Listener, Rascal", "Drunk"]
-    );
+    assert_eq!(labels, vec!["Nostradamus", "Rascal", "Blob"]);
 
     // 2. When Oracle, Aliens, and Rascal are all sitting in the CENTER, their Mother Ship announcements
     //    still broadcast in channel before later roles act!
@@ -1130,5 +1095,82 @@ async fn canonical_deck_role_order_formats_all_phases_and_announces_at_night_sta
     assert_eq!(
         Text::parse(first_msg).plain(),
         "📋 Role order: Werewolves → Seer → Robber → Insomniac"
+    );
+
+    // 7. Full catalog (`ALL_ROLES`) matches the exact master rulebook waking sequence:
+    let expected_dusk = [
+        "Oracle",
+        "Copycat",
+        "Mirror Man",
+        "Doppelgänger",
+        "Vampires",
+        "The Count",
+        "Renfield",
+        "Diseased",
+        "Cupid",
+        "Instigator",
+        "Priest",
+        "Assassin",
+        "Apprentice Assassin",
+    ]
+    .join(" → ");
+    let expected_night = [
+        "Sentinel",
+        "Doppelgänger (copied action)",
+        "Aliens",
+        "Cow",
+        "Groob & Zerb",
+        "Body Snatcher",
+        "Super Villains",
+        "Temptress",
+        "Dr. Peeker",
+        "Rapscallion",
+        "Evilometer",
+        "Werewolves",
+        "Alpha Wolf",
+        "Mystic Wolf",
+        "Minion",
+        "Apprentice Tanner",
+        "Leader",
+        "Intern",
+        "Mason",
+        "Thing",
+        "Annoying Lad",
+        "Seer",
+        "Apprentice Seer",
+        "Paranormal Investigator",
+        "Marksman",
+        "Nostradamus",
+        "Psychic",
+        "Detector",
+        "Robber",
+        "Witch",
+        "Pickpocket",
+        "Role Retriever",
+        "Voodoo Lou",
+        "Troublemaker",
+        "Village Idiot",
+        "Aura Seer",
+        "Gremlin",
+        "Rascal",
+        "Switcheroo",
+        "Drunk",
+        "Insomniac",
+        "Self-Awareness Girl",
+        "Squire",
+        "Family Man",
+        "Beholder",
+        "Revealer",
+        "Exposer",
+        "Flipper",
+        "Empath",
+        "Curator",
+        "Blob",
+        "Mortician",
+    ]
+    .join(" → ");
+    assert_eq!(
+        format_role_order(crate::roles::ALL_ROLES).plain(),
+        format!("📋 Role order — Dusk: {expected_dusk} · Night: {expected_night}"),
     );
 }

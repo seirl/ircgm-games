@@ -172,7 +172,7 @@ impl Mark {
             let r = wakers.role(s);
             let wakes_in_night = r.steps().iter().any(|st| {
                 st.phase == Phase::Night
-                    && st.order >= 100
+                    && crate::roles::is_night_step(st, true)
                     && (matches!(st.kind, StepKind::Group(_)) || !wakers.acted_immediately.contains(s))
             });
             if wakes_in_night {

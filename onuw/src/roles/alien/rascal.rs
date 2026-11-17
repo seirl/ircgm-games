@@ -71,7 +71,7 @@ impl Role for Rascal {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::group(&RASCAL, 178, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+            &[WakeStep::group(&RASCAL, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
                 .run_when_unheld()
                 .reads(BoardAccess::CENTER_FACES)
                 .writes(

@@ -85,7 +85,7 @@ impl Role for FamilyMan {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::group(&FAMILY_MAN, 196, |seats, ctx| {
+                WakeStep::group(&FAMILY_MAN, |seats, ctx| {
                     Box::pin(Self::wake(seats, ctx))
                 })
                 .eyes_closed()

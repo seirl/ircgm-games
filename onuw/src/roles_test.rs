@@ -33,4 +33,12 @@ fn all_role_ids_and_names_are_unique_and_resolvable() {
     for gs in GameSet::ALL {
         assert!(!roles_in_game(gs).is_empty(), "empty game set {gs:?}");
     }
+
+    // Every `WakeStep` across `ALL_ROLES` must resolve in `roles::WAKE_TABLE`:
+    for &role in ALL_ROLES {
+        for step in role.steps() {
+            let badge = crate::roles::step_wake_badge(step);
+            assert!(!badge.is_empty(), "empty wake badge for `{}`", step.id());
+        }
+    }
 }

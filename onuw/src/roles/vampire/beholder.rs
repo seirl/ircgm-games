@@ -22,7 +22,7 @@ impl Role for Beholder {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::solo(&BEHOLDER, 190, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                WakeStep::solo(&BEHOLDER, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .copy_on_turn(),
             ]
         }

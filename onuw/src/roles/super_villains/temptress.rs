@@ -42,7 +42,7 @@ impl Role for Temptress {
         const {
             &[
                 VILLAIN_PACK_STEP,
-                WakeStep::solo(&TEMPTRESS, 128, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                WakeStep::solo(&TEMPTRESS, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .copy_on_turn()
                     .writes(BoardAccess::PLAYER_FACES | ExtraVillainCard::ACCESS),
             ]

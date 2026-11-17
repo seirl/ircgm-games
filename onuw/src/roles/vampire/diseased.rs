@@ -24,7 +24,7 @@ impl Role for Diseased {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&DISEASED, 34, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&DISEASED, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
                 .writes(BoardAccess::MARKS)]
         }

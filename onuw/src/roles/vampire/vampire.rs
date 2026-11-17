@@ -18,7 +18,6 @@ pub static VAMPIRE: Vampire = Vampire;
 
 pub(crate) const VAMPIRE_PACK_STEP: WakeStep = WakeStep::pack(
     NightFaction::Vampire,
-    25,
     |seats, ctx| Box::pin(Vampire::wake_group(seats, ctx)),
 )
 .dusk()

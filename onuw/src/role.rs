@@ -391,7 +391,6 @@ pub enum CopierKind {
 pub struct WakeStep {
     target: StepTarget,
     pub phase: Phase,
-    pub order: u16,
     pub eyes_open: bool,
     pub short_budget: bool,
     pub copier: Option<CopierKind>,
@@ -404,23 +403,16 @@ pub struct WakeStep {
 
 impl fmt::Debug for WakeStep {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "WakeStep({}, {:?} #{})",
-            self.callout_name(),
-            self.phase,
-            self.order
-        )
+        write!(f, "WakeStep({}, {:?})", self.callout_name(), self.phase)
     }
 }
 
 impl WakeStep {
     /// Interactive per-seat DM prompt (`eyes_open = true`, `copy_timing = Immediate` by default).
-    pub const fn solo(owner: &'static dyn Role, order: u16, f: SoloPromptFn) -> Self {
+    pub const fn solo(owner: &'static dyn Role, f: SoloPromptFn) -> Self {
         Self {
             target: StepTarget::Role(owner),
             phase: Phase::Night,
-            order,
             eyes_open: true,
             short_budget: false,
             copier: None,
@@ -432,10 +424,10 @@ impl WakeStep {
         }
     }
 
-    /// Player-card copier (`Doppelgänger`): wakes at `#-7` (`order 10`) when Dusk roles are in play,
-    /// or `#1` (`order 105`) otherwise.
+    /// Player-card copier (`Doppelgänger`): wakes at `#-7` when Dusk roles are in play,
+    /// or `#1` (after `#0 Sentinel`) otherwise.
     pub const fn player_copier(owner: &'static dyn Role, f: SoloPromptFn) -> Self {
-        let mut s = Self::solo(owner, 105, f)
+        let mut s = Self::solo(owner, f)
             .short_budget()
             .writes(BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES);
         s.copier = Some(CopierKind::Player);
@@ -445,8 +437,8 @@ impl WakeStep {
 
     /// Center-card copier (`Copycat`, `Mirror Man`): views 1 center card on a short pick budget
     /// and adopts that role for the rest of the game.
-    pub const fn center_copier(owner: &'static dyn Role, order: u16, f: SoloPromptFn) -> Self {
-        let mut s = Self::solo(owner, order, f)
+    pub const fn center_copier(owner: &'static dyn Role, f: SoloPromptFn) -> Self {
+        let mut s = Self::solo(owner, f)
             .short_budget()
             .copy_on_turn()
             .writes(BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES);
@@ -455,11 +447,10 @@ impl WakeStep {
     }
 
     /// Role-owned group wake (`Mason`, `Minion`, `Leader`, `Intern`, `Groob`, `Zerb`, `Apprentice Assassin`).
-    pub const fn group(owner: &'static dyn Role, order: u16, f: GroupPromptFn) -> Self {
+    pub const fn group(owner: &'static dyn Role, f: GroupPromptFn) -> Self {
         Self {
             target: StepTarget::Role(owner),
             phase: Phase::Night,
-            order,
             eyes_open: true,
             short_budget: false,
             copier: None,
@@ -472,11 +463,10 @@ impl WakeStep {
     }
 
     /// Shared monster-pack wake (`Werewolves`, `Vampires`, `Aliens`, `Super Villains`).
-    pub const fn pack(faction: NightFaction, order: u16, f: GroupPromptFn) -> Self {
+    pub const fn pack(faction: NightFaction, f: GroupPromptFn) -> Self {
         Self {
             target: StepTarget::Pack(faction),
             phase: Phase::Night,
-            order,
             eyes_open: true,
             short_budget: false,
             copier: None,
@@ -494,7 +484,6 @@ impl WakeStep {
         callout: &'static str,
         team: Team,
         faction: Option<NightFaction>,
-        order: u16,
         f: GroupPromptFn,
     ) -> Self {
         Self {
@@ -505,7 +494,6 @@ impl WakeStep {
                 faction,
             },
             phase: Phase::Night,
-            order,
             eyes_open: true,
             short_budget: false,
             copier: None,
@@ -518,11 +506,10 @@ impl WakeStep {
     }
 
     /// Passive resolution-time wake (`eyes_open = true` by default; chain `.eyes_closed()` for `Cow`/`Evilometer`).
-    pub const fn passive(owner: &'static dyn Role, order: u16, f: PassiveWakeFn) -> Self {
+    pub const fn passive(owner: &'static dyn Role, f: PassiveWakeFn) -> Self {
         Self {
             target: StepTarget::Role(owner),
             phase: Phase::Night,
-            order,
             eyes_open: true,
             short_budget: false,
             copier: None,
@@ -1596,11 +1583,10 @@ impl dyn Role {
             .any(|st| st.copier == Some(CopierKind::Player))
     }
 
-    pub fn center_copier_order(&self) -> Option<u16> {
+    pub fn is_center_copier(&self) -> bool {
         self.steps()
             .iter()
-            .find(|st| st.copier == Some(CopierKind::Center))
-            .map(|st| st.order)
+            .any(|st| st.copier == Some(CopierKind::Center))
     }
 
     /// Returns the step executed in `DoppelgangerImmediate` if a player-copier acts immediately on copying `self`.
@@ -1614,25 +1600,6 @@ impl dyn Role {
         self.steps()
             .iter()
             .any(|st| st.copy_timing == Some(CopyTiming::AfterPlayerCopier))
-    }
-
-    /// True if a center-copier waking at `copier_order` (`Copycat`, `Mirror Man`) will wake again later on schedule.
-    pub fn wakes_after_center_copy(&self, copier_order: u16) -> bool {
-        !self.is_player_copier() && self.steps().iter().any(|st| st.order > copier_order)
-    }
-
-    /// True if a player-copier (`Doppelgänger`) copying `self` will wake later on schedule (rather than immediately).
-    pub fn wakes_after_player_copy(&self, has_dusk: bool) -> bool {
-        if self.immediate_copy_step().is_some() {
-            return false;
-        }
-        if self.has_after_player_copier_step() {
-            return true;
-        }
-        let cutoff = if has_dusk { 10 } else { 105 };
-        self.steps()
-            .iter()
-            .any(|st| st.copier != Some(CopierKind::Player) && st.order > cutoff)
     }
 }
 

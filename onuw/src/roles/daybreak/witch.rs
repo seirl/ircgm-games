@@ -19,7 +19,7 @@ impl Role for Witch {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&WITCH, 164, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&WITCH, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .reads(BoardAccess::CENTER_FACES)
                 .writes(BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES)]
         }

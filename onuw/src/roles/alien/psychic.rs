@@ -46,7 +46,7 @@ impl Role for Psychic {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::group(&PSYCHIC, 159, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+            &[WakeStep::group(&PSYCHIC, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
                 .run_when_unheld()
                 .writes(BoardAccess::PUBLIC_ANNOUNCE)]
         }

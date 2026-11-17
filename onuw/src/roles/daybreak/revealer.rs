@@ -26,7 +26,7 @@ impl Role for Revealer {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&REVEALER, 191, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&REVEALER, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .copy_on_turn()
                 .writes(BoardAccess::FACE_UP)]
         }

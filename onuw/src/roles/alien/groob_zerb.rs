@@ -18,7 +18,6 @@ pub(super) const GROOB_ZERB_STEP: WakeStep = WakeStep::pair(
     "Groob & Zerb",
     Team::Alien,
     Some(NightFaction::Alien),
-    114,
     |seats, ctx| Box::pin(wake_groob_zerb_pair(seats, ctx)),
 );
 

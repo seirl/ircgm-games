@@ -19,7 +19,7 @@ impl Role for Thing {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::solo(&THING, 141, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
+        const { &[WakeStep::solo(&THING, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
     }
 }
 

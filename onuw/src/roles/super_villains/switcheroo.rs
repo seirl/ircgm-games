@@ -21,7 +21,7 @@ impl Role for Switcheroo {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::solo(&SWITCHEROO, 171, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                WakeStep::solo(&SWITCHEROO, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .writes(BoardAccess::PLAYER_FACES),
             ]
         }

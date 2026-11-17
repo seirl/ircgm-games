@@ -20,7 +20,7 @@ impl Role for Mason {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::group(&MASON, 140, |seats, ctx| {
+            &[WakeStep::group(&MASON, |seats, ctx| {
                 Box::pin(Self::wake_group(seats, ctx))
             })]
         }

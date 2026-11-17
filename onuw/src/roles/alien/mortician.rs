@@ -49,7 +49,7 @@ impl Role for Mortician {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::group(&MORTICIAN, 197, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+                WakeStep::group(&MORTICIAN, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
                     .run_when_unheld()
                     .writes(BoardAccess::PUBLIC_ANNOUNCE),
             ]

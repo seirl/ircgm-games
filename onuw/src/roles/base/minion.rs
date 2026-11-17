@@ -22,7 +22,7 @@ impl Role for Minion {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::group(&MINION, 130, |seats, ctx| {
+            &[WakeStep::group(&MINION, |seats, ctx| {
                 Box::pin(Self::wake_group(seats, ctx))
             })]
         }

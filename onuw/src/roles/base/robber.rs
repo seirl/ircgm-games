@@ -19,7 +19,7 @@ impl Role for Robber {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&ROBBER, 160, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&ROBBER, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .writes(BoardAccess::PLAYER_FACES)]
         }
     }

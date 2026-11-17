@@ -19,7 +19,7 @@ impl Role for Sentinel {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&SENTINEL, 100, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&SENTINEL, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .writes(BoardAccess::SHIELDS)]
         }
     }

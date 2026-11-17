@@ -21,7 +21,7 @@ impl Role for Troublemaker {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::solo(&TROUBLEMAKER, 170, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                WakeStep::solo(&TROUBLEMAKER, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .writes(BoardAccess::PLAYER_FACES),
             ]
         }

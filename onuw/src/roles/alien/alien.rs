@@ -15,7 +15,6 @@ pub static ALIEN: Alien = Alien;
 
 pub(crate) const ALIEN_PACK_STEP: WakeStep = WakeStep::pack(
     NightFaction::Alien,
-    110,
     |seats, ctx| Box::pin(Alien::wake_group(seats, ctx)),
 )
 .run_when_unheld()

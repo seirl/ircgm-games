@@ -27,7 +27,7 @@ impl Role for VillageIdiot {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::solo(&VILLAGE_IDIOT, 172, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                WakeStep::solo(&VILLAGE_IDIOT, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .writes(BoardAccess::PLAYER_FACES),
             ]
         }

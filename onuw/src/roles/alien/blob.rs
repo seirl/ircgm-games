@@ -94,7 +94,7 @@ impl Role for Blob {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::group(&BLOB, 196, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+            &[WakeStep::group(&BLOB, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
                 .eyes_closed()
                 .run_when_unheld()
                 .writes(ActiveBlobShape::ACCESS | BoardAccess::PUBLIC_ANNOUNCE)]

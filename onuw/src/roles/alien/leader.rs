@@ -23,7 +23,7 @@ impl Role for Leader {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::group(&LEADER, 135, |seats, ctx| {
+            &[WakeStep::group(&LEADER, |seats, ctx| {
                 Box::pin(Self::wake_group(seats, ctx))
             })]
         }

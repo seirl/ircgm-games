@@ -21,7 +21,7 @@ impl Role for VoodooLou {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::solo(&VOODOO_LOU, 165, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                WakeStep::solo(&VOODOO_LOU, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .reads(BoardAccess::CENTER_FACES)
                     .writes(BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES),
             ]

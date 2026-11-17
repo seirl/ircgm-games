@@ -19,7 +19,7 @@ impl Role for Flipper {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&FLIPPER, 192, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&FLIPPER, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .copy_on_turn()
                 .writes(BoardAccess::FACE_UP)]
         }

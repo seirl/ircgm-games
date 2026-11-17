@@ -19,7 +19,7 @@ impl Role for Drunk {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&DRUNK, 180, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&DRUNK, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .writes(BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES)]
         }
     }

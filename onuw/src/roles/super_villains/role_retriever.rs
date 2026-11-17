@@ -21,7 +21,7 @@ impl Role for RoleRetriever {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::solo(&ROLE_RETRIEVER, 162, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                WakeStep::solo(&ROLE_RETRIEVER, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .writes(BoardAccess::PLAYER_FACES),
             ]
         }

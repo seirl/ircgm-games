@@ -51,7 +51,7 @@ impl Role for Intern {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::group(&INTERN, 132, |seats, ctx| {
+            &[WakeStep::group(&INTERN, |seats, ctx| {
                 Box::pin(Self::wake_group(seats, ctx))
             })]
         }

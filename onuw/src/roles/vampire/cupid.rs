@@ -21,7 +21,7 @@ impl Role for Cupid {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&CUPID, 35, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&CUPID, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
                 .writes(BoardAccess::MARKS)]
         }

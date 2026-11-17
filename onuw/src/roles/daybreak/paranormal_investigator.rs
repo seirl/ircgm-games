@@ -28,7 +28,7 @@ impl Role for ParanormalInvestigator {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::solo(&PARANORMAL_INVESTIGATOR, 155, |s, ctx| {
+                WakeStep::solo(&PARANORMAL_INVESTIGATOR, |s, ctx| {
                     Box::pin(Self::prompt(s, ctx))
                 })
                 .reads(BoardAccess::PLAYER_FACES)

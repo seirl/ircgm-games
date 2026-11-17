@@ -182,7 +182,7 @@ const ORACLE_WRITES: u16 = BoardAccess::PLAYER_FACES
     | BoardAccess::PUBLIC_ANNOUNCE;
 
 const ORACLE_STEP: WakeStep =
-    WakeStep::group(&ORACLE, 1, |seats, ctx| Box::pin(Oracle::wake(seats, ctx)))
+    WakeStep::group(&ORACLE, |seats, ctx| Box::pin(Oracle::wake(seats, ctx)))
         .run_when_unheld()
         .copy_after_player_copier()
         .reads(BoardAccess::SHIELDS)

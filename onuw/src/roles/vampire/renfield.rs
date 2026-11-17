@@ -35,7 +35,7 @@ impl Role for Renfield {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::passive(&RENFIELD, 32, Self::inspect)
+            &[WakeStep::passive(&RENFIELD, Self::inspect)
                 .dusk()
                 .writes(BoardAccess::MARKS)]
         }

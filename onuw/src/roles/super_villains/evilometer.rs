@@ -20,7 +20,7 @@ impl Role for Evilometer {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::passive(&EVILOMETER, 125, Self::inspect).eyes_closed()] }
+        const { &[WakeStep::passive(&EVILOMETER, Self::inspect).eyes_closed()] }
     }
 }
 

@@ -186,13 +186,13 @@ impl Doppelganger {
             ),
         );
         if let Some(imm) = role.immediate_copy_step() {
-            if roster_has_dusk && imm.order >= 100 {
+            if roster_has_dusk && crate::roles::is_night_step(imm, true) {
                 ctx.dm(
                     seat,
                     "🌙 Stand by—your copied Night action will fire at the start of Night!",
                 );
             }
-        } else if role.wakes_after_player_copy(roster_has_dusk) {
+        } else if crate::roles::wakes_after_player_copy(role, roster_has_dusk) {
             ctx.dm(
                 seat,
                 "🌙 Stand by—your copied role's night info will arrive on schedule!",

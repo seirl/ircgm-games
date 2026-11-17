@@ -28,7 +28,7 @@ impl Role for Pickpocket {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&PICKPOCKET, 166, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&PICKPOCKET, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .copy_on_turn()
                 .writes(BoardAccess::MARKS)]
         }

@@ -43,7 +43,7 @@ impl Role for AlphaWolf {
         const {
             &[
                 WOLF_PACK_STEP,
-                WakeStep::solo(&ALPHA_WOLF, 122, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                WakeStep::solo(&ALPHA_WOLF, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .writes(BoardAccess::PLAYER_FACES | CenterWolfCard::ACCESS),
             ]
         }

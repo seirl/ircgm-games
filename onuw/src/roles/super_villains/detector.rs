@@ -27,7 +27,7 @@ impl Role for Detector {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::solo(&DETECTOR, 151, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
+        const { &[WakeStep::solo(&DETECTOR, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
     }
 }
 

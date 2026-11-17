@@ -26,7 +26,7 @@ impl Role for ApprenticeTanner {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::group(&APPRENTICE_TANNER, 131, |seats, ctx| {
+                WakeStep::group(&APPRENTICE_TANNER, |seats, ctx| {
                     Box::pin(Self::wake_group(seats, ctx))
                 }),
             ]

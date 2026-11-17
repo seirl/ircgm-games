@@ -38,7 +38,7 @@ impl Role for Assassin {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&ASSASSIN, 44, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&ASSASSIN, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
                 .copy_on_turn()
                 .writes(BoardAccess::MARKS)]
@@ -127,7 +127,7 @@ impl Role for ApprenticeAssassin {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::group(&APPRENTICE_ASSASSIN, 46, |seats, ctx| {
+                WakeStep::group(&APPRENTICE_ASSASSIN, |seats, ctx| {
                     Box::pin(Self::wake_group(seats, ctx))
                 })
                 .dusk()

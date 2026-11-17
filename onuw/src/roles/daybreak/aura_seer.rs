@@ -19,7 +19,7 @@ impl Role for AuraSeer {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::passive(&AURA_SEER, 174, Self::inspect)] }
+        const { &[WakeStep::passive(&AURA_SEER, Self::inspect)] }
     }
 }
 

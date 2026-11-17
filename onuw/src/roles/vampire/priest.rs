@@ -29,7 +29,7 @@ impl Role for Priest {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&PRIEST, 40, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&PRIEST, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
                 .copy_on_turn()
                 .writes(BoardAccess::MARKS)]

@@ -35,7 +35,7 @@ impl Role for Marksman {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&MARKSMAN, 158, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&MARKSMAN, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .copy_on_turn()]
         }
     }

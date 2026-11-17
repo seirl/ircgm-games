@@ -36,7 +36,7 @@ impl Role for Gremlin {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&GREMLIN, 176, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&GREMLIN, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .copy_on_turn()
                 .writes(BoardAccess::PLAYER_FACES | BoardAccess::MARKS)]
         }

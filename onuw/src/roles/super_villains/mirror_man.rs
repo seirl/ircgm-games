@@ -20,7 +20,7 @@ impl Role for MirrorMan {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::center_copier(&MIRROR_MAN, 9, |s, ctx| {
+            &[WakeStep::center_copier(&MIRROR_MAN, |s, ctx| {
                 Box::pin(Self::prompt(s, ctx))
             })]
         }
@@ -95,7 +95,7 @@ impl MirrorMan {
                 copied.styled_name(),
             ),
         );
-        if copied.wakes_after_center_copy(9) {
+        if crate::roles::wakes_after_center_copy(&MIRROR_MAN, copied) {
             ctx.dm(
                 seat,
                 "🌙 Stand by — your copied role's action will fire on schedule!",

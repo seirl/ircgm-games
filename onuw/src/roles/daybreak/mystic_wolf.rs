@@ -26,7 +26,7 @@ impl Role for MysticWolf {
         const {
             &[
                 WOLF_PACK_STEP,
-                WakeStep::solo(&MYSTIC_WOLF, 123, |s, ctx| Box::pin(Self::prompt(s, ctx))),
+                WakeStep::solo(&MYSTIC_WOLF, |s, ctx| Box::pin(Self::prompt(s, ctx))),
             ]
         }
     }

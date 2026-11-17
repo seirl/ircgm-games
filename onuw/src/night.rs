@@ -21,6 +21,7 @@ use crate::role::{
     PassiveWakeFn, Phase, PromptCtx, ResolveCtx, Role, SeatEffect, SoloPromptFn, StepKind,
     WakeStep,
 };
+use crate::roles::{dusk_immediate_rank, is_night_step, night_immediate_rank, step_exec_rank};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NightTimings {
@@ -144,16 +145,8 @@ impl ScheduledTier {
     }
 }
 
-fn step_exec_order(st: &WakeStep, has_dusk: bool) -> u16 {
-    if st.copier == Some(CopierKind::Player) && has_dusk {
-        10
-    } else {
-        st.order
-    }
-}
-
 fn step_exec_phase(st: &WakeStep, has_dusk: bool) -> Phase {
-    if has_dusk && step_exec_order(st, has_dusk) < 100 {
+    if has_dusk && !is_night_step(st, true) {
         Phase::Dusk
     } else {
         Phase::Night
@@ -247,12 +240,12 @@ pub fn build_deck_schedule(
     let player_count = deck.len().saturating_sub(3).max(1);
     let player_copier_count = deck.iter().filter(|&&r| r.is_player_copier()).count();
 
-    let mut entries: Vec<(Phase, u16, u8, &'static str, SchedEntry)> = steps
+    let mut entries: Vec<(Phase, usize, u8, &'static str, SchedEntry)> = steps
         .iter()
         .map(|&st| {
             (
                 step_exec_phase(st, has_dusk),
-                step_exec_order(st, has_dusk),
+                step_exec_rank(st, has_dusk),
                 0,
                 st.id(),
                 SchedEntry::Step(st),
@@ -266,7 +259,7 @@ pub fn build_deck_schedule(
         .find(|st| st.copier == Some(CopierKind::Player))
     {
         let dg_phase = step_exec_phase(dg, has_dusk);
-        let dg_order = step_exec_order(dg, has_dusk);
+        let dg_order = step_exec_rank(dg, has_dusk);
         for &st in &steps {
             if st.copy_timing == Some(CopyTiming::AfterPlayerCopier) {
                 entries.push((
@@ -281,7 +274,10 @@ pub fn build_deck_schedule(
                 ));
             }
         }
-        for (imm_phase, imm_order) in [(Phase::Dusk, 10), (Phase::Night, 105)] {
+        for (imm_phase, imm_order) in [
+            (Phase::Dusk, dusk_immediate_rank()),
+            (Phase::Night, night_immediate_rank()),
+        ] {
             let needed = deck.iter().any(|r| {
                 r.immediate_copy_step()
                     .is_some_and(|st| step_exec_phase(st, has_dusk) == imm_phase)
@@ -357,8 +353,12 @@ pub fn build_deck_schedule(
             let cc_extra = deck
                 .iter()
                 .filter(|&&r| {
-                    r.center_copier_order()
-                        .is_some_and(|cc_ord| step.order > cc_ord)
+                    r.steps()
+                        .iter()
+                        .find(|s| s.copier == Some(CopierKind::Center))
+                        .is_some_and(|cc_st| {
+                            step_exec_rank(step, has_dusk) > step_exec_rank(cc_st, has_dusk)
+                        })
                 })
                 .count();
             let holders_before_dg = direct.max(direct.saturating_sub(1) + cc_extra);
@@ -680,7 +680,7 @@ pub async fn run_night_phase(
                         match step.kind {
                             StepKind::Group(prompt_fn) => {
                                 let active_seats = compute_group_active_seats(step, &wakers);
-                                if step.eyes_open && !active_seats.is_empty() && step.order > 1 {
+                                if step.eyes_open && !active_seats.is_empty() {
                                     tier_step_wakers
                                         .push((step.callout_name().to_owned(), active_seats));
                                 }
@@ -691,7 +691,7 @@ pub async fn run_night_phase(
                             }
                             StepKind::Passive(wake_fn) => {
                                 let actors = collect_solo_or_passive_actors(roster, step, &wakers);
-                                if step.eyes_open && !actors.is_empty() && step.order > 1 {
+                                if step.eyes_open && !actors.is_empty() {
                                     tier_step_wakers.push((
                                         step.callout_name().to_owned(),
                                         actors.iter().copied().collect(),
@@ -709,7 +709,7 @@ pub async fn run_night_phase(
                             }
                             StepKind::Solo(prompt_fn) => {
                                 let actors = collect_solo_or_passive_actors(roster, step, &wakers);
-                                if step.eyes_open && !actors.is_empty() && step.order > 1 {
+                                if step.eyes_open && !actors.is_empty() {
                                     tier_step_wakers.push((
                                         step.callout_name().to_owned(),
                                         actors.iter().copied().collect(),
@@ -729,11 +729,13 @@ pub async fn run_night_phase(
 
         sleep_until(tier_deadline).await;
 
-        for (step_name, seats) in tier_step_wakers {
-            wakers.wake_log.push((
-                tier.phase,
-                format!("{step_name}: {}", roster.format_seats(seats)),
-            ));
+        if !wakers.wake_log_recipients.is_empty() {
+            for (step_name, seats) in tier_step_wakers {
+                wakers.wake_log.push((
+                    tier.phase,
+                    format!("{step_name}: {}", roster.format_seats(seats)),
+                ));
+            }
         }
 
         for res in resolutions {

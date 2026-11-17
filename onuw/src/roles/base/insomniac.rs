@@ -18,7 +18,7 @@ impl Role for Insomniac {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::passive(&INSOMNIAC, 186, Self::inspect)] }
+        const { &[WakeStep::passive(&INSOMNIAC, Self::inspect)] }
     }
 }
 

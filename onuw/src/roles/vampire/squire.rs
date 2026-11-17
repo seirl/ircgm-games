@@ -22,7 +22,7 @@ impl Role for Squire {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&SQUIRE, 188, |s, ctx| Box::pin(Self::prompt(s, ctx))).copy_on_turn()]
+            &[WakeStep::solo(&SQUIRE, |s, ctx| Box::pin(Self::prompt(s, ctx))).copy_on_turn()]
         }
     }
 }

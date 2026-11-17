@@ -19,7 +19,7 @@ impl Role for Cow {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::passive(&COW, 113, Self::inspect).eyes_closed()] }
+        const { &[WakeStep::passive(&COW, Self::inspect).eyes_closed()] }
     }
 }
 

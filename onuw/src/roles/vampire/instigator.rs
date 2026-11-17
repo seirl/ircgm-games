@@ -21,7 +21,7 @@ impl Role for Instigator {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&INSTIGATOR, 38, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&INSTIGATOR, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
                 .writes(BoardAccess::MARKS)]
         }
