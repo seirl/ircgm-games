@@ -18,8 +18,9 @@ pub(crate) const ALIEN_PACK_STEP: WakeStep = WakeStep::pack(
     110,
     |seats, ctx| Box::pin(Alien::wake_group(seats, ctx)),
 )
+.run_when_unheld()
 .reads(BoardAccess::CUSTOM_0)
-.writes(BoardAccess::PLAYER_FACES);
+.writes(BoardAccess::PLAYER_FACES | BoardAccess::PUBLIC_ANNOUNCE);
 
 /// Per-game randomized Mother Ship event rolled for `#1A Aliens`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,7 +39,7 @@ pub(crate) enum AlienEvent {
 pub(crate) struct ForcedAlienEvent(pub Option<AlienEvent>);
 
 impl BoardKey for ForcedAlienEvent {
-    const ACCESS: u16 = BoardAccess::CUSTOM_0;
+    const ACCESS: u16 = BoardAccess::NONE;
 
     fn init() -> Self {
         Self(None)
@@ -79,6 +80,36 @@ impl Role for Alien {
 }
 
 impl Alien {
+    fn event_announcement(event: Option<AlienEvent>) -> Text {
+        match event {
+            None => irc_format!(
+                "🛸 {} The {} were ordered by the Oracle to exchange cards!",
+                "Mother Ship (Aliens):".bold().green(),
+                Team::Alien.style_text("Aliens"),
+            ),
+            Some(AlienEvent::StandardRecon) => irc_format!(
+                "🛸 {} {} woke to look for fellow Aliens (Lone Alien may view 1 center card)!",
+                "Mother Ship (Aliens):".bold().green(),
+                Team::Alien.style_text("Aliens"),
+            ),
+            Some(AlienEvent::BioScan) => irc_format!(
+                "🛸 {} {} were instructed to bio-scan 1 non-Alien player's card!",
+                "Mother Ship (Aliens):".bold().green(),
+                Team::Alien.style_text("Aliens"),
+            ),
+            Some(AlienEvent::TractorBeam) => irc_format!(
+                "🛸 {} {} were instructed to exchange 2 non-Alien players' cards (Tractor Beam)!",
+                "Mother Ship (Aliens):".bold().green(),
+                Team::Alien.style_text("Aliens"),
+            ),
+            Some(AlienEvent::CenterProbe) => irc_format!(
+                "🛸 {} {} were instructed to probe 1 center card together!",
+                "Mother Ship (Aliens):".bold().green(),
+                Team::Alien.style_text("Aliens"),
+            ),
+        }
+    }
+
     fn roll_event() -> AlienEvent {
         match fastrand::u8(..100) {
             0..=39 => AlienEvent::StandardRecon,
@@ -136,6 +167,7 @@ impl Alien {
             return Ok(GroupEffect::new(move |board, rctx| {
                 Self::resolve(
                     active_seats,
+                    None,
                     AlienDirective::ForcedOracleExchange,
                     board,
                     rctx,
@@ -147,22 +179,24 @@ impl Alien {
         let non_alien_seats = ctx.roster.all_seats() - visible_aliens;
         let non_aliens = non_alien_seats - shielded;
 
-        let mut event = ctx
+        let rolled_event = ctx
             .get_key::<ForcedAlienEvent>()
             .0
             .unwrap_or_else(Self::roll_event);
-        if event == AlienEvent::BioScan && non_aliens.is_empty() {
-            event = AlienEvent::CenterProbe;
-        }
-        if event == AlienEvent::TractorBeam && non_aliens.len() < 2 {
-            event = if !non_aliens.is_empty() {
-                AlienEvent::BioScan
-            } else {
-                AlienEvent::CenterProbe
-            };
+
+        if active_seats.is_empty() {
+            return Ok(GroupEffect::new(move |board, rctx| {
+                Self::resolve(
+                    active_seats,
+                    Some(rolled_event),
+                    AlienDirective::None,
+                    board,
+                    rctx,
+                );
+            }));
         }
 
-        let directive = match (event, active_seats.only()) {
+        let directive = match (rolled_event, active_seats.only()) {
             (AlienEvent::StandardRecon, None) => AlienDirective::None,
             (AlienEvent::StandardRecon, Some(solo)) => {
                 let prompt = irc_format!(
@@ -198,6 +232,26 @@ impl Alien {
                     .await?;
                 ans.ok().unwrap_or(AlienDirective::None)
             }
+            (AlienEvent::BioScan, _) if non_aliens.is_empty() => {
+                for s in active_seats {
+                    ctx.dm(
+                        s,
+                        "👽 Mother Ship Bio-Scan: No unshielded non-Alien players available to scan!"
+                            .yellow(),
+                    );
+                }
+                AlienDirective::None
+            }
+            (AlienEvent::TractorBeam, _) if non_aliens.len() < 2 => {
+                for s in active_seats {
+                    ctx.dm(
+                        s,
+                        "🛸 Mother Ship Tractor Beam: Fewer than 2 unshielded non-Alien players available to swap!"
+                            .yellow(),
+                    );
+                }
+                AlienDirective::None
+            }
             (ev, _) => {
                 Self::ask_pack_directive(&ctx, active_seats, ev, non_alien_seats, non_aliens, shielded)
                     .await?
@@ -205,7 +259,7 @@ impl Alien {
         };
 
         Ok(GroupEffect::new(move |board, rctx| {
-            Self::resolve(active_seats, directive, board, rctx);
+            Self::resolve(active_seats, Some(rolled_event), directive, board, rctx);
         }))
     }
 
@@ -314,10 +368,16 @@ impl Alien {
 
     fn resolve(
         active_seats: SeatSet,
+        rolled_event: Option<AlienEvent>,
         action: AlienDirective,
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
+        ctx.announce(Self::event_announcement(rolled_event));
+        if active_seats.is_empty() {
+            ctx.record("👽 Aliens were all in the center (Mother Ship event announced).");
+            return;
+        }
         match action {
             AlienDirective::ForcedOracleExchange => {
                 let unshielded: Vec<usize> = active_seats

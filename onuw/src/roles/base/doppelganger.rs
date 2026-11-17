@@ -107,6 +107,27 @@ impl Doppelganger {
             .iter()
             .any(|r| r.steps().iter().any(|st| st.phase == Phase::Dusk));
 
+        if seen_face.is_player_copier() {
+            if was_random {
+                ctx.dm(seat, format!("🎲 Randomly looked at {target_nick}."));
+            }
+            ctx.record(irc_format!(
+                "🎭 {self_styled} ({}) looked at {} ({}) and stayed a sleeping Village Doppelgänger.",
+                actor_nick.bold(),
+                target_nick.as_str().bold(),
+                seen_face.styled_name(),
+            ));
+            ctx.dm(
+                seat,
+                irc_format!(
+                    "🎭 {}'s card is {}! You remain on the Village team with no further night actions.",
+                    target_nick.bold(),
+                    seen_face.styled_name(),
+                ),
+            );
+            return;
+        }
+
         if copied_card.is_secret_copy() {
             let detail = if endgame_role.id() == seen_face.id() {
                 seen_face.styled_name()

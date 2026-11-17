@@ -6,6 +6,7 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 
+use futures::future::try_join_all;
 use ircgm::prelude::*;
 use ircgm::{CaseMap, IntoAskMatch};
 use tokio::time::Instant;
@@ -295,8 +296,10 @@ pub enum Phase {
 /// How `Doppelgänger` executes a copied role's step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CopyTiming {
-    /// Copied action runs in the `DoppelgangerImmediate` window right after `Doppelgänger` (`#1` / `#-7`).
+    /// Copied action runs silently in the shared `DoppelgangerImmediate` window right after `Doppelgänger` (`#1` / `#-7`).
     Immediate,
+    /// Copied action runs in a dedicated `<Copier>-<Role>` tier right after `Doppelgänger` (`Doppelgänger-Oracle`).
+    AfterPlayerCopier,
     /// Copied action runs in the role's scheduled Dusk/Night tier right after initial holders (`X-A`).
     OnRoleTurn,
 }
@@ -540,6 +543,15 @@ impl WakeStep {
         self
     }
 
+    pub const fn copy_after_player_copier(mut self) -> Self {
+        assert!(
+            matches!(self.kind, StepKind::Group(_)),
+            "only Group steps support .copy_after_player_copier()"
+        );
+        self.copy_timing = Some(CopyTiming::AfterPlayerCopier);
+        self
+    }
+
     pub const fn reads(mut self, mask: u16) -> Self {
         self.prompt_reads.0 |= mask;
         self
@@ -619,7 +631,8 @@ impl WakeStep {
     }
 
     /// Effective read mask for scheduler conflict detection & runtime `PromptCtx` checks:
-    /// every interactive step implicitly depends on `WAKING_ROLES`, plus `VISIBLE_TABLE` when `eyes_open`.
+    /// every interactive step implicitly depends on `WAKING_ROLES | PUBLIC_ANNOUNCE` (even with eyes closed),
+    /// plus `VISIBLE_TABLE` when `eyes_open`.
     pub fn effective_prompt_reads(&self) -> u16 {
         if !self.needs_dm_prompt() {
             return BoardAccess::NONE;
@@ -629,7 +642,7 @@ impl WakeStep {
         } else {
             BoardAccess::NONE
         };
-        self.prompt_reads.0 | BoardAccess::WAKING_ROLES | vis
+        self.prompt_reads.0 | BoardAccess::WAKING_ROLES | BoardAccess::PUBLIC_ANNOUNCE | vis
     }
 }
 
@@ -965,6 +978,7 @@ impl<'a> PromptCtx<'a> {
 pub struct GroupPromptCtx<'a> {
     step_name: &'static str,
     reads: u16,
+    is_player_copy_turn: bool,
     pub roster: &'a Roster,
     pub ask_cfg: &'a AskConfig,
     pub deadline: Instant,
@@ -996,6 +1010,7 @@ impl<'a> GroupPromptCtx<'a> {
         Self {
             step_name,
             reads,
+            is_player_copy_turn: false,
             roster,
             ask_cfg,
             deadline,
@@ -1003,6 +1018,16 @@ impl<'a> GroupPromptCtx<'a> {
             wakers,
             board,
         }
+    }
+
+    pub(crate) fn as_player_copy_turn(mut self) -> Self {
+        self.is_player_copy_turn = true;
+        self
+    }
+
+    /// True when invoked in the dedicated `CopyTiming::AfterPlayerCopier` tier (`Doppelgänger-Oracle`).
+    pub fn is_player_copy_turn(&self) -> bool {
+        self.is_player_copy_turn
     }
 
     #[inline]
@@ -1080,6 +1105,55 @@ impl<'a> GroupPromptCtx<'a> {
         self.check_read(K::ACCESS, "BoardKey::ACCESS");
         self.board.raw().get_key::<K>()
     }
+
+    /// Acquires a per-seat [`PromptCtx`] inside a group step (`Nostradamus`, `Rascal`, etc.).
+    pub async fn for_seat(&self, seat: usize) -> Result<PromptCtx<'a>> {
+        let dm = self.roster.seats[seat].user.exclusive_available().await?;
+        Ok(PromptCtx {
+            step_name: self.step_name,
+            reads: self.reads,
+            seat,
+            is_immediate_copy: false,
+            dm,
+            roster: self.roster,
+            ask_cfg: self.ask_cfg,
+            deadline: self.deadline,
+            wakers: self.wakers,
+            board: self.board,
+        })
+    }
+
+    /// Runs a per-seat [`PromptCtx`] closure concurrently across `seats`, returning `(seat, effect)`
+    /// ordered with initial holders of `owner` before copiers (`Copycat` / `Doppelgänger`).
+    pub async fn prompt_seats<'b, F>(
+        &'b self,
+        owner: &'static dyn Role,
+        seats: SeatSet,
+        f: F,
+    ) -> Result<Vec<(usize, SeatEffect)>>
+    where
+        F: Fn(usize, PromptCtx<'a>) -> BoxFuture<'b, Result<SeatEffect>> + Sync,
+        'a: 'b,
+    {
+        let mut ordered: Vec<usize> = Vec::with_capacity(seats.len());
+        for s in seats {
+            if self.roster.seats[s].initial_role.id() == owner.id() {
+                ordered.push(s);
+            }
+        }
+        for s in seats {
+            if self.roster.seats[s].initial_role.id() != owner.id() {
+                ordered.push(s);
+            }
+        }
+        let f_ref = &f;
+        try_join_all(ordered.into_iter().map(|seat| async move {
+            let pctx = self.for_seat(seat).await?;
+            let effect = f_ref(seat, pctx).await?;
+            Ok((seat, effect))
+        }))
+        .await
+    }
 }
 
 pub struct ResolveCtx<'a> {
@@ -1087,6 +1161,8 @@ pub struct ResolveCtx<'a> {
     pub chronicle: &'a mut Vec<Text>,
     pub(crate) room: &'a Room,
     pub(crate) wakers: &'a mut NightWakers,
+    pub(crate) step_name: &'static str,
+    pub(crate) writes: u16,
 }
 
 impl<'a> ResolveCtx<'a> {
@@ -1095,6 +1171,11 @@ impl<'a> ResolveCtx<'a> {
     }
 
     pub fn announce(&self, text: impl Into<Text>) {
+        assert!(
+            (self.writes & BoardAccess::PUBLIC_ANNOUNCE) == BoardAccess::PUBLIC_ANNOUNCE,
+            "{}: undeclared write to PUBLIC_ANNOUNCE — add .writes(BoardAccess::PUBLIC_ANNOUNCE) to WakeStep",
+            self.step_name
+        );
         let _ = self.room.say(text);
     }
 
@@ -1112,6 +1193,18 @@ impl<'a> ResolveCtx<'a> {
 
     pub fn grant_wake_log(&mut self, seat: usize) {
         self.wakers.wake_log_recipients.insert(seat);
+    }
+
+    /// Applies per-seat [`SeatEffect`]s gathered via [`GroupPromptCtx::prompt_seats`].
+    pub fn apply_seat_effects(
+        &mut self,
+        effects: Vec<(usize, SeatEffect)>,
+        board: &mut BoardMut<'_>,
+    ) {
+        for (seat, effect) in effects {
+            let label = self.wakers.actor_label(self.roster, seat);
+            effect.apply(&label, board, self);
+        }
     }
 }
 
@@ -1517,6 +1610,12 @@ impl dyn Role {
         })
     }
 
+    pub fn has_after_player_copier_step(&self) -> bool {
+        self.steps()
+            .iter()
+            .any(|st| st.copy_timing == Some(CopyTiming::AfterPlayerCopier))
+    }
+
     /// True if a center-copier waking at `copier_order` (`Copycat`, `Mirror Man`) will wake again later on schedule.
     pub fn wakes_after_center_copy(&self, copier_order: u16) -> bool {
         !self.is_player_copier() && self.steps().iter().any(|st| st.order > copier_order)
@@ -1526,6 +1625,9 @@ impl dyn Role {
     pub fn wakes_after_player_copy(&self, has_dusk: bool) -> bool {
         if self.immediate_copy_step().is_some() {
             return false;
+        }
+        if self.has_after_player_copier_step() {
+            return true;
         }
         let cutoff = if has_dusk { 10 } else { 105 };
         self.steps()

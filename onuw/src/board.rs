@@ -35,10 +35,12 @@ impl BoardAccess {
     pub const ARTIFACTS: u16 = 1 << 6;
     /// Active waking role identities mutated by `Copycat` and `Doppelgänger`.
     pub const WAKING_ROLES: u16 = 1 << 7;
-    /// Role-defined blackboard slot #0 (`OracleOmen`).
+    /// Role-defined blackboard slot #0 (`OracleAlienExchange`).
     pub const CUSTOM_0: u16 = 1 << 8;
-    /// Role-defined blackboard slot #1 (`CenterWolfCard`, `ExtraVillainCard`, `ApprenticeSoloMark`).
+    /// Role-defined blackboard slot #1 (`CenterWolfCard`, `ExtraVillainCard`, `ApprenticeSoloMark`, `ActiveBlobShape`, `ActiveFamilyShape`, `ActiveNostradamusRole`).
     pub const CUSTOM_1: u16 = 1 << 9;
+    /// Dynamic public channel announcements (`ResolveCtx::announce`) heard by all players (eyes open or closed).
+    pub const PUBLIC_ANNOUNCE: u16 = 1 << 10;
 
     /// Publicly visible tabletop markers (`🛡` Shield, `🔦` Face-up card, `🏺` Artifact token)
     /// seen by default by every role that opens its eyes (`eyes_open == true`).
@@ -917,12 +919,9 @@ impl<'a> BoardMut<'a> {
             "PLAYER_BECAME | CENTER_FACES | WAKING_ROLES",
         );
         if active_seats.is_empty() {
-            if let Some(card) = self
-                .inner
-                .center
-                .iter_mut()
-                .find(|c| c.face_role().id() == role_id)
-            {
+            if let Some(card) = self.inner.center.iter_mut().find(|c| {
+                c.face_role().id() == role_id && !matches!(c.transform, CardTransform::Public(_))
+            }) {
                 card.transform_public(new_role);
             }
         } else {
@@ -953,6 +952,19 @@ impl<'a> BoardMut<'a> {
         }
         let target_card = self.inner.players[target];
         self.inner.viewed_or_moved_actors.insert(actor);
+        if target_card.face_role().is_player_copier() {
+            // Copying another player-copier (`doppelganger*2`) stays a sleeping Village Doppelgänger
+            // regardless of seat resolution order, preventing copy chains.
+            return Some(Card::new(target_card.face_role()));
+        }
+        if target_card.face_role().has_after_player_copier_step() {
+            // Pre-Doppelgänger roles with a dedicated Doppelgänger follow-up (`Oracle`):
+            // copy the printed face so `Doppelgänger-Oracle` wakes to answer her own question.
+            let face = target_card.face_role();
+            self.inner.players[actor].transform(face);
+            rctx.wakers.copy_player(actor, target, face);
+            return Some(Card::new(face));
+        }
         self.inner.players[actor].transform(target_card.effective_role());
         rctx.wakers.copy_player(actor, target, target_card.visible_role());
         Some(target_card)

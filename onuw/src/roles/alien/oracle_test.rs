@@ -218,4 +218,37 @@ async fn oracle_alien_exchange_jackpot_wake_log_player_peek_and_public_conversio
         "Oracle [Alien]"
     );
     assert!(!rep4.board.is_player_face_up(h4.seat_of("Alice")));
+
+    // 5. Multiple Oracles (`oracle*2`, 1 held + 1 in center) + Doppelgänger copying non-Oracle:
+    //    emits 2 `Oracle Omen:` lines + 1 decoy `Doppelgänger-Oracle Omen:` line!
+    use crate::roles::base::doppelganger::DOPPELGANGER;
+    let mut h5 = OnuwTestHarness::new(
+        &[
+            ("Alice", &ORACLE),
+            ("Bob", &DOPPELGANGER),
+            ("Carol", &SEER),
+        ],
+        [&ORACLE, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h5.set_key(ForcedOracleQuestion(Some(OracleQuestion::EvenOdd)));
+    let n5 = h5.spawn_night();
+    h5.reply_dm("Alice", "odd").await;
+    h5.reply_dm("Bob", "Carol").await;
+    h5.reply_dm("Bob", "pass").await; // DoppelgangerImmediate Seer
+    h5.reply_dm("Carol", "pass").await;
+    let rep5 = h5.finish_night(n5).await;
+
+    let oracle_omens = rep5
+        .channel_lines
+        .iter()
+        .filter(|l| Text::parse(l).plain().contains("🔮🛸 Oracle Omen:"))
+        .count();
+    let dg_oracle_omens = rep5
+        .channel_lines
+        .iter()
+        .filter(|l| Text::parse(l).plain().contains("🔮🛸 Doppelgänger-Oracle Omen:"))
+        .count();
+    assert_eq!(oracle_omens, 2);
+    assert_eq!(dg_oracle_omens, 1);
 }

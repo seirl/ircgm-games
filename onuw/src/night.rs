@@ -17,8 +17,9 @@ use crate::board::{BoardAccess, BoardCards, BoardMut, PromptBoard, Roster, SeatS
 use crate::marks::Mark;
 pub use crate::role::Phase as TierPhase;
 use crate::role::{
-    BoxFuture, CopierKind, CopyTiming, GroupEffect, GroupPromptCtx, NightWakers, PassiveWakeFn,
-    Phase, PromptCtx, ResolveCtx, Role, SeatEffect, StepKind, WakeStep,
+    BoxFuture, CopierKind, CopyTiming, GroupEffect, GroupPromptCtx, GroupPromptFn, NightWakers,
+    PassiveWakeFn, Phase, PromptCtx, ResolveCtx, Role, SeatEffect, SoloPromptFn, StepKind,
+    WakeStep,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -73,6 +74,12 @@ pub enum TierKind {
         slot_idx: usize,
         total_slots: usize,
     },
+    /// Fixed-clock window right after `Doppelgänger` for `CopyTiming::AfterPlayerCopier` group steps (`Oracle`),
+    /// present iff `deck` contains both a player-copier and an `AfterPlayerCopier` step.
+    AfterPlayerCopier {
+        copier: &'static WakeStep,
+        step: &'static WakeStep,
+    },
     /// Fixed-clock window after `Doppelgänger` for `CopyTiming::Immediate` roles (`Seer`, `Robber`, `Witch`, etc.),
     /// present iff `deck` contains at least one immediate-copy role.
     DoppelgangerImmediate(&'static WakeStep),
@@ -100,6 +107,9 @@ impl ScheduledTier {
                 slot_idx,
                 total_slots,
             } => format!("{} (#{}/{total_slots})", step.callout_name(), slot_idx + 1),
+            TierKind::AfterPlayerCopier { copier, step } => {
+                format!("{}-{}", copier.callout_name(), step.callout_name())
+            }
             TierKind::DoppelgangerImmediate(st) => {
                 format!("{} (copied action)", st.callout_name())
             }
@@ -120,6 +130,12 @@ impl ScheduledTier {
                 "{} {}",
                 step.styled_callout(),
                 format!("(#{}/{total_slots})", slot_idx + 1).grey()
+            ),
+            TierKind::AfterPlayerCopier { copier, step } => irc_format!(
+                "{}{}{}",
+                copier.styled_callout(),
+                "-".grey(),
+                step.styled_callout()
             ),
             TierKind::DoppelgangerImmediate(st) => {
                 irc_format!("{} {}", st.styled_callout(), "(copied action)".grey())
@@ -167,6 +183,7 @@ fn format_schedule_order(schedule: &[ScheduledTier]) -> Text {
                 step, slot_idx: 0, ..
             } => out.push(step.styled_callout()),
             TierKind::StepSlot { .. } => {}
+            TierKind::AfterPlayerCopier { .. } => {}
             TierKind::DoppelgangerImmediate(_) if has_dusk && tier.phase == Phase::Night => {
                 out.push(tier.styled_callout());
             }
@@ -199,15 +216,16 @@ fn format_schedule_order(schedule: &[ScheduledTier]) -> Text {
 #[derive(Clone, Copy)]
 enum SchedEntry {
     Step(&'static WakeStep),
+    AfterPlayerCopier {
+        copier: &'static WakeStep,
+        step: &'static WakeStep,
+    },
     DgImmediate(&'static WakeStep),
 }
 
 /// Pure function of the public `deck` multiset and `timings` — any permutation of the same
 /// `(N + 3)` cards produces the exact same tier list and wall-clock offsets.
-pub fn build_deck_schedule(
-    deck: &[&'static dyn Role],
-    timings: &NightTimings,
-) -> Vec<ScheduledTier> {
+fn collect_deck_steps(deck: &[&'static dyn Role]) -> Vec<&'static WakeStep> {
     let mut steps: Vec<&'static WakeStep> = Vec::new();
     for &r in deck {
         for st in r.steps() {
@@ -216,6 +234,14 @@ pub fn build_deck_schedule(
             }
         }
     }
+    steps
+}
+
+pub fn build_deck_schedule(
+    deck: &[&'static dyn Role],
+    timings: &NightTimings,
+) -> Vec<ScheduledTier> {
+    let steps = collect_deck_steps(deck);
 
     let has_dusk = steps.iter().any(|st| st.phase == Phase::Dusk);
     let player_count = deck.len().saturating_sub(3).max(1);
@@ -239,13 +265,29 @@ pub fn build_deck_schedule(
         .copied()
         .find(|st| st.copier == Some(CopierKind::Player))
     {
+        let dg_phase = step_exec_phase(dg, has_dusk);
+        let dg_order = step_exec_order(dg, has_dusk);
+        for &st in &steps {
+            if st.copy_timing == Some(CopyTiming::AfterPlayerCopier) {
+                entries.push((
+                    dg_phase,
+                    dg_order,
+                    1,
+                    st.id(),
+                    SchedEntry::AfterPlayerCopier {
+                        copier: dg,
+                        step: st,
+                    },
+                ));
+            }
+        }
         for (imm_phase, imm_order) in [(Phase::Dusk, 10), (Phase::Night, 105)] {
             let needed = deck.iter().any(|r| {
                 r.immediate_copy_step()
                     .is_some_and(|st| step_exec_phase(st, has_dusk) == imm_phase)
             });
             if needed {
-                entries.push((imm_phase, imm_order, 1, dg.id(), SchedEntry::DgImmediate(dg)));
+                entries.push((imm_phase, imm_order, 2, dg.id(), SchedEntry::DgImmediate(dg)));
             }
         }
     }
@@ -278,6 +320,15 @@ pub fn build_deck_schedule(
         }
 
         let step = match entry {
+            SchedEntry::AfterPlayerCopier { copier, step } => {
+                flush_cur(&mut cur, cur_phase, &mut cur_writes, &mut raw_tiers);
+                raw_tiers.push((
+                    phase,
+                    TierKind::AfterPlayerCopier { copier, step },
+                    timings.tier_budget,
+                ));
+                continue;
+            }
             SchedEntry::DgImmediate(dg) => {
                 flush_cur(&mut cur, cur_phase, &mut cur_writes, &mut raw_tiers);
                 raw_tiers.push((
@@ -317,8 +368,8 @@ pub fn build_deck_schedule(
                 0
             };
             let max_actors = (holders_before_dg + dg_extra).min(player_count);
-            let eff_reads = step.effective_prompt_reads();
-            if max_actors > 1 && (eff_reads & step.resolve_writes.0) != 0 {
+            let self_reads = step.effective_prompt_reads() & !BoardAccess::PUBLIC_ANNOUNCE;
+            if max_actors > 1 && (self_reads & step.resolve_writes.0) != 0 {
                 flush_cur(&mut cur, cur_phase, &mut cur_writes, &mut raw_tiers);
                 for slot_idx in 0..max_actors {
                     raw_tiers.push((
@@ -389,7 +440,110 @@ enum StepTierResolution {
         step: &'static WakeStep,
         seat: usize,
         effect: SeatEffect,
+        mark_acted_immediately: bool,
     },
+}
+
+impl StepTierResolution {
+    fn step(&self) -> &'static WakeStep {
+        match self {
+            Self::Group { step, .. } | Self::Passive { step, .. } | Self::Solo { step, .. } => {
+                step
+            }
+        }
+    }
+
+    fn resolve_reads(&self) -> u16 {
+        match self {
+            Self::Passive { .. } => BoardAccess::ALL_READS,
+            Self::Group { step, .. } | Self::Solo { step, .. } => step.effective_prompt_reads(),
+        }
+    }
+}
+
+struct TierPromptSpawner<'a> {
+    roster: &'a Roster,
+    cfg: &'a AskConfig,
+    deadline: Instant,
+    wakers: &'a NightWakers,
+    board_snap: PromptBoard<'a>,
+}
+
+impl<'a> TierPromptSpawner<'a> {
+    fn group(
+        &self,
+        step: &'static WakeStep,
+        prompt_fn: GroupPromptFn,
+        active_seats: SeatSet,
+        player_copy_turn: bool,
+    ) -> BoxFuture<'a, Result<StepTierResolution>> {
+        let Self {
+            roster,
+            cfg,
+            deadline,
+            wakers,
+            board_snap,
+        } = *self;
+        Box::pin(async move {
+            let mut gctx = GroupPromptCtx::new(
+                step.callout_name(),
+                step.effective_prompt_reads(),
+                step.eyes_open,
+                active_seats,
+                roster,
+                cfg,
+                deadline,
+                wakers,
+                board_snap,
+            );
+            if player_copy_turn {
+                gctx = gctx.as_player_copy_turn();
+            }
+            let effect = prompt_fn(active_seats, gctx).await?;
+            Ok(StepTierResolution::Group { step, effect })
+        })
+    }
+
+    fn solo(
+        &self,
+        step: &'static WakeStep,
+        prompt_fn: SoloPromptFn,
+        seat: usize,
+        immediate_copy: bool,
+    ) -> BoxFuture<'a, Result<StepTierResolution>> {
+        let Self {
+            roster,
+            cfg,
+            deadline,
+            wakers,
+            board_snap,
+        } = *self;
+        Box::pin(async move {
+            let dm = roster.seats[seat].user.exclusive_available().await?;
+            let mut pctx = PromptCtx::new(
+                step.callout_name(),
+                step.effective_prompt_reads(),
+                seat,
+                step.eyes_open,
+                dm,
+                roster,
+                cfg,
+                deadline,
+                wakers,
+                board_snap,
+            );
+            if immediate_copy {
+                pctx = pctx.as_immediate_copy();
+            }
+            let effect = prompt_fn(seat, pctx).await?;
+            Ok(StepTierResolution::Solo {
+                step,
+                seat,
+                effect,
+                mark_acted_immediately: immediate_copy,
+            })
+        })
+    }
 }
 
 pub async fn run_night_phase(
@@ -445,304 +599,184 @@ pub async fn run_night_phase(
             tier.styled_callout(),
         ))?;
 
-        match &tier.kind {
-            TierKind::DoppelgangerImmediate(_) => {
-                let tier_phase = tier.phase;
-                let immediate_seats: SeatSet = (wakers.player_copied_seats()
-                    - wakers.feared
-                    - wakers.acted_immediately)
-                    .into_iter()
-                    .filter(|&s| {
-                        wakers
-                            .role(s)
+        let (resolutions, tier_step_wakers) = {
+            let spawner = TierPromptSpawner {
+                roster,
+                cfg: &tier_cfg,
+                deadline: tier_deadline,
+                wakers: &wakers,
+                board_snap: PromptBoard::new(&board),
+            };
+            let mut futs: Vec<BoxFuture<'_, Result<StepTierResolution>>> = Vec::new();
+            let mut tier_step_wakers: Vec<(String, SeatSet)> = Vec::new();
+
+            match &tier.kind {
+                TierKind::AfterPlayerCopier { step, .. } => {
+                    let StepKind::Group(prompt_fn) = step.kind else {
+                        unreachable!("only Group steps support CopyTiming::AfterPlayerCopier");
+                    };
+                    let active_seats =
+                        compute_group_active_seats(step, &wakers) & wakers.player_copied_seats();
+                    if step.eyes_open && !active_seats.is_empty() {
+                        tier_step_wakers.push((tier.callout_label(), active_seats));
+                    }
+                    if !active_seats.is_empty() || step.run_when_unheld {
+                        futs.push(spawner.group(step, prompt_fn, active_seats, true));
+                    }
+                }
+
+                TierKind::DoppelgangerImmediate(_) => {
+                    let immediate_seats: SeatSet = (wakers.player_copied_seats()
+                        - wakers.feared
+                        - wakers.acted_immediately)
+                        .into_iter()
+                        .filter(|&s| {
+                            wakers
+                                .role(s)
+                                .immediate_copy_step()
+                                .is_some_and(|st| step_exec_phase(st, has_dusk) == tier.phase)
+                        })
+                        .collect();
+                    if !immediate_seats.is_empty() {
+                        tier_step_wakers.push((tier.callout_label(), immediate_seats));
+                    }
+                    for seat in immediate_seats {
+                        let step = wakers
+                            .role(seat)
                             .immediate_copy_step()
-                            .is_some_and(|st| step_exec_phase(st, has_dusk) == tier_phase)
-                    })
-                    .collect();
+                            .expect("immediate copied role has immediate step");
+                        let StepKind::Solo(prompt_fn) = step.kind else {
+                            unreachable!("only Solo steps support CopyTiming::Immediate");
+                        };
+                        futs.push(spawner.solo(step, prompt_fn, seat, true));
+                    }
+                }
 
-                let board_snap = PromptBoard::new(&board);
-                let wakers_ref = &wakers;
-                let cfg_ref = &tier_cfg;
-                let futs = immediate_seats.into_iter().map(|seat| async move {
-                    let step = wakers_ref
-                        .role(seat)
-                        .immediate_copy_step()
-                        .expect("immediate copied role has immediate step");
+                TierKind::StepSlot {
+                    step,
+                    slot_idx,
+                    total_slots,
+                } => {
                     let StepKind::Solo(prompt_fn) = step.kind else {
-                        unreachable!("only Solo steps support CopyTiming::Immediate");
+                        unreachable!("StepSlot only applies to interactive Solo steps");
                     };
-                    let dm = roster.seats[seat].user.exclusive_available().await?;
-                    let pctx = PromptCtx::new(
-                        step.callout_name(),
-                        step.effective_prompt_reads(),
-                        seat,
-                        step.eyes_open,
-                        dm,
-                        roster,
-                        cfg_ref,
-                        tier_deadline,
-                        wakers_ref,
-                        board_snap,
-                    )
-                    .as_immediate_copy();
-                    let effect = prompt_fn(seat, pctx).await?;
-                    Ok::<_, Error>((seat, step, effect))
-                });
-
-                let outcomes = try_join_all(futs).await?;
-                sleep_until(tier_deadline).await;
-
-                if !immediate_seats.is_empty() {
-                    wakers.wake_log.push((
-                        tier.phase,
-                        format!(
-                            "{}: {}",
-                            tier.callout_label(),
-                            roster.format_seats(immediate_seats)
-                        ),
-                    ));
-                }
-
-                for (seat, step, effect) in outcomes {
-                    wakers.acted_immediately.insert(seat);
-                    let label = wakers.actor_label(roster, seat);
-                    let mut rctx = ResolveCtx {
-                        roster,
-                        chronicle: &mut all_chronicle,
-                        room,
-                        wakers: &mut wakers,
+                    let all_actors = collect_solo_or_passive_actors(roster, step, &wakers);
+                    let slot_actors: &[usize] = if *slot_idx + 1 < *total_slots {
+                        all_actors.get(*slot_idx..=*slot_idx).unwrap_or(&[])
+                    } else {
+                        all_actors.get(*slot_idx..).unwrap_or(&[])
                     };
-                    let mut bm = BoardMut::new(
-                        &mut board,
-                        step.callout_name(),
-                        step.effective_prompt_reads(),
-                        step.resolve_writes.0,
-                    );
-                    effect.apply(&label, &mut bm, &mut rctx);
-                }
-            }
-
-            TierKind::StepSlot {
-                step,
-                slot_idx,
-                total_slots,
-            } => {
-                let StepKind::Solo(prompt_fn) = step.kind else {
-                    unreachable!("StepSlot only applies to interactive Solo steps");
-                };
-                let step = *step;
-
-                let all_actors = collect_solo_or_passive_actors(roster, step, &wakers);
-                let slot_actors: &[usize] = if *slot_idx + 1 < *total_slots {
-                    all_actors.get(*slot_idx..=*slot_idx).unwrap_or(&[])
-                } else {
-                    all_actors.get(*slot_idx..).unwrap_or(&[])
-                };
-
-                let board_snap = PromptBoard::new(&board);
-                let wakers_ref = &wakers;
-                let cfg_ref = &tier_cfg;
-
-                let futs = slot_actors.iter().copied().map(|seat| async move {
-                    let dm = roster.seats[seat].user.exclusive_available().await?;
-                    let pctx = PromptCtx::new(
-                        step.callout_name(),
-                        step.effective_prompt_reads(),
-                        seat,
-                        step.eyes_open,
-                        dm,
-                        roster,
-                        cfg_ref,
-                        tier_deadline,
-                        wakers_ref,
-                        board_snap,
-                    );
-                    let effect = prompt_fn(seat, pctx).await?;
-                    Ok::<_, Error>((seat, effect))
-                });
-
-                let outcomes = try_join_all(futs).await?;
-                sleep_until(tier_deadline).await;
-
-                if !slot_actors.is_empty() {
-                    wakers.wake_log.push((
-                        tier.phase,
-                        format!(
-                            "{}: {}",
-                            tier.callout_label(),
-                            roster.format_seats(slot_actors.iter().copied())
-                        ),
-                    ));
-                }
-
-                for (seat, effect) in outcomes {
-                    let label = wakers.actor_label(roster, seat);
-                    let mut rctx = ResolveCtx {
-                        roster,
-                        chronicle: &mut all_chronicle,
-                        room,
-                        wakers: &mut wakers,
-                    };
-                    let mut bm = BoardMut::new(
-                        &mut board,
-                        step.callout_name(),
-                        step.effective_prompt_reads(),
-                        step.resolve_writes.0,
-                    );
-                    effect.apply(&label, &mut bm, &mut rctx);
-                }
-            }
-
-            TierKind::Steps(steps) => {
-                let mut tier_step_wakers: Vec<(&'static str, SeatSet)> = Vec::new();
-                for &step in steps {
-                    let seats: SeatSet = match step.kind {
-                        StepKind::Group(_) => compute_group_active_seats(step, &wakers),
-                        StepKind::Passive(_) | StepKind::Solo(_) => {
-                            collect_solo_or_passive_actors(roster, step, &wakers)
-                                .into_iter()
-                                .collect()
-                        }
-                    };
-                    if step.eyes_open && !seats.is_empty() && step.order > 1 {
-                        tier_step_wakers.push((step.callout_name(), seats));
+                    if !slot_actors.is_empty() {
+                        tier_step_wakers
+                            .push((tier.callout_label(), slot_actors.iter().copied().collect()));
+                    }
+                    for &seat in slot_actors {
+                        futs.push(spawner.solo(step, prompt_fn, seat, false));
                     }
                 }
 
-                let board_snap = PromptBoard::new(&board);
-                let wakers_ref = &wakers;
-                let cfg_ref = &tier_cfg;
-
-                let mut futs: Vec<BoxFuture<'_, Result<StepTierResolution>>> = Vec::new();
-
-                for &step in steps {
-                    match step.kind {
-                        StepKind::Group(prompt_fn) => {
-                            let active_seats = compute_group_active_seats(step, wakers_ref);
-                            if active_seats.is_empty() && !step.run_when_unheld {
-                                continue;
+                TierKind::Steps(steps) => {
+                    for &step in steps {
+                        match step.kind {
+                            StepKind::Group(prompt_fn) => {
+                                let active_seats = compute_group_active_seats(step, &wakers);
+                                if step.eyes_open && !active_seats.is_empty() && step.order > 1 {
+                                    tier_step_wakers
+                                        .push((step.callout_name().to_owned(), active_seats));
+                                }
+                                if active_seats.is_empty() && !step.run_when_unheld {
+                                    continue;
+                                }
+                                futs.push(spawner.group(step, prompt_fn, active_seats, false));
                             }
-                            futs.push(Box::pin(async move {
-                                let gctx = GroupPromptCtx::new(
-                                    step.callout_name(),
-                                    step.effective_prompt_reads(),
-                                    step.eyes_open,
-                                    active_seats,
-                                    roster,
-                                    cfg_ref,
-                                    tier_deadline,
-                                    wakers_ref,
-                                    board_snap,
-                                );
-                                let effect = prompt_fn(active_seats, gctx).await?;
-                                Ok(StepTierResolution::Group { step, effect })
-                            }));
-                        }
-                        StepKind::Passive(wake_fn) => {
-                            for seat in collect_solo_or_passive_actors(roster, step, wakers_ref) {
-                                futs.push(Box::pin(async move {
-                                    Ok(StepTierResolution::Passive {
-                                        step,
-                                        seat,
-                                        wake_fn,
-                                    })
-                                }));
-                            }
-                        }
-                        StepKind::Solo(prompt_fn) => {
-                            for seat in collect_solo_or_passive_actors(roster, step, wakers_ref) {
-                                futs.push(Box::pin(async move {
-                                    let dm = roster.seats[seat].user.exclusive_available().await?;
-                                    let pctx = PromptCtx::new(
-                                        step.callout_name(),
-                                        step.effective_prompt_reads(),
-                                        seat,
-                                        step.eyes_open,
-                                        dm,
-                                        roster,
-                                        cfg_ref,
-                                        tier_deadline,
-                                        wakers_ref,
-                                        board_snap,
-                                    );
-                                    let effect = prompt_fn(seat, pctx).await?;
-                                    Ok(StepTierResolution::Solo { step, seat, effect })
-                                }));
-                            }
-                        }
-                    }
-                }
-
-                let resolutions = try_join_all(futs).await?;
-                sleep_until(tier_deadline).await;
-
-                for (step_name, seats) in tier_step_wakers {
-                    wakers.wake_log.push((
-                        tier.phase,
-                        format!("{step_name}: {}", roster.format_seats(seats)),
-                    ));
-                }
-
-                for res in resolutions {
-                    let table_summary = board.visible_table_summary(roster);
-                    match res {
-                        StepTierResolution::Group { step, effect } => {
-                            let mut rctx = ResolveCtx {
-                                roster,
-                                chronicle: &mut all_chronicle,
-                                room,
-                                wakers: &mut wakers,
-                            };
-                            let mut bm = BoardMut::new(
-                                &mut board,
-                                step.callout_name(),
-                                step.effective_prompt_reads(),
-                                step.resolve_writes.0,
-                            );
-                            effect.apply(&mut bm, &mut rctx);
-                        }
-                        StepTierResolution::Passive {
-                            step,
-                            seat,
-                            wake_fn,
-                        } => {
-                            let label = wakers.actor_label(roster, seat);
-                            let mut rctx = ResolveCtx {
-                                roster,
-                                chronicle: &mut all_chronicle,
-                                room,
-                                wakers: &mut wakers,
-                            };
-                            if step.eyes_open {
-                                if let Some(line) = table_summary {
-                                    rctx.dm(seat, line);
+                            StepKind::Passive(wake_fn) => {
+                                let actors = collect_solo_or_passive_actors(roster, step, &wakers);
+                                if step.eyes_open && !actors.is_empty() && step.order > 1 {
+                                    tier_step_wakers.push((
+                                        step.callout_name().to_owned(),
+                                        actors.iter().copied().collect(),
+                                    ));
+                                }
+                                for seat in actors {
+                                    futs.push(Box::pin(async move {
+                                        Ok(StepTierResolution::Passive {
+                                            step,
+                                            seat,
+                                            wake_fn,
+                                        })
+                                    }));
                                 }
                             }
-                            let mut bm = BoardMut::new(
-                                &mut board,
-                                step.callout_name(),
-                                BoardAccess::ALL_READS,
-                                step.resolve_writes.0,
-                            );
-                            wake_fn(seat, &label, &mut bm, &mut rctx);
-                        }
-                        StepTierResolution::Solo { step, seat, effect } => {
-                            let label = wakers.actor_label(roster, seat);
-                            let mut rctx = ResolveCtx {
-                                roster,
-                                chronicle: &mut all_chronicle,
-                                room,
-                                wakers: &mut wakers,
-                            };
-                            let mut bm = BoardMut::new(
-                                &mut board,
-                                step.callout_name(),
-                                step.effective_prompt_reads(),
-                                step.resolve_writes.0,
-                            );
-                            effect.apply(&label, &mut bm, &mut rctx);
+                            StepKind::Solo(prompt_fn) => {
+                                let actors = collect_solo_or_passive_actors(roster, step, &wakers);
+                                if step.eyes_open && !actors.is_empty() && step.order > 1 {
+                                    tier_step_wakers.push((
+                                        step.callout_name().to_owned(),
+                                        actors.iter().copied().collect(),
+                                    ));
+                                }
+                                for seat in actors {
+                                    futs.push(spawner.solo(step, prompt_fn, seat, false));
+                                }
+                            }
                         }
                     }
+                }
+            }
+
+            (try_join_all(futs).await?, tier_step_wakers)
+        };
+
+        sleep_until(tier_deadline).await;
+
+        for (step_name, seats) in tier_step_wakers {
+            wakers.wake_log.push((
+                tier.phase,
+                format!("{step_name}: {}", roster.format_seats(seats)),
+            ));
+        }
+
+        for res in resolutions {
+            let step = res.step();
+            let table_summary = board.visible_table_summary(roster);
+            let mut rctx = ResolveCtx {
+                roster,
+                chronicle: &mut all_chronicle,
+                room,
+                wakers: &mut wakers,
+                step_name: step.callout_name(),
+                writes: step.resolve_writes.0,
+            };
+            let mut bm = BoardMut::new(
+                &mut board,
+                step.callout_name(),
+                res.resolve_reads(),
+                step.resolve_writes.0,
+            );
+            match res {
+                StepTierResolution::Group { effect, .. } => {
+                    effect.apply(&mut bm, &mut rctx);
+                }
+                StepTierResolution::Passive { seat, wake_fn, .. } => {
+                    let label = rctx.wakers.actor_label(roster, seat);
+                    if step.eyes_open {
+                        if let Some(line) = table_summary {
+                            rctx.dm(seat, line);
+                        }
+                    }
+                    wake_fn(seat, &label, &mut bm, &mut rctx);
+                }
+                StepTierResolution::Solo {
+                    seat,
+                    effect,
+                    mark_acted_immediately,
+                    ..
+                } => {
+                    if mark_acted_immediately {
+                        rctx.wakers.acted_immediately.insert(seat);
+                    }
+                    let label = rctx.wakers.actor_label(roster, seat);
+                    effect.apply(&label, &mut bm, &mut rctx);
                 }
             }
         }

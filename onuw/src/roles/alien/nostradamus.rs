@@ -1,48 +1,57 @@
+use futures::future::try_join_all;
 use ircgm::prelude::*;
 
 use crate::board::{BoardAccess, BoardCards, BoardKey, BoardMut, Roster, SeatSet};
 use crate::marks::Mark;
 use crate::role::{
     EffectiveAlignment, GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role,
-    RoleInfo, SeatEffect, Team, WakeStep, WinnerFilterCtx, WinnerMap,
+    RoleInfo, Team, WakeStep, WinnerFilterCtx, WinnerMap,
 };
 
+/// Maps physical card `face_role().id()` (`"nostradamus"`, `"doppelganger"`, `"copycat"`, `"mirror_man"`)
+/// to the role whose team/victory that card adopted at `#5E`.
 #[derive(Clone, Debug, Default)]
-pub(crate) struct NostradamusPredictions(pub Vec<(&'static str, &'static dyn Role)>);
+pub(crate) struct ActiveNostradamusRoles(pub Vec<(&'static str, &'static dyn Role)>);
 
-impl NostradamusPredictions {
+impl ActiveNostradamusRoles {
+    fn set(&mut self, face_id: &'static str, adopted: &'static dyn Role) {
+        if let Some(entry) = self.0.iter_mut().find(|(id, _)| *id == face_id) {
+            entry.1 = adopted;
+        } else {
+            self.0.push((face_id, adopted));
+        }
+    }
+
     fn get_for_card_face(&self, face_id: &str) -> Option<&'static dyn Role> {
         self.0
             .iter()
             .rev()
             .find(|&&(id, _)| id == face_id)
-            .or_else(|| self.0.last())
+            .or_else(|| self.0.iter().find(|&&(id, _)| id == "nostradamus"))
+            .or_else(|| self.0.first())
             .map(|&(_, r)| r)
     }
 }
 
-impl BoardKey for NostradamusPredictions {
-    const ACCESS: u16 = BoardAccess::CUSTOM_0;
+impl BoardKey for ActiveNostradamusRoles {
+    const ACCESS: u16 = BoardAccess::CUSTOM_1;
 
     fn init() -> Self {
         Self(Vec::new())
     }
 }
 
+struct FaceGroupVision {
+    face_id: &'static str,
+    group_seats: SeatSet,
+    chosen_seat: usize,
+    is_player_copy: bool,
+    peeked: Vec<usize>,
+    last_role: Option<&'static dyn Role>,
+}
+
 pub struct Nostradamus;
 pub static NOSTRADAMUS: Nostradamus = Nostradamus;
-
-const NOSTRADAMUS_PROPHECY_STEP: WakeStep = WakeStep::pair(
-    "nostradamus:prophecy",
-    "Nostradamus Prophecy",
-    Team::Independent,
-    None,
-    198,
-    |seats, ctx| Box::pin(Nostradamus::announce_prophecy(seats, ctx)),
-)
-.eyes_closed()
-.run_when_unheld()
-.reads(BoardAccess::CUSTOM_0);
 
 impl Role for Nostradamus {
     fn info(&self) -> RoleInfo {
@@ -51,7 +60,7 @@ impl Role for Nostradamus {
             "Nostradamus",
             GameSet::Alien,
             Team::Independent,
-            "Look at up to 2 players' cards (3 at 6+ players): the LAST card you view determines your team (announced publicly at night's end), and you MUST survive to win!",
+            "Look at up to 2 players' cards (3 at 6+ players): the LAST card you view determines your team (announced publicly right after your turn), and you MUST survive to win!",
         )
         .aliases(&["nostra"])
     }
@@ -59,11 +68,10 @@ impl Role for Nostradamus {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::solo(&NOSTRADAMUS, 156, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                    .copy_on_turn()
-                    .reads(BoardAccess::PLAYER_FACES | BoardAccess::CUSTOM_0)
-                    .writes(BoardAccess::CUSTOM_0),
-                NOSTRADAMUS_PROPHECY_STEP,
+                WakeStep::group(&NOSTRADAMUS, 156, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+                    .run_when_unheld()
+                    .reads(BoardAccess::PLAYER_FACES)
+                    .writes(ActiveNostradamusRoles::ACCESS | BoardAccess::PUBLIC_ANNOUNCE),
             ]
         }
     }
@@ -72,18 +80,25 @@ impl Role for Nostradamus {
         &self,
         seat: usize,
         board: &BoardCards,
-        cur: EffectiveAlignment,
+        mut cur: EffectiveAlignment,
     ) -> EffectiveAlignment {
+        cur.threat_team = None;
         let face_id = board.player_card(seat).face_role().id();
-        if let Some(predicted) = board
-            .get_key::<NostradamusPredictions>()
+        if let Some(adopted) = board
+            .get_key::<ActiveNostradamusRoles>()
             .get_for_card_face(face_id)
         {
-            if predicted.team() != Team::Independent {
-                return EffectiveAlignment {
-                    team: predicted.team(),
-                    threat_team: None,
-                };
+            if adopted.id() != self.info().id {
+                let mut adopted_align = adopted.adjust_alignment(
+                    seat,
+                    board,
+                    EffectiveAlignment {
+                        team: adopted.team(),
+                        threat_team: None,
+                    },
+                );
+                adopted_align.threat_team = None;
+                return adopted_align;
             }
         }
         cur
@@ -99,22 +114,23 @@ impl Role for Nostradamus {
             return;
         }
         let face_id = ctx.board.player_card(holder).face_role().id();
-        let Some(predicted) = ctx
+        let Some(adopted) = ctx
             .board
-            .get_key::<NostradamusPredictions>()
+            .get_key::<ActiveNostradamusRoles>()
             .get_for_card_face(face_id)
         else {
             return;
         };
-        if predicted.team() == Team::Independent {
-            let co_won = ctx
-                .board
-                .active_holders(predicted)
-                .into_iter()
-                .any(|s| winners.contains_key(&s));
-            if co_won {
-                winners.insert(holder, "Nostradamus");
-            }
+        if adopted.id() == self.info().id {
+            return;
+        }
+        let co_won = ctx
+            .board
+            .active_holders(adopted)
+            .into_iter()
+            .any(|s| winners.contains_key(&s));
+        if co_won {
+            winners.insert(holder, "Nostradamus");
         }
     }
 
@@ -139,7 +155,93 @@ impl Nostradamus {
         }
     }
 
-    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+    fn pick_random_deck_role(roster: &Roster) -> &'static dyn Role {
+        let candidates: Vec<&'static dyn Role> = roster
+            .deck
+            .iter()
+            .copied()
+            .filter(|r| r.id() != "nostradamus")
+            .collect();
+        if candidates.is_empty() {
+            &NOSTRADAMUS
+        } else {
+            candidates[fastrand::usize(..candidates.len())]
+        }
+    }
+
+    async fn wake(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+        // Group waking seats by printed `initial_role.id()` (`"nostradamus"`, `"copycat"`, `"mirror_man"`, `"doppelganger"`):
+        // if `nostradamus*2` or `doppelganger*2` causes 2+ seats to share the same card face,
+        // draw 1 random seer per face group and share its announced destiny across that group!
+        let mut face_groups: Vec<(&'static str, bool, SeatSet)> = Vec::new();
+        for pass_player_copy in [false, true] {
+            for s in active_seats {
+                let is_player_copy = ctx.copied_from(s).is_some();
+                if is_player_copy != pass_player_copy {
+                    continue;
+                }
+                let face_id = ctx.roster.seats[s].initial_role.id();
+                if let Some((_, _, set)) = face_groups.iter_mut().find(|(id, _, _)| *id == face_id)
+                {
+                    set.insert(s);
+                } else {
+                    face_groups.push((face_id, is_player_copy, SeatSet::single(s)));
+                }
+            }
+        }
+        // Keep `"nostradamus"` first among non-player-copy groups:
+        face_groups.sort_by_key(|&(face_id, is_player_copy, _)| {
+            (is_player_copy, face_id != "nostradamus")
+        });
+
+        let mut chosen_groups: Vec<(&'static str, bool, SeatSet, usize)> =
+            Vec::with_capacity(face_groups.len());
+        for (face_id, is_player_copy, group_seats) in face_groups {
+            let chosen = group_seats
+                .choose_random()
+                .expect("group_seats is non-empty");
+            let role_title = if is_player_copy {
+                "Doppelgänger-Nostradamus"
+            } else {
+                "Nostradamus"
+            };
+            for extra in group_seats.without(chosen) {
+                ctx.dm(
+                    extra,
+                    format!(
+                        "🔭 {role_title}: Another {role_title} is gazing into the future tonight — you share whatever team they pick (and MUST survive to win)!"
+                    ),
+                );
+            }
+            chosen_groups.push((face_id, is_player_copy, group_seats, chosen));
+        }
+
+        let ctx_ref = &ctx;
+        let visions = try_join_all(chosen_groups.into_iter().map(
+            |(face_id, is_player_copy, group_seats, chosen_seat)| async move {
+                let pctx = ctx_ref.for_seat(chosen_seat).await?;
+                let (peeked, last_role) = Self::prompt_seat(chosen_seat, pctx).await?;
+                Ok::<_, Error>(FaceGroupVision {
+                    face_id,
+                    group_seats,
+                    chosen_seat,
+                    is_player_copy,
+                    peeked,
+                    last_role,
+                })
+            },
+        ))
+        .await?;
+
+        Ok(GroupEffect::new(move |board, rctx| {
+            Self::resolve(&visions, board, rctx);
+        }))
+    }
+
+    async fn prompt_seat(
+        seat: usize,
+        mut ctx: PromptCtx<'_>,
+    ) -> Result<(Vec<usize>, Option<&'static dyn Role>)> {
         let max_peeks = if ctx.roster.len() >= 6 { 3 } else { 2 };
         let mut peeked: Vec<usize> = Vec::with_capacity(max_peeks);
         let mut already = SeatSet::EMPTY;
@@ -205,94 +307,146 @@ impl Nostradamus {
 
         if let Some(role) = last_role {
             ctx.say(irc_format!(
-                "🔭 Destiny sealed: Nostradamus joins {} (and MUST survive to win)!",
+                "🔭 Destiny sealed: you join {} (and MUST survive to win)!",
                 Self::format_adopted_banner(role),
             ));
         }
 
-        Ok(SeatEffect::new(move |label, board, rctx| {
-            Self::resolve(seat, label, &peeked, last_role, board, rctx);
-        }))
+        Ok((peeked, last_role))
+    }
+
+    fn resolve_single_vision(
+        v: &FaceGroupVision,
+        destinies: &mut ActiveNostradamusRoles,
+        board: &mut BoardMut<'_>,
+        rctx: &mut ResolveCtx<'_>,
+    ) -> &'static dyn Role {
+        if !v.peeked.is_empty() {
+            board.record_prompt_peek(v.chosen_seat);
+        }
+        let label = rctx.wakers.actor_label(rctx.roster, v.chosen_seat);
+        let actor_nick = rctx.nick(v.chosen_seat);
+        let adopted = match v.last_role {
+            Some(role) => {
+                let names = rctx.roster.format_seats(v.peeked.iter().copied());
+                rctx.record(irc_format!(
+                    "🔭 {label} ({}) viewed {} — joined {}!",
+                    actor_nick.bold(),
+                    names.bold(),
+                    Self::format_adopted_banner(role),
+                ));
+                role
+            }
+            None => {
+                let picked = Self::pick_random_deck_role(rctx.roster);
+                let banner = Self::format_adopted_banner(picked);
+                rctx.dm(
+                    v.chosen_seat,
+                    irc_format!(
+                        "🔭 No card viewed — the Mother Ship assigned you to {} (survive to win)!",
+                        banner.clone(),
+                    ),
+                );
+                rctx.record(irc_format!(
+                    "🔭 {label} ({}) viewed no cards — randomly assigned to {}!",
+                    actor_nick.bold(),
+                    banner,
+                ));
+                picked
+            }
+        };
+        let banner = Self::format_adopted_banner(adopted);
+        let role_title = if v.is_player_copy {
+            "Doppelgänger-Nostradamus"
+        } else {
+            "Nostradamus"
+        };
+        for extra in v.group_seats.without(v.chosen_seat) {
+            rctx.dm(
+                extra,
+                irc_format!(
+                    "🔭 Shared Prophecy: {role_title} joined {} (survive to win)!",
+                    banner.clone(),
+                ),
+            );
+        }
+        destinies.set(v.face_id, adopted);
+        adopted
     }
 
     fn resolve(
-        seat: usize,
-        actor_label: &str,
-        peeked: &[usize],
-        last_role: Option<&'static dyn Role>,
+        visions: &[FaceGroupVision],
         board: &mut BoardMut<'_>,
-        ctx: &mut ResolveCtx<'_>,
+        rctx: &mut ResolveCtx<'_>,
     ) {
-        let actor_nick = ctx.nick(seat);
-        if !peeked.is_empty() {
-            board.record_prompt_peek(seat);
-        }
-        if let Some(adopted) = last_role {
-            let source_face_id = ctx.roster.seats[seat].initial_role.id();
-            let mut preds = board.get_key::<NostradamusPredictions>();
-            preds.0.push((source_face_id, adopted));
-            board.set_key(preds);
+        let mut destinies = board.get_key::<ActiveNostradamusRoles>();
 
-            let names = ctx.roster.format_seats(peeked.iter().copied());
-            ctx.record(irc_format!(
-                "🔭 {actor_label} ({}) viewed {} — joined {}!",
-                actor_nick.bold(),
-                names.bold(),
-                Self::format_adopted_banner(adopted),
-            ));
-        } else {
-            ctx.record(irc_format!(
-                "🔭 {actor_label} ({}) viewed no cards.",
-                actor_nick.bold(),
-            ));
-        }
-    }
+        let mut primary_adopted: Option<&'static dyn Role> = None;
+        let mut dg_adopted: Vec<&'static dyn Role> = Vec::new();
 
-    async fn announce_prophecy(
-        _active_seats: SeatSet,
-        _ctx: GroupPromptCtx<'_>,
-    ) -> Result<GroupEffect> {
-        Ok(GroupEffect::new(move |board, rctx| {
-            let preds = board.get_key::<NostradamusPredictions>();
-            if preds.0.is_empty() {
-                let candidates: Vec<&'static dyn Role> = rctx
-                    .roster
-                    .deck
-                    .iter()
-                    .copied()
-                    .filter(|r| r.id() != "nostradamus")
-                    .collect();
-                let picked = if candidates.is_empty() {
-                    &NOSTRADAMUS as &'static dyn Role
-                } else {
-                    candidates[fastrand::usize(..candidates.len())]
-                };
-                let banner = Self::format_adopted_banner(picked);
+        for v in visions {
+            let adopted = Self::resolve_single_vision(v, &mut destinies, board, rctx);
+            if v.is_player_copy {
+                dg_adopted.push(adopted);
+            } else if primary_adopted.is_none() {
+                primary_adopted = Some(adopted);
+            }
+        }
+
+        // 1. Primary Nostradamus prophecy (also sets `"nostradamus"` for center/Copycat/Drunk):
+        let main_role = match primary_adopted {
+            Some(role) => {
+                destinies.set("nostradamus", role);
+                role
+            }
+            None => {
+                let picked = Self::pick_random_deck_role(rctx.roster);
+                destinies.set("nostradamus", picked);
+                rctx.record(irc_format!(
+                    "🔭 Nostradamus (in center) randomly joined {}.",
+                    Self::format_adopted_banner(picked),
+                ));
+                picked
+            }
+        };
+        rctx.announce(irc_format!(
+            "🔭 {} {} has joined {}!",
+            "Nostradamus Prophecy:".bold().orange(),
+            NOSTRADAMUS.info().styled_name(),
+            Self::format_adopted_banner(main_role),
+        ));
+
+        // 2. Separate Doppelgänger-Nostradamus prophecy whenever a player-copier is in the deck
+        //    (emits a random decoy team when Doppelgänger copied someone else or is in the center):
+        let deck_has_player_copier = rctx.roster.deck.iter().any(|r| r.is_player_copier());
+        if deck_has_player_copier {
+            let dg_label = Team::Independent.style_text("Doppelgänger-Nostradamus");
+            if dg_adopted.is_empty() {
+                let decoy = Self::pick_random_deck_role(rctx.roster);
+                let decoy_banner = Self::format_adopted_banner(decoy);
                 rctx.announce(irc_format!(
                     "🔭 {} {} has joined {}!",
                     "Nostradamus Prophecy:".bold().orange(),
-                    NOSTRADAMUS.info().styled_name(),
-                    banner.clone(),
+                    dg_label,
+                    decoy_banner.clone(),
                 ));
                 rctx.record(irc_format!(
-                    "🔭 Nostradamus Prophecy bluffed {} (no vision recorded).",
-                    banner,
+                    "🔭 Doppelgänger-Nostradamus bluffed {} (Doppelgänger did not copy Nostradamus).",
+                    decoy_banner,
                 ));
             } else {
-                let banners: Vec<Text> = preds
-                    .0
-                    .iter()
-                    .map(|&(_, r)| Self::format_adopted_banner(r))
-                    .collect();
-                let joined = Text::join(&banners, " & ".grey());
-                rctx.announce(irc_format!(
-                    "🔭 {} {} has joined {}!",
-                    "Nostradamus Prophecy:".bold().orange(),
-                    NOSTRADAMUS.info().styled_name(),
-                    joined,
-                ));
+                for role in dg_adopted {
+                    rctx.announce(irc_format!(
+                        "🔭 {} {} has joined {}!",
+                        "Nostradamus Prophecy:".bold().orange(),
+                        dg_label.clone(),
+                        Self::format_adopted_banner(role),
+                    ));
+                }
             }
-        }))
+        }
+
+        board.set_key(destinies);
     }
 }
 

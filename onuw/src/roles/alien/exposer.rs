@@ -1,13 +1,16 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
+use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
+use crate::role::{
+    GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team,
+    WakeStep,
+};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct ForcedExposerCount(pub Option<usize>);
 
 impl BoardKey for ForcedExposerCount {
-    const ACCESS: u16 = BoardAccess::CUSTOM_0;
+    const ACCESS: u16 = BoardAccess::NONE;
 
     fn init() -> Self {
         Self(None)
@@ -30,10 +33,10 @@ impl Role for Exposer {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&EXPOSER, 193, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                .copy_on_turn()
-                .reads(BoardAccess::FACE_UP | BoardAccess::CUSTOM_0)
-                .writes(BoardAccess::FACE_UP)]
+            &[WakeStep::group(&EXPOSER, 193, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+                .run_when_unheld()
+                .reads(BoardAccess::FACE_UP)
+                .writes(BoardAccess::FACE_UP | BoardAccess::PUBLIC_ANNOUNCE)]
         }
     }
 }
@@ -47,7 +50,33 @@ impl Exposer {
         }
     }
 
-    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+    async fn wake(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+        let rolled = ctx
+            .get_key::<ForcedExposerCount>()
+            .0
+            .unwrap_or_else(Self::roll_count)
+            .clamp(1, 3);
+        let effects = ctx
+            .prompt_seats(&EXPOSER, active_seats, |seat, pctx| {
+                Box::pin(Self::prompt_seat(seat, rolled, pctx))
+            })
+            .await?;
+
+        Ok(GroupEffect::new(move |board, rctx| {
+            rctx.apply_seat_effects(effects, board);
+            rctx.announce(irc_format!(
+                "🔦🛸 {} {} was authorized to flip {rolled} center card(s) face up!",
+                "Mother Ship (Exposer):".bold().cyan(),
+                EXPOSER.info().styled_name(),
+            ));
+        }))
+    }
+
+    async fn prompt_seat(
+        seat: usize,
+        rolled: usize,
+        mut ctx: PromptCtx<'_>,
+    ) -> Result<SeatEffect> {
         let face_down: Vec<usize> = (0..3).filter(|&c| !ctx.is_center_face_up(c)).collect();
         if face_down.is_empty() {
             ctx.say("🔦🛸 Exposer: All 3 center cards are already face up!".yellow());
@@ -59,11 +88,6 @@ impl Exposer {
             }));
         }
 
-        let rolled = ctx
-            .get_key::<ForcedExposerCount>()
-            .0
-            .unwrap_or_else(Self::roll_count)
-            .clamp(1, 3);
         let k = rolled.min(face_down.len());
         let avail_str = face_down
             .iter()

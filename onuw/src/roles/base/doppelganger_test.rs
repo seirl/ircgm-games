@@ -181,13 +181,16 @@ async fn doppelganger_alpha_wolf_swaps_immediately_without_pack_leak_before_real
 }
 
 #[tokio::test(start_paused = true)]
-async fn doppelganger_copying_converted_oracle_wakes_with_aliens_without_rerunning_oracle() {
+async fn doppelganger_oracle_answers_second_question_and_copying_another_doppelganger_sleeps() {
+    use crate::role::{NightFaction, Team};
     use crate::roles::alien::{
         alien::{AlienEvent, ForcedAlienEvent, ALIEN},
-        oracle::{ForcedOracleQuestion, OracleQuestion},
+        oracle::{ForcedDoppelgangerOracleQuestion, ForcedOracleQuestion, OracleQuestion},
     };
-    use crate::role::NightFaction;
+    use ircgm::prelude::Text;
 
+    // 1. Oracle Bob (#-9) answers EvenOdd (stays Village Oracle), while Doppelgänger Alice (#1)
+    //    copies Bob and wakes in `Doppelgänger-Oracle` to answer her OWN ChangeTeam(Alien) question!
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &DOPPELGANGER),
@@ -197,21 +200,56 @@ async fn doppelganger_copying_converted_oracle_wakes_with_aliens_without_rerunni
         [&VILLAGER, &VILLAGER, &VILLAGER],
     )
     .await;
-    h.set_key(ForcedOracleQuestion(Some(OracleQuestion::ChangeTeam(
-        NightFaction::Alien,
-    ))));
+    h.set_key(ForcedOracleQuestion(Some(OracleQuestion::EvenOdd)));
+    h.set_key(ForcedDoppelgangerOracleQuestion(Some(
+        OracleQuestion::ChangeTeam(NightFaction::Alien),
+    )));
     h.set_key(ForcedAlienEvent(Some(AlienEvent::CenterProbe)));
 
     let night = h.spawn_night();
-    // Oracle Bob (#-9 / order 1) accepts joining the Alien team:
-    h.reply_dm("Bob", "yes").await;
-    // Doppelgänger Alice (#1) copies Bob (Oracle [Alien]) — does NOT re-run #-9, instead wakes with Aliens at #1A!
+    h.reply_dm("Bob", "even").await;
     h.reply_dm("Alice", "Bob").await;
-    // At #1A, Alice, Bob, and Carol all wake together in [Aliens]; Carol probes Center #1:
-    h.reply_dm("Carol", "!probe 1").await;
+    // Alice wakes as Doppelgänger-Oracle right after Doppelgänger (before Aliens at #1A!):
+    h.reply_dm("Alice", "yes").await;
+    // At #1A, Alice and Carol wake together as Aliens (Bob stayed Village!):
+    h.wait_for_prompt_dm("Alice").await;
+    h.wait_for_prompt_dm("Carol").await;
+    h.send_dm("Alice", "1").await;
+    h.send_dm("Carol", "1").await;
 
     let report = h.finish_night(night).await;
-    assert!(report.dms_to("Alice").contains("Aliens aboard: Alice, Bob, Carol"));
+    assert!(report.dms_to("Alice").contains("Aliens aboard: Alice, Carol"));
     assert_eq!(report.effective_role_at(&h.roster, "Alice"), "Oracle [Alien]");
-    assert_eq!(report.effective_role_at(&h.roster, "Bob"), "Oracle [Alien]");
+    assert_eq!(report.effective_role_at(&h.roster, "Bob"), "Oracle");
+    assert!(report.channel_lines.iter().any(|l| {
+        let p = Text::parse(l).plain();
+        p.contains("Oracle Omen:") && p.contains("EVEN")
+    }));
+    assert!(report.channel_lines.iter().any(|l| {
+        let p = Text::parse(l).plain();
+        p.contains("Doppelgänger-Oracle Omen:") && p.contains("Alien")
+    }));
+
+    // 2. `doppelganger*2`: Alice (seat 0, Doppelgänger) copies Carol (Werewolf) while Bob (seat 1, Doppelgänger)
+    //    copies Alice (seat 0) — Bob MUST sleep as a Village Doppelgänger regardless of seat resolution order!
+    let mut h2 = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &DOPPELGANGER),
+            ("Carol", &WEREWOLF),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n2 = h2.spawn_night();
+    h2.wait_for_prompt_dm("Alice").await;
+    h2.wait_for_prompt_dm("Bob").await;
+    h2.send_dm("Alice", "Carol").await;
+    h2.send_dm("Bob", "Alice").await;
+    let rep2 = h2.finish_night(n2).await;
+
+    assert_eq!(rep2.board.effective_team(0), Team::Werewolf);
+    assert_eq!(rep2.board.effective_team(1), Team::Village);
+    assert!(rep2.dms_to("Bob").contains("remain on the Village team"));
+    assert!(!rep2.dms_to("Bob").contains("Fellow Werewolf pack"));
 }

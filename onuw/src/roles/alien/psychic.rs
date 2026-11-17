@@ -1,7 +1,10 @@
 use ircgm::prelude::*;
 
 use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
+use crate::role::{
+    GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team,
+    WakeStep,
+};
 
 /// Per-game randomized Mother Ship mind-read mode for `Psychic` (`#5G`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -20,7 +23,7 @@ pub(crate) enum PsychicMode {
 pub(crate) struct ForcedPsychicMode(pub Option<PsychicMode>);
 
 impl BoardKey for ForcedPsychicMode {
-    const ACCESS: u16 = BoardAccess::CUSTOM_0;
+    const ACCESS: u16 = BoardAccess::NONE;
 
     fn init() -> Self {
         Self(None)
@@ -43,8 +46,9 @@ impl Role for Psychic {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&PSYCHIC, 159, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                .reads(BoardAccess::CUSTOM_0)]
+            &[WakeStep::group(&PSYCHIC, 159, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+                .run_when_unheld()
+                .writes(BoardAccess::PUBLIC_ANNOUNCE)]
         }
     }
 }
@@ -59,11 +63,38 @@ impl Psychic {
         }
     }
 
-    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+    async fn wake(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let mode = ctx
             .get_key::<ForcedPsychicMode>()
             .0
             .unwrap_or_else(Self::roll_mode);
+        let effects = ctx
+            .prompt_seats(&PSYCHIC, active_seats, |seat, pctx| {
+                Box::pin(Self::prompt_seat(seat, mode, pctx))
+            })
+            .await?;
+
+        Ok(GroupEffect::new(move |board, rctx| {
+            rctx.apply_seat_effects(effects, board);
+            let desc = match mode {
+                PsychicMode::ChooseNeighbor => "view 1 adjacent neighbor's card",
+                PsychicMode::BothNeighbors => "view BOTH adjacent neighbors' cards",
+                PsychicMode::OddSeat => "view 1 ODD-numbered player's card",
+                PsychicMode::EvenSeat => "view 1 EVEN-numbered player's card",
+            };
+            rctx.announce(irc_format!(
+                "🧠 {} {} was instructed to {desc}!",
+                "Mother Ship (Psychic):".bold().cyan(),
+                PSYCHIC.info().styled_name(),
+            ));
+        }))
+    }
+
+    async fn prompt_seat(
+        seat: usize,
+        mode: PsychicMode,
+        mut ctx: PromptCtx<'_>,
+    ) -> Result<SeatEffect> {
         let roster = ctx.roster;
         let view = ctx.view();
         let (left, right) = roster.neighbors(seat);

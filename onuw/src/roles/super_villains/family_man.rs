@@ -90,7 +90,7 @@ impl Role for FamilyMan {
                 })
                 .eyes_closed()
                 .run_when_unheld()
-                .writes(ActiveFamilyShape::ACCESS),
+                .writes(ActiveFamilyShape::ACCESS | BoardAccess::PUBLIC_ANNOUNCE),
             ]
         }
     }

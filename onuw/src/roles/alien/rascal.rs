@@ -1,7 +1,10 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster};
-use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
+use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
+use crate::role::{
+    GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team,
+    WakeStep,
+};
 
 /// Per-wake randomized Mother Ship mischief mode rolled for `#7F Rascal`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -34,7 +37,7 @@ impl RascalMode {
 pub(crate) struct ForcedRascalMode(pub Option<RascalMode>);
 
 impl BoardKey for ForcedRascalMode {
-    const ACCESS: u16 = BoardAccess::CUSTOM_0;
+    const ACCESS: u16 = BoardAccess::NONE;
 
     fn init() -> Self {
         Self(None)
@@ -68,20 +71,54 @@ impl Role for Rascal {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&RASCAL, 178, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                .copy_on_turn()
-                .reads(BoardAccess::CENTER_FACES | BoardAccess::CUSTOM_0)
-                .writes(BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES)]
+            &[WakeStep::group(&RASCAL, 178, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+                .run_when_unheld()
+                .reads(BoardAccess::CENTER_FACES)
+                .writes(
+                    BoardAccess::PLAYER_FACES
+                        | BoardAccess::CENTER_FACES
+                        | BoardAccess::PUBLIC_ANNOUNCE,
+                )]
         }
     }
 }
 
 impl Rascal {
-    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+    async fn wake(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let mode = ctx
             .get_key::<ForcedRascalMode>()
             .0
             .unwrap_or_else(RascalMode::roll);
+        let effects = ctx
+            .prompt_seats(&RASCAL, active_seats, |seat, pctx| {
+                Box::pin(Self::prompt_seat(seat, mode, pctx))
+            })
+            .await?;
+
+        Ok(GroupEffect::new(move |board, rctx| {
+            rctx.apply_seat_effects(effects, board);
+            let desc = match mode {
+                RascalMode::Idiot => {
+                    "shift all other players' cards left or right (Village Idiot mode)"
+                }
+                RascalMode::Troublemaker => "swap 2 other players' cards (Troublemaker mode)",
+                RascalMode::Drunk => "exchange their own card with 1 center card (Drunk mode)",
+                RascalMode::Witch => "view 1 center card and give it to a player (Witch mode)",
+                RascalMode::Robber => "steal another player's card and view it (Robber mode)",
+            };
+            rctx.announce(irc_format!(
+                "😜 {} {} was instructed to {desc}!",
+                "Mother Ship (Rascal):".bold().cyan(),
+                RASCAL.info().styled_name(),
+            ));
+        }))
+    }
+
+    async fn prompt_seat(
+        seat: usize,
+        mode: RascalMode,
+        mut ctx: PromptCtx<'_>,
+    ) -> Result<SeatEffect> {
 
         let action = match mode {
             RascalMode::Idiot => {

@@ -1,3 +1,4 @@
+use futures::future::try_join_all;
 use ircgm::prelude::*;
 
 use super::alien::ALIEN_PACK_STEP;
@@ -46,7 +47,18 @@ pub(crate) enum OracleQuestion {
 pub(crate) struct ForcedOracleQuestion(pub Option<OracleQuestion>);
 
 impl BoardKey for ForcedOracleQuestion {
-    const ACCESS: u16 = BoardAccess::CUSTOM_0;
+    const ACCESS: u16 = BoardAccess::NONE;
+
+    fn init() -> Self {
+        Self(None)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct ForcedDoppelgangerOracleQuestion(pub Option<OracleQuestion>);
+
+impl BoardKey for ForcedDoppelgangerOracleQuestion {
+    const ACCESS: u16 = BoardAccess::NONE;
 
     fn init() -> Self {
         Self(None)
@@ -162,17 +174,19 @@ fn converted_faction_role(faction: NightFaction) -> &'static dyn Role {
 pub struct Oracle;
 pub static ORACLE: Oracle = Oracle;
 
+const ORACLE_WRITES: u16 = BoardAccess::PLAYER_FACES
+    | BoardAccess::PLAYER_BECAME
+    | BoardAccess::CENTER_FACES
+    | BoardAccess::WAKING_ROLES
+    | BoardAccess::CUSTOM_0
+    | BoardAccess::PUBLIC_ANNOUNCE;
+
 const ORACLE_STEP: WakeStep =
     WakeStep::group(&ORACLE, 1, |seats, ctx| Box::pin(Oracle::wake(seats, ctx)))
         .run_when_unheld()
-        .reads(BoardAccess::CUSTOM_0 | BoardAccess::SHIELDS)
-        .writes(
-            BoardAccess::PLAYER_FACES
-                | BoardAccess::PLAYER_BECAME
-                | BoardAccess::CENTER_FACES
-                | BoardAccess::WAKING_ROLES
-                | BoardAccess::CUSTOM_0,
-        );
+        .copy_after_player_copier()
+        .reads(BoardAccess::SHIELDS)
+        .writes(ORACLE_WRITES);
 
 #[derive(Clone, Copy)]
 enum OracleAnswer {
@@ -238,15 +252,15 @@ impl Oracle {
         pool.push((
             10,
             OracleQuestion::DrunkExchange {
-                fizzle: fastrand::u8(..4) == 0,
+                fizzle: fastrand::u8(..10) < 3,
             },
         ));
-        let center_count = match fastrand::u8(..20) {
-            0..=8 => 1,
-            9..=16 => 2,
-            _ => 3,
-        };
-        pool.push((10, OracleQuestion::CenterPeek { count: center_count }));
+        pool.push((
+            10,
+            OracleQuestion::CenterPeek {
+                count: fastrand::usize(1..=3),
+            },
+        ));
         pool.push((10, OracleQuestion::EvenOdd));
         let redirect = (fastrand::u8(..10) < 3).then(|| fastrand::usize(..roster.len()));
         pool.push((10, OracleQuestion::PlayerPeek { redirect }));
@@ -276,32 +290,24 @@ impl Oracle {
         }
     }
 
-    async fn wake(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let question = ctx
-            .get_key::<ForcedOracleQuestion>()
-            .0
-            .unwrap_or_else(|| Self::roll_question(ctx.roster));
-
-        let actor_opt = active_seats.first();
-        for extra in active_seats.into_iter().skip(1) {
-            ctx.dm(
-                extra,
-                "🔮🛸 Oracle: Another Oracle is answering the Mother Ship's question tonight!",
-            );
-        }
-
-        let answer_opt: Option<OracleAnswer> = if let Some(seat) = actor_opt {
-            let roster = ctx.roster;
-            let shielded = ctx.shielded_seats();
-            match question {
-                OracleQuestion::ChangeTeam(fac) => {
-                    let prompt = irc_format!(
-                        "🔮🛸 Oracle: Do you want to join the {} team and wake with them tonight? Reply {} or {}!",
-                        fac.team().styled_label(),
-                        "yes".bold(),
-                        "no".bold(),
-                    );
-                    ctx.ask(seat, prompt, |m| match Self::parse_yes_no(&m.text) {
+    async fn prompt_one(
+        seat: usize,
+        title: &'static str,
+        question: OracleQuestion,
+        ctx: &GroupPromptCtx<'_>,
+    ) -> Result<Option<OracleAnswer>> {
+        let roster = ctx.roster;
+        let shielded = ctx.shielded_seats();
+        match question {
+            OracleQuestion::ChangeTeam(fac) => {
+                let prompt = irc_format!(
+                    "🔮🛸 {title}: Do you want to join the {} team and wake with them tonight? Reply {} or {}!",
+                    fac.team().styled_label(),
+                    "yes".bold(),
+                    "no".bold(),
+                );
+                Ok(ctx
+                    .ask(seat, prompt, |m| match Self::parse_yes_no(&m.text) {
                         Some(v) => AskMatch::accept_say(
                             OracleAnswer::YesNo(v),
                             "🔮🛸 Answer recorded — resolves when the phase ends!",
@@ -309,15 +315,16 @@ impl Oracle {
                         None => AskMatch::reject("Reply yes or no.".yellow()),
                     })
                     .await?
-                    .ok()
-                }
-                OracleQuestion::AlienExchange { .. } => {
-                    let prompt = irc_format!(
-                        "🔮🛸 Oracle: Do you want to force the Aliens to exchange cards tonight? Reply {} or {}!",
-                        "yes".bold(),
-                        "no".bold(),
-                    );
-                    ctx.ask(seat, prompt, |m| match Self::parse_yes_no(&m.text) {
+                    .ok())
+            }
+            OracleQuestion::AlienExchange { .. } => {
+                let prompt = irc_format!(
+                    "🔮🛸 {title}: Do you want to force the Aliens to exchange cards tonight? Reply {} or {}!",
+                    "yes".bold(),
+                    "no".bold(),
+                );
+                Ok(ctx
+                    .ask(seat, prompt, |m| match Self::parse_yes_no(&m.text) {
                         Some(v) => AskMatch::accept_say(
                             OracleAnswer::YesNo(v),
                             "🔮🛸 Answer recorded — resolves when the phase ends!",
@@ -325,16 +332,17 @@ impl Oracle {
                         None => AskMatch::reject("Reply yes or no.".yellow()),
                     })
                     .await?
-                    .ok()
-                }
-                OracleQuestion::DrunkExchange { .. } => {
-                    let prompt = irc_format!(
-                        "🔮🛸 Oracle: Do you want to exchange your card with a center card? Reply {} (or {}), or {}!",
-                        "1 / 2 / 3".bold(),
-                        "yes".bold(),
-                        "no".bold(),
-                    );
-                    ctx.ask(seat, prompt, |m| {
+                    .ok())
+            }
+            OracleQuestion::DrunkExchange { .. } => {
+                let prompt = irc_format!(
+                    "🔮🛸 {title}: Do you want to exchange your card with a center card? Reply {} (or {}), or {}!",
+                    "1 / 2 / 3".bold(),
+                    "yes".bold(),
+                    "no".bold(),
+                );
+                Ok(ctx
+                    .ask(seat, prompt, |m| {
                         let raw = m.text.trim();
                         if let Some(c_idx) = Roster::parse_center_slot(raw) {
                             return AskMatch::accept_say(
@@ -358,15 +366,16 @@ impl Oracle {
                         }
                     })
                     .await?
-                    .ok()
-                }
-                OracleQuestion::CenterPeek { .. } => {
-                    let prompt = irc_format!(
-                        "🔮🛸 Oracle: Do you want to view the center cards? Reply {} or {}!",
-                        "yes".bold(),
-                        "no".bold(),
-                    );
-                    ctx.ask(seat, prompt, |m| match Self::parse_yes_no(&m.text) {
+                    .ok())
+            }
+            OracleQuestion::CenterPeek { .. } => {
+                let prompt = irc_format!(
+                    "🔮🛸 {title}: Do you want to view the center cards? Reply {} or {}!",
+                    "yes".bold(),
+                    "no".bold(),
+                );
+                Ok(ctx
+                    .ask(seat, prompt, |m| match Self::parse_yes_no(&m.text) {
                         Some(v) => AskMatch::accept_say(
                             OracleAnswer::YesNo(v),
                             "🔮🛸 Answer recorded — vision arrives when the phase ends!",
@@ -374,18 +383,19 @@ impl Oracle {
                         None => AskMatch::reject("Reply yes or no.".yellow()),
                     })
                     .await?
-                    .ok()
-                }
-                OracleQuestion::EvenOdd => {
-                    let circle = roster.format_table_circle();
-                    let prompt = irc_format!(
-                        "🔮🛸 Oracle: Your seat is #{} in {} — Reply {} or {} for your player number (announced publicly)!",
-                        seat + 1,
-                        circle,
-                        "even".bold(),
-                        "odd".bold(),
-                    );
-                    ctx.ask(seat, prompt, |m| {
+                    .ok())
+            }
+            OracleQuestion::EvenOdd => {
+                let circle = roster.format_table_circle();
+                let prompt = irc_format!(
+                    "🔮🛸 {title}: Your seat is #{} in {} — Reply {} or {} for your player number (announced publicly)!",
+                    seat + 1,
+                    circle,
+                    "even".bold(),
+                    "odd".bold(),
+                );
+                Ok(ctx
+                    .ask(seat, prompt, |m| {
                         match m.text.trim().to_ascii_lowercase().as_str() {
                             "even" | "e" => AskMatch::accept_say(
                                 OracleAnswer::Parity { is_even: true },
@@ -399,23 +409,24 @@ impl Oracle {
                         }
                     })
                     .await?
-                    .ok()
-                }
-                OracleQuestion::PlayerPeek { .. } => {
-                    let others = roster.all_seats().without(seat) - shielded;
-                    if others.is_empty() {
-                        ctx.dm(
-                            seat,
-                            "🛡️ Oracle: Every other player's card is shielded!",
-                        );
-                        None
-                    } else {
-                        let players_str = roster.format_seats(roster.all_seats().without(seat));
-                        let prompt = irc_format!(
-                            "🔮🛸 Oracle: Reply {} to view another player's card (viewed player is announced publicly)! Players: {players_str}",
-                            "<nick>".bold(),
-                        );
-                        ctx.ask(seat, prompt, move |m| match roster.resolve_nick(&m.text) {
+                    .ok())
+            }
+            OracleQuestion::PlayerPeek { .. } => {
+                let others = roster.all_seats().without(seat) - shielded;
+                if others.is_empty() {
+                    ctx.dm(
+                        seat,
+                        format!("🛡️ {title}: Every other player's card is shielded!"),
+                    );
+                    Ok(None)
+                } else {
+                    let players_str = roster.format_seats(roster.all_seats().without(seat));
+                    let prompt = irc_format!(
+                        "🔮🛸 {title}: Reply {} to view another player's card (viewed player is announced publicly)! Players: {players_str}",
+                        "<nick>".bold(),
+                    );
+                    Ok(ctx
+                        .ask(seat, prompt, move |m| match roster.resolve_nick(&m.text) {
                             Some(idx) if idx == seat => {
                                 AskMatch::reject("Pick ANOTHER player, not yourself!".yellow())
                             }
@@ -424,51 +435,178 @@ impl Oracle {
                             }
                             Some(idx) => AskMatch::accept_say(
                                 OracleAnswer::PlayerTarget(idx),
-                                irc_format!(
-                                    "🔮🛸 Locked in viewing {} — resolves when the phase ends!",
-                                    roster.seats[idx].user.nick().bold(),
+                                format!(
+                                    "🔮🛸 Locked in {} — vision arrives when the phase ends!",
+                                    roster.seats[idx].user.nick()
                                 ),
                             ),
                             None => AskMatch::reject("Unknown player nickname.".yellow()),
                         })
                         .await?
-                        .ok()
-                    }
-                }
-                OracleQuestion::NumberGuess { .. } => {
-                    let prompt = irc_format!(
-                        "🔮🛸 Oracle: Reply a number from {} to {} to guess the Mother Ship's secret number!",
-                        "1".bold(),
-                        "10".bold(),
-                    );
-                    ctx.ask(seat, prompt, |m| match m.text.trim().parse::<u8>() {
-                        Ok(n @ 1..=10) => AskMatch::accept_say(
-                            OracleAnswer::Guess(n),
-                            format!("🔮🛸 Locked in number {n}!"),
-                        ),
-                        _ => AskMatch::reject("Reply a number from 1 to 10.".yellow()),
-                    })
-                    .await?
-                    .ok()
+                        .ok())
                 }
             }
-        } else {
-            None
-        };
+            OracleQuestion::NumberGuess { .. } => {
+                let prompt = irc_format!(
+                    "🔮🛸 {title}: Guess a number from {} (Reply {})! Wrong = survive-or-everyone-hunts-you; Right = keep your eyes open all night!",
+                    "1 to 10".bold(),
+                    "1..=10".bold(),
+                );
+                Ok(ctx
+                    .ask(seat, prompt, |m| {
+                        match m.text.trim().parse::<u8>() {
+                            Ok(n @ 1..=10) => AskMatch::accept_say(
+                                OracleAnswer::Guess(n),
+                                format!(
+                                    "🔮🛸 Guessed {n} — fate reveals when the phase ends!"
+                                ),
+                            ),
+                            _ => AskMatch::reject(
+                                "Reply with a number between 1 and 10.".yellow(),
+                            ),
+                        }
+                    })
+                    .await?
+                    .ok())
+            }
+        }
+    }
+
+    async fn wake(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+        if ctx.is_player_copy_turn() {
+            return Self::wake_doppelganger(active_seats, ctx).await;
+        }
+
+        let forced = ctx.get_key::<ForcedOracleQuestion>().0;
+        let total_oracle_cards = ctx
+            .roster
+            .deck
+            .iter()
+            .filter(|r| r.id() == "oracle")
+            .count()
+            .max(1);
+        let unheld_count = total_oracle_cards.saturating_sub(active_seats.len());
+
+        let ctx_ref = &ctx;
+        let held_outcomes = try_join_all(active_seats.into_iter().map(|seat| async move {
+            let q = forced.unwrap_or_else(|| Self::roll_question(ctx_ref.roster));
+            let ans = Self::prompt_one(seat, "Oracle", q, ctx_ref).await?;
+            Ok::<_, Error>((seat, q, ans))
+        }))
+        .await?;
+
+        let center_questions: Vec<OracleQuestion> = (0..unheld_count)
+            .map(|_| forced.unwrap_or_else(|| Self::roll_question(ctx.roster)))
+            .collect();
 
         Ok(GroupEffect::new(move |board, rctx| {
-            Self::resolve(active_seats, question, answer_opt, board, rctx);
+            for (seat, q, ans) in held_outcomes {
+                Self::resolve_one(Some(seat), false, q, ans, board, rctx);
+            }
+            for q in center_questions {
+                Self::resolve_one(None, false, q, None, board, rctx);
+            }
         }))
     }
 
-    fn resolve(
+    async fn wake_doppelganger(
         active_seats: SeatSet,
+        ctx: GroupPromptCtx<'_>,
+    ) -> Result<GroupEffect> {
+        let forced = ctx.get_key::<ForcedDoppelgangerOracleQuestion>().0;
+        let total_player_copiers = ctx
+            .roster
+            .deck
+            .iter()
+            .filter(|r| r.is_player_copier())
+            .count()
+            .max(1);
+        let decoy_count = total_player_copiers.saturating_sub(active_seats.len());
+
+        let ctx_ref = &ctx;
+        let held_outcomes = try_join_all(active_seats.into_iter().map(|seat| async move {
+            let q = forced.unwrap_or_else(|| Self::roll_question(ctx_ref.roster));
+            let ans = Self::prompt_one(seat, "Doppelgänger-Oracle", q, ctx_ref).await?;
+            Ok::<_, Error>((seat, q, ans))
+        }))
+        .await?;
+
+        Ok(GroupEffect::new(move |board, rctx| {
+            for (seat, q, ans) in held_outcomes {
+                Self::resolve_one(Some(seat), true, q, ans, board, rctx);
+            }
+            for _ in 0..decoy_count {
+                Self::resolve_doppelganger_decoy(rctx);
+            }
+        }))
+    }
+
+    /// Emits a non-mutating decoy omen when `Doppelgänger` is in the deck alongside `Oracle`
+    /// but did not copy `Oracle` (or `Doppelgänger` is in the center), preventing copy-target leaks.
+    fn resolve_doppelganger_decoy(rctx: &mut ResolveCtx<'_>) {
+        let banner = "Doppelgänger-Oracle Omen:".bold().cyan();
+        let subject = Team::Village.style_text("Doppelgänger-Oracle");
+        match fastrand::u8(..4) {
+            0 => {
+                rctx.announce(irc_format!(
+                    "🔮🛸 {banner} Asked to exchange with a center card — the {subject} declined!"
+                ));
+            }
+            1 => {
+                let n = fastrand::usize(1..=3);
+                rctx.announce(irc_format!(
+                    "🔮🛸 {banner} The {subject} was granted a vision of {n} center card(s)!"
+                ));
+            }
+            2 => {
+                let word = if fastrand::bool() { "EVEN" } else { "ODD" };
+                rctx.announce(irc_format!(
+                    "🔮🛸 {banner} The {subject} states their player seat number (1..={}) is {}!",
+                    rctx.roster.len(),
+                    word.bold().yellow(),
+                ));
+            }
+            _ => {
+                if let Some(target) = rctx.roster.all_seats().choose_random() {
+                    let target_nick = rctx.nick(target);
+                    rctx.announce(irc_format!(
+                        "🔮🛸 {banner} {}'s card was viewed by the {subject}!",
+                        target_nick.as_str().bold().yellow(),
+                    ));
+                }
+            }
+        }
+        rctx.record("🔮🛸 Doppelgänger-Oracle emitted a decoy omen (Doppelgänger did not copy Oracle).");
+    }
+
+    fn resolve_one(
+        actor_opt: Option<usize>,
+        is_doppelganger: bool,
         question: OracleQuestion,
         answer_opt: Option<OracleAnswer>,
         board: &mut BoardMut<'_>,
         rctx: &mut ResolveCtx<'_>,
     ) {
-        let actor_opt = active_seats.first();
+        let target_seats = match actor_opt {
+            Some(s) => SeatSet::single(s),
+            None => SeatSet::EMPTY,
+        };
+        let omen_tag = if is_doppelganger {
+            "Doppelgänger-Oracle Omen:"
+        } else {
+            "Oracle Omen:"
+        };
+        let role_title = if is_doppelganger {
+            "Doppelgänger-Oracle"
+        } else {
+            "Oracle"
+        };
+        let styled_subject = if is_doppelganger {
+            Team::Village.style_text("Doppelgänger-Oracle")
+        } else {
+            ORACLE.info().styled_name()
+        };
+
         match question {
             OracleQuestion::ChangeTeam(fac) => {
                 let yes = match answer_opt {
@@ -478,7 +616,7 @@ impl Oracle {
                 if yes {
                     let new_role = converted_faction_role(fac);
                     board.convert_role_publicly(
-                        active_seats,
+                        target_seats,
                         ORACLE.info().id,
                         new_role,
                         true,
@@ -486,11 +624,11 @@ impl Oracle {
                     );
                     rctx.announce(irc_format!(
                         "🔮🛸 {} The {} card has become a member of the {} team!",
-                        "Oracle Omen:".bold().cyan(),
-                        ORACLE.info().styled_name(),
+                        omen_tag.bold().cyan(),
+                        styled_subject,
                         fac.team().styled_label(),
                     ));
-                    for s in active_seats {
+                    for s in target_seats {
                         rctx.dm(
                             s,
                             irc_format!(
@@ -500,16 +638,24 @@ impl Oracle {
                         );
                     }
                     rctx.record(irc_format!(
-                        "🔮🛸 Oracle card joined the {} team ({}).",
+                        "🔮🛸 {role_title} card joined the {} team ({}).",
                         fac.team().styled_label(),
-                        if active_seats.is_empty() {
+                        if target_seats.is_empty() {
                             "in center".to_owned()
                         } else {
-                            rctx.roster.format_seats(active_seats)
+                            rctx.roster.format_seats(target_seats)
                         },
                     ));
                 } else {
-                    rctx.record("🔮🛸 Oracle declined to change teams (stayed Village).");
+                    rctx.announce(irc_format!(
+                        "🔮🛸 {} Asked to join the {} team — the {} declined and remains Village!",
+                        omen_tag.bold().cyan(),
+                        fac.team().styled_label(),
+                        styled_subject,
+                    ));
+                    rctx.record(format!(
+                        "🔮🛸 {role_title} declined to change teams (stayed Village)."
+                    ));
                 }
             }
 
@@ -520,16 +666,24 @@ impl Oracle {
                 };
                 if yes {
                     board.set_key(OracleAlienExchange(true));
+                    rctx.announce(irc_format!(
+                        "🔮🛸 {} The {} ordered the {} to exchange cards tonight!",
+                        omen_tag.bold().cyan(),
+                        styled_subject,
+                        Team::Alien.style_text("Aliens"),
+                    ));
                     if let Some(s) = actor_opt {
                         rctx.dm(
                             s,
                             "🔮🛸 The Aliens will be forced to exchange cards when they wake!",
                         );
                     }
-                    rctx.record("🔮🛸 Oracle forced the Aliens to exchange cards tonight.");
+                    rctx.record(format!(
+                        "🔮🛸 {role_title} forced the Aliens to exchange cards tonight."
+                    ));
                 } else if symp_on_no {
                     board.convert_role_publicly(
-                        active_seats,
+                        target_seats,
                         ORACLE.info().id,
                         &ORACLE_ALIEN_TEAM,
                         false,
@@ -537,89 +691,144 @@ impl Oracle {
                     );
                     rctx.announce(irc_format!(
                         "🔮🛸 {} The {} card is now on the {} Team, but is NOT an Alien!",
-                        "Oracle Omen:".bold().cyan(),
-                        ORACLE.info().styled_name(),
+                        omen_tag.bold().cyan(),
+                        styled_subject,
                         Team::Alien.styled_label(),
                     ));
-                    for s in active_seats {
+                    for s in target_seats {
                         rctx.dm(
                             s,
                             "🔮🛸 You are now on the Alien Team (minion — you win with the Aliens, and dying does not kill an Alien)!",
                         );
                     }
-                    rctx.record("🔮🛸 Oracle card joined the Alien Team as a non-Alien sympathizer.");
+                    rctx.record(format!(
+                        "🔮🛸 {role_title} card joined the Alien Team as a non-Alien sympathizer."
+                    ));
                 } else {
-                    rctx.record("🔮🛸 Oracle declined Alien Exchange (remained Village).");
+                    rctx.announce(irc_format!(
+                        "🔮🛸 {} Asked to force an Alien card exchange — the {} declined!",
+                        omen_tag.bold().cyan(),
+                        styled_subject,
+                    ));
+                    rctx.record(format!(
+                        "🔮🛸 {role_title} declined Alien Exchange (remained Village)."
+                    ));
                 }
             }
 
             OracleQuestion::DrunkExchange { fizzle } => {
-                let Some(seat) = actor_opt else {
-                    rctx.record("🔮🛸 Oracle was in the center (center exchange skipped).");
-                    return;
-                };
                 let slot_opt = match answer_opt {
                     Some(OracleAnswer::DrunkChoice(opt)) => opt,
                     _ => fastrand::bool().then(|| fastrand::usize(0..3)),
                 };
                 match slot_opt {
                     Some(_) if fizzle => {
-                        rctx.dm(
-                            seat,
-                            "🔮🛸 Mother Ship static aborted the exchange — your card stays where it is!",
-                        );
-                        rctx.record(irc_format!(
-                            "🔮🛸 Oracle ({}) attempted a center swap, but the Mother Ship fizzled it.",
-                            rctx.nick(seat).bold(),
+                        rctx.announce(irc_format!(
+                            "🔮🛸 {} The {} chose to exchange with a center card, but Mother Ship static aborted the exchange!",
+                            omen_tag.bold().cyan(),
+                            styled_subject,
                         ));
-                    }
-                    Some(slot) => {
-                        if let Some((_, center_card)) =
-                            board.swap_player_with_center(seat, seat, slot)
-                        {
+                        if let Some(seat) = actor_opt {
                             rctx.dm(
                                 seat,
-                                format!(
-                                    "🔮🛸 Exchanged your card with Center #{} (without looking)!",
-                                    slot + 1
-                                ),
+                                "🔮🛸 Mother Ship static aborted the exchange — your card stays where it is!",
                             );
                             rctx.record(irc_format!(
-                                "🔮🛸 Oracle ({}) exchanged cards with Center #{} ({}).",
+                                "🔮🛸 {role_title} ({}) attempted a center swap, but the Mother Ship fizzled it.",
                                 rctx.nick(seat).bold(),
-                                slot + 1,
-                                center_card.display_for_peek(),
+                            ));
+                        } else {
+                            rctx.record(format!("🔮🛸 Center {role_title} decoy center swap fizzled."));
+                        }
+                    }
+                    Some(slot) => {
+                        rctx.announce(irc_format!(
+                            "🔮🛸 {} The {} chose to exchange their card with a center card!",
+                            omen_tag.bold().cyan(),
+                            styled_subject,
+                        ));
+                        if let Some(seat) = actor_opt {
+                            if let Some((_, center_card)) =
+                                board.swap_player_with_center(seat, seat, slot)
+                            {
+                                rctx.dm(
+                                    seat,
+                                    format!(
+                                        "🔮🛸 Exchanged your card with Center #{} (without looking)!",
+                                        slot + 1
+                                    ),
+                                );
+                                rctx.record(irc_format!(
+                                    "🔮🛸 {role_title} ({}) exchanged cards with Center #{} ({}).",
+                                    rctx.nick(seat).bold(),
+                                    slot + 1,
+                                    center_card.display_for_peek(),
+                                ));
+                            }
+                        } else {
+                            rctx.record(format!(
+                                "🔮🛸 {role_title} was in the center (announced decoy center swap)."
                             ));
                         }
                     }
                     None => {
-                        rctx.record(irc_format!(
-                            "🔮🛸 Oracle ({}) declined to exchange with the center.",
-                            rctx.nick(seat).bold(),
+                        rctx.announce(irc_format!(
+                            "🔮🛸 {} Asked to exchange with a center card — the {} declined!",
+                            omen_tag.bold().cyan(),
+                            styled_subject,
                         ));
+                        if let Some(seat) = actor_opt {
+                            rctx.record(irc_format!(
+                                "🔮🛸 {role_title} ({}) declined to exchange with the center.",
+                                rctx.nick(seat).bold(),
+                            ));
+                        } else {
+                            rctx.record(format!(
+                                "🔮🛸 {role_title} was in the center (announced decoy decline)."
+                            ));
+                        }
                     }
                 }
             }
 
             OracleQuestion::CenterPeek { count } => {
-                let Some(seat) = actor_opt else {
-                    rctx.record("🔮🛸 Oracle was in the center (center peek skipped).");
-                    return;
-                };
                 let yes = match answer_opt {
                     Some(OracleAnswer::YesNo(v)) => v,
-                    _ => true,
+                    _ => actor_opt.is_some() || fastrand::bool(),
                 };
+                let n_cards = count.clamp(1, 3);
                 if !yes {
-                    rctx.record(irc_format!(
-                        "🔮🛸 Oracle ({}) declined to view center cards.",
-                        rctx.nick(seat).bold(),
+                    rctx.announce(irc_format!(
+                        "🔮🛸 {} Asked to view center cards — the {} declined!",
+                        omen_tag.bold().cyan(),
+                        styled_subject,
                     ));
+                    if let Some(seat) = actor_opt {
+                        rctx.record(irc_format!(
+                            "🔮🛸 {role_title} ({}) declined to view center cards.",
+                            rctx.nick(seat).bold(),
+                        ));
+                    } else {
+                        rctx.record(format!(
+                            "🔮🛸 {role_title} was in the center (announced decoy center-peek decline)."
+                        ));
+                    }
                     return;
                 }
+                rctx.announce(irc_format!(
+                    "🔮🛸 {} The {} was granted a vision of {n_cards} center card(s)!",
+                    omen_tag.bold().cyan(),
+                    styled_subject,
+                ));
+                let Some(seat) = actor_opt else {
+                    rctx.record(format!(
+                        "🔮🛸 {role_title} was in the center (announced decoy {n_cards}-card center peek)."
+                    ));
+                    return;
+                };
                 let mut slots = [0usize, 1, 2];
                 fastrand::shuffle(&mut slots);
-                let chosen = &slots[..count.clamp(1, 3)];
+                let chosen = &slots[..n_cards];
                 let mut parts = Vec::new();
                 for &c_idx in chosen {
                     let seen = board.peek_center(seat, c_idx);
@@ -635,7 +844,7 @@ impl Oracle {
                     ),
                 );
                 rctx.record(irc_format!(
-                    "🔮🛸 Oracle ({}) viewed Center {}.",
+                    "🔮🛸 {role_title} ({}) viewed Center {}.",
                     rctx.nick(seat).bold(),
                     joined,
                 ));
@@ -651,12 +860,14 @@ impl Oracle {
                 };
                 let word = if is_even { "EVEN" } else { "ODD" };
                 rctx.announce(irc_format!(
-                    "🔮🛸 {} The Oracle states their player seat number (1..={}) is {}!",
-                    "Oracle Omen:".bold().cyan(),
+                    "🔮🛸 {} The {role_title} states their player seat number (1..={}) is {}!",
+                    omen_tag.bold().cyan(),
                     rctx.roster.len(),
                     word.bold().yellow(),
                 ));
-                rctx.record(format!("🔮🛸 Oracle publicly stated their seat number is {word}."));
+                rctx.record(format!(
+                    "🔮🛸 {role_title} publicly stated their seat number is {word}."
+                ));
             }
 
             OracleQuestion::PlayerPeek { redirect } => {
@@ -664,7 +875,9 @@ impl Oracle {
                     let candidates = board.unshielded_other_seats(seat);
                     if let Some(fallback) = candidates.choose_random() {
                         let requested = match answer_opt {
-                            Some(OracleAnswer::PlayerTarget(idx)) if candidates.contains(idx) => idx,
+                            Some(OracleAnswer::PlayerTarget(idx)) if candidates.contains(idx) => {
+                                idx
+                            }
                             _ => fallback,
                         };
                         let target = redirect
@@ -675,18 +888,18 @@ impl Oracle {
                             rctx.dm(
                                 seat,
                                 irc_format!(
-                                    "🔮🛸 Oracle Vision: {} holds {}!",
+                                    "🔮🛸 {role_title} Vision: {} holds {}!",
                                     target_nick.as_str().bold(),
                                     seen.display_for_peek(),
                                 ),
                             );
                             rctx.announce(irc_format!(
-                                "🔮🛸 {} {}'s card was viewed by the Oracle!",
-                                "Oracle Omen:".bold().cyan(),
+                                "🔮🛸 {} {}'s card was viewed by the {role_title}!",
+                                omen_tag.bold().cyan(),
                                 target_nick.as_str().bold().yellow(),
                             ));
                             rctx.record(irc_format!(
-                                "🔮🛸 Oracle ({}) viewed {}'s card ({}).",
+                                "🔮🛸 {role_title} ({}) viewed {}'s card ({}).",
                                 rctx.nick(seat).bold(),
                                 target_nick.bold(),
                                 seen.display_for_peek(),
@@ -702,12 +915,12 @@ impl Oracle {
                     {
                         let target_nick = rctx.nick(target);
                         rctx.announce(irc_format!(
-                            "🔮🛸 {} {}'s card was viewed by the Oracle!",
-                            "Oracle Omen:".bold().cyan(),
+                            "🔮🛸 {} {}'s card was viewed by the {role_title}!",
+                            omen_tag.bold().cyan(),
                             target_nick.as_str().bold().yellow(),
                         ));
                         rctx.record(format!(
-                            "🔮🛸 Oracle (in center) announced decoy peek on {target_nick}."
+                            "🔮🛸 {role_title} (in center) announced decoy peek on {target_nick}."
                         ));
                     }
                 }
@@ -719,6 +932,11 @@ impl Oracle {
                     _ => fastrand::u8(1..=10),
                 };
                 if guess == secret {
+                    rctx.announce(irc_format!(
+                        "🔮🛸 {} The {} guessed the Mother Ship's secret number ({secret}) and keeps their eyes OPEN all night!",
+                        omen_tag.bold().cyan(),
+                        styled_subject,
+                    ));
                     if let Some(seat) = actor_opt {
                         rctx.grant_wake_log(seat);
                         rctx.dm(
@@ -728,27 +946,27 @@ impl Oracle {
                             ),
                         );
                         rctx.record(irc_format!(
-                            "🔮🛸 Oracle ({}) guessed secret number {secret} and stayed wide awake!",
+                            "🔮🛸 {role_title} ({}) guessed secret number {secret} and stayed wide awake!",
                             rctx.nick(seat).bold(),
                         ));
                     } else {
                         rctx.record(format!(
-                            "🔮🛸 Center Oracle matched secret number {secret} (silent)."
+                            "🔮🛸 Center {role_title} matched secret number {secret} (announced decoy watch)."
                         ));
                     }
                 } else {
                     board.convert_role_publicly(
-                        active_seats,
+                        target_seats,
                         ORACLE.info().id,
                         &ORACLE_HUNTED,
                         false,
                         rctx,
                     );
                     rctx.announce(irc_format!(
-                        "🔮🛸 {} The Oracle guessed wrong! The Oracle ONLY wins if the Oracle survives — ALL OTHER PLAYERS ONLY win if the Oracle is killed!",
-                        "Oracle Omen:".bold().red(),
+                        "🔮🛸 {} The {role_title} guessed wrong! The {role_title} ONLY wins if they survive — ALL OTHER PLAYERS ONLY win if the {role_title} is killed!",
+                        omen_tag.bold().red(),
                     ));
-                    for s in active_seats {
+                    for s in target_seats {
                         rctx.dm(
                             s,
                             format!(
@@ -757,7 +975,7 @@ impl Oracle {
                         );
                     }
                     rctx.record(format!(
-                        "🔮🛸 Oracle missed secret number ({guess} vs {secret}) — global Oracle Hunt activated!"
+                        "🔮🛸 {role_title} missed secret number ({guess} vs {secret}) — global Oracle Hunt activated!"
                     ));
                 }
             }

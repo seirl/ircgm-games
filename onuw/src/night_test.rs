@@ -614,6 +614,110 @@ fn artifact_chaos_merges_false_splits_and_curator_merges_without_revealer() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn public_announce_sequentializes_later_roles_including_eyes_closed_and_runs_when_unheld() {
+    use crate::board::BoardAccess;
+    use crate::role::{GameSet, PromptCtx, RoleInfo, SeatEffect, WakeStep};
+    use crate::roles::alien::{
+        nostradamus::NOSTRADAMUS,
+        oracle::{ForcedOracleQuestion, OracleQuestion, ORACLE},
+        rascal::{ForcedRascalMode, RascalMode, RASCAL},
+    };
+    use crate::roles::base::drunk::DRUNK;
+
+    // Dummy eyes-closed interactive role waking at order 157 (right after Nostradamus at 156):
+    struct BlindListener;
+    static BLIND_LISTENER: BlindListener = BlindListener;
+    impl Role for BlindListener {
+        fn info(&self) -> RoleInfo {
+            RoleInfo::new(
+                "blind_listener",
+                "Blind Listener",
+                GameSet::Alien,
+                Team::Village,
+                "Eyes-closed interactive test role.",
+            )
+        }
+        fn steps(&self) -> &'static [WakeStep] {
+            const {
+                &[
+                    WakeStep::solo(&BLIND_LISTENER, 157, |_s, mut ctx: PromptCtx<'_>| {
+                        Box::pin(async move {
+                            let _ = ctx
+                                .ask("Blind?", |m| ircgm::AskMatch::accept(m.text.clone()))
+                                .await?;
+                            Ok(SeatEffect::noop())
+                        })
+                    })
+                    .eyes_closed()
+                    .reads(BoardAccess::NONE),
+                ]
+            }
+        }
+    }
+
+    // 1. Even an `.eyes_closed()` interactive role splits into a new tier after a `PUBLIC_ANNOUNCE` writer:
+    let timings = NightTimings::default();
+    let deck: Vec<&'static dyn Role> = vec![
+        &NOSTRADAMUS,
+        &BLIND_LISTENER,
+        &RASCAL,
+        &DRUNK,
+        &VILLAGER,
+        &VILLAGER,
+    ];
+    let labels: Vec<String> = build_deck_schedule(&deck, &timings)
+        .iter()
+        .map(crate::night::ScheduledTier::callout_label)
+        .collect();
+    assert_eq!(
+        labels,
+        vec!["Nostradamus", "Blind Listener, Rascal", "Drunk"]
+    );
+
+    // 2. When Oracle, Aliens, and Rascal are all sitting in the CENTER, their Mother Ship announcements
+    //    still broadcast in channel before later roles act!
+    let mut h = OnuwTestHarness::new(
+        &[("Alice", &DRUNK), ("Bob", &VILLAGER), ("Carol", &VILLAGER)],
+        [&ORACLE, &ALIEN, &RASCAL],
+    )
+    .await;
+    h.set_key(ForcedOracleQuestion(Some(OracleQuestion::DrunkExchange {
+        fizzle: true,
+    })));
+    h.set_key(ForcedRascalMode(Some(RascalMode::Idiot)));
+
+    let night = h.spawn_night();
+    h.reply_dm("Alice", "3").await;
+    let report = h.finish_night(night).await;
+
+    let plain_lines: Vec<String> = report
+        .channel_lines
+        .iter()
+        .map(|l| Text::parse(l).plain())
+        .collect();
+    let oracle_idx = plain_lines
+        .iter()
+        .position(|l| l.contains("Oracle Omen:") && l.contains("center card"))
+        .expect("center Oracle announced center-exchange omen");
+    let alien_idx = plain_lines
+        .iter()
+        .position(|l| l.contains("Mother Ship (Aliens):"))
+        .expect("center Aliens announced event");
+    let rascal_idx = plain_lines
+        .iter()
+        .position(|l| l.contains("Mother Ship (Rascal):") && l.contains("Village Idiot mode"))
+        .expect("center Rascal announced mode");
+    let drunk_call_idx = plain_lines
+        .iter()
+        .position(|l| l.contains("Calling: Drunk"))
+        .expect("Drunk called");
+
+    assert!(oracle_idx < alien_idx);
+    assert!(alien_idx < rascal_idx);
+    assert!(rascal_idx < drunk_call_idx);
+}
+
+#[tokio::test(start_paused = true)]
 async fn tabletop_visibility_omits_empty_dms_shows_markers_to_eyes_open_and_hides_from_eyes_closed_or_sleeping()
 {
     // 1. When no shields, face-up cards, or artifacts are on the table, NEVER send an empty `On the table:` DM:

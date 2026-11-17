@@ -45,7 +45,7 @@ impl EmpathQuestion {
 pub(crate) struct ForcedEmpathQuestion(pub Option<EmpathQuestion>);
 
 impl BoardKey for ForcedEmpathQuestion {
-    const ACCESS: u16 = BoardAccess::CUSTOM_0;
+    const ACCESS: u16 = BoardAccess::NONE;
 
     fn init() -> Self {
         Self(None)
@@ -70,7 +70,7 @@ impl Role for Empath {
         const {
             &[WakeStep::group(&EMPATH, 194, |seats, ctx| Box::pin(Self::wake_group(seats, ctx)))
                 .run_when_unheld()
-                .reads(BoardAccess::CUSTOM_0)]
+                .writes(BoardAccess::PUBLIC_ANNOUNCE)]
         }
     }
 }
@@ -132,6 +132,11 @@ impl Empath {
         let results = try_join_all(futs).await?;
 
         Ok(GroupEffect::new(move |_board, rctx| {
+            rctx.announce(irc_format!(
+                "💓 {} Everyone pointed at {}!",
+                "Mother Ship (Empath):".bold().cyan(),
+                question.phrase().bold().yellow(),
+            ));
             let pairs_str = results
                 .iter()
                 .map(|&(src, dst)| format!("{} → {}", rctx.nick(src), rctx.nick(dst)))
