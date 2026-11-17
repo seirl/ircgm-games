@@ -144,6 +144,58 @@ fn step_exec_phase(st: &WakeStep, has_dusk: bool) -> Phase {
     }
 }
 
+/// Formats the canonical Dusk & Night wake order for `deck` (pure function of the `deck` multiset).
+pub fn format_role_order(deck: &[&'static dyn Role]) -> Text {
+    format_schedule_order(&build_deck_schedule(deck, &NightTimings::default()))
+}
+
+fn format_schedule_order(schedule: &[ScheduledTier]) -> Text {
+    if schedule.is_empty() {
+        return irc_format!("📋 {}: {}", "Role order".bold(), "No waking roles".grey());
+    }
+    let has_dusk = schedule.iter().any(|t| t.phase == Phase::Dusk);
+    let mut dusk = Vec::new();
+    let mut night = Vec::new();
+    for tier in schedule {
+        let out = match tier.phase {
+            Phase::Dusk => &mut dusk,
+            Phase::Night => &mut night,
+        };
+        match &tier.kind {
+            TierKind::Steps(steps) => out.extend(steps.iter().map(|st| st.styled_callout())),
+            TierKind::StepSlot {
+                step, slot_idx: 0, ..
+            } => out.push(step.styled_callout()),
+            TierKind::StepSlot { .. } => {}
+            TierKind::DoppelgangerImmediate(_) if has_dusk && tier.phase == Phase::Night => {
+                out.push(tier.styled_callout());
+            }
+            TierKind::DoppelgangerImmediate(_) => {}
+        }
+    }
+    let arrow = " → ".grey();
+    match (!dusk.is_empty(), !night.is_empty()) {
+        (false, _) => irc_format!("📋 {}: {}", "Role order".bold(), Text::join(&night, arrow)),
+        (true, false) => irc_format!(
+            "📋 {} {} {} {}",
+            "Role order".bold(),
+            "—".grey(),
+            "Dusk:".bold().orange(),
+            Text::join(&dusk, arrow),
+        ),
+        (true, true) => irc_format!(
+            "📋 {} {} {} {}{}{} {}",
+            "Role order".bold(),
+            "—".grey(),
+            "Dusk:".bold().orange(),
+            Text::join(&dusk, arrow.clone()),
+            " · ".grey(),
+            "Night:".bold().light_blue(),
+            Text::join(&night, arrow),
+        ),
+    }
+}
+
 #[derive(Clone, Copy)]
 enum SchedEntry {
     Step(&'static WakeStep),
@@ -342,6 +394,7 @@ pub async fn run_night_phase(
     let mut wakers = NightWakers::new(roster);
 
     let schedule = build_deck_schedule(&roster.deck, timings);
+    room.say(format_schedule_order(&schedule))?;
     if schedule.is_empty() {
         room.say("🌙 Night falls over a peaceful village...".bold().light_blue())?;
         return Ok((board, all_chronicle));

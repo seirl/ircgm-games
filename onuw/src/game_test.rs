@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use irc::proto::Command;
+use ircgm::prelude::Text;
 use ircgm::testing::test_harness;
 
 use crate::deck::DeckSpec;
@@ -176,4 +177,106 @@ async fn recruit_players_default_config_skips_dm_check() {
     assert!(srv.take_messages_to("Carol").is_empty());
     let chan_out = srv.take_messages_to("#onuw").join("\n");
     assert!(!chan_out.contains("DM check"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn night_announces_canonical_order_and_anyone_can_call_order_command_during_day() {
+    let (bot, mut srv) = test_harness("GM");
+    // Dave and Eve are in `#onuw` as non-playing spectators alongside players Alice, Bob, Carol:
+    srv.complete_join("#onuw", &["Alice", "Bob", "Carol", "Dave", "Eve"]);
+    srv.settle().await;
+
+    let lobby = bot.room("#onuw").unwrap();
+    let cfg = GameConfig::for_tests();
+    let bot_task = tokio::spawn({
+        let bot = bot.clone();
+        let lobby = lobby.clone();
+        async move { run_lobby_bot(&bot, &lobby, &[], &cfg).await }
+    });
+    srv.settle().await;
+    let _ = srv.take_messages_to("#onuw");
+
+    srv.chat("Alice", "#onuw", "!onuw");
+    srv.settle().await;
+    srv.chat("Bob", "#onuw", "!join");
+    srv.chat("Carol", "#onuw", "!join");
+    // Add roles in reverse order so deck order != canonical wake order:
+    srv.chat("Alice", "#onuw", "!clear");
+    srv.chat(
+        "Alice",
+        "#onuw",
+        "!add insomniac drunk troublemaker seer villager villager",
+    );
+    srv.settle().await;
+    let _ = srv.take_messages_to("#onuw");
+
+    srv.chat("Alice", "#onuw", "!go");
+    srv.settle().await;
+
+    // Verify canonical role order is announced in channel right at the beginning of Night:
+    let night_start_msgs: Vec<String> = srv
+        .take_messages_to("#onuw")
+        .into_iter()
+        .map(|s| Text::parse(&s).plain())
+        .collect();
+    let order_pos = night_start_msgs
+        .iter()
+        .position(|m| m == "📋 Role order: Seer → Troublemaker → Drunk → Insomniac")
+        .unwrap_or_else(|| {
+            panic!(
+                "expected canonical role order at start of Night, got:\n{}",
+                night_start_msgs.join("\n")
+            )
+        });
+    let night_falls_pos = night_start_msgs
+        .iter()
+        .position(|m| m.contains("Night falls!"))
+        .expect("Night falls banner");
+    assert!(
+        order_pos < night_falls_pos,
+        "expected role order before Night falls banner, got:\n{}",
+        night_start_msgs.join("\n")
+    );
+
+    // Let the single Night tier time out (`tier_budget = 5s` in `GameConfig::for_tests`) so Day begins:
+    srv.advance(Duration::from_secs(5)).await;
+    let day_start = srv.take_messages_to("#onuw").join("\n");
+    assert!(day_start.contains("EVERYONE WAKE UP!"));
+    assert!(Text::parse(&day_start).plain().contains("!order"));
+    assert!(!day_start.contains('`'));
+
+    // Enrolled player, already-`!ready` player, channel spectator, and DM spectator can all call `!order`:
+    srv.chat("Alice", "#onuw", "!order");
+    srv.chat("Alice", "#onuw", "!ready");
+    srv.chat("Alice", "#onuw", "!order");
+    srv.chat("Dave", "#onuw", "!order");
+    srv.dm("Eve", "!order");
+    srv.settle().await;
+
+    let chan_orders: Vec<String> = srv
+        .take_messages_to("#onuw")
+        .into_iter()
+        .map(|s| Text::parse(&s).plain())
+        .filter(|m| m.starts_with("📋"))
+        .collect();
+    assert_eq!(
+        chan_orders,
+        vec![
+            "📋 Role order: Seer → Troublemaker → Drunk → Insomniac",
+            "📋 Role order: Seer → Troublemaker → Drunk → Insomniac",
+            "📋 Role order: Seer → Troublemaker → Drunk → Insomniac",
+        ]
+    );
+    let eve_dms: Vec<String> = srv
+        .take_messages_to("Eve")
+        .into_iter()
+        .map(|s| Text::parse(&s).plain())
+        .collect();
+    assert_eq!(
+        eve_dms,
+        vec!["📋 Role order: Seer → Troublemaker → Drunk → Insomniac"]
+    );
+
+    bot.request_shutdown();
+    bot_task.await.unwrap().unwrap();
 }

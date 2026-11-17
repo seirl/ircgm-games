@@ -34,7 +34,8 @@ pub use game::{
 pub use lobby::{recruit_players, recruit_players_tracked, run_lobby_bot, LobbyPhaseTracker};
 pub use marks::Mark;
 pub use night::{
-    build_deck_schedule, run_night_phase, NightTimings, ScheduledTier, TierKind, TierPhase,
+    build_deck_schedule, format_role_order, run_night_phase, NightTimings, ScheduledTier, TierKind,
+    TierPhase,
 };
 pub use role::{
     CopyTiming, DeathEffect, EffectiveAlignment, EndgameModifier, GameSet, GroupEffect,

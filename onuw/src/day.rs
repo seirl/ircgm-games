@@ -1,4 +1,4 @@
-//! Timed **Day Discussion** and public **Voting Phase** (`!ready`, `!time`, `!vote <nick>`).
+//! Timed **Day Discussion** and public **Voting Phase** (`!ready`, `!time`, `!order`, `!vote <nick>`).
 
 use std::convert::Infallible;
 use std::time::Duration;
@@ -65,10 +65,11 @@ pub async fn run_day_phase(
         format!("{total_secs}s")
     };
     let prompt = irc_format!(
-        "{} You have {dur_label} to debate! Type {} in channel when ready to vote early ({} checks clock).",
+        "{} You have {dur_label} to debate! Type {} in channel when ready to vote early ({} checks clock, {} shows role order).",
         "☀️ EVERYONE WAKE UP!".bold().yellow(),
         "!ready".bold().green(),
         "!time".bold().cyan(),
+        "!order".bold().cyan(),
     );
 
     let mut day_cfg = AskConfig::new().reply_deadline(deadline);

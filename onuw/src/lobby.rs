@@ -122,9 +122,11 @@ pub fn send_open_lobby_help(reply_to: &ChatMessage, host: &User) -> Result<()> {
 pub fn send_active_game_help(reply_to: &ChatMessage) -> Result<()> {
     let sep = " · ".grey();
     reply_to.reply(irc_format!(
-        "🐺 {} — {}{}{}{}{}{}Day: {} / {}{}Vote: {}{}Cancel: {}",
+        "🐺 {} — {}{}{}{}{}{}{}{}Day: {} / {}{}Vote: {}{}Cancel: {}",
         "Active Game".bold().yellow(),
         "!deck".bold().cyan(),
+        sep.clone(),
+        "!order".bold().cyan(),
         sep.clone(),
         "!players".bold().cyan(),
         sep.clone(),

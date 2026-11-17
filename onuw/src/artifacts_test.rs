@@ -33,6 +33,7 @@ async fn token_of_mute_allows_gestures_and_punctuation_while_words_forfeit_perso
     h.day_action("Bob", "nods").await;
     h.day_action("Bob", "shrugs.").await;
     h.day_action("Bob", "points at Carol!").await;
+    h.day_chat("Bob", "!order").await;
     h.day_chat("Bob", "!ready").await;
     h.day_chat("Bob", "!vote Carol").await;
     h.day_action("Alice", "nods").await;
@@ -112,6 +113,8 @@ async fn shroud_of_shame_enforces_turning_around_and_no_player_nicks_with_word_b
         .board
         .insert_artifact_for_test(h.seat_of("Rob"), Artifact::ShroudOfShame);
 
+    // `!order` before `/me turns around` is an exempt public game command (not speech):
+    h.day_chat("Rob", "!order").await;
     h.day_action("Rob", "turns around").await;
     h.day_chat(
         "Rob",

@@ -4,11 +4,12 @@ use ircgm::prelude::Text;
 
 use crate::artifacts::Artifact;
 use crate::marks::Mark;
-use crate::night::{build_deck_schedule, NightTimings, TierPhase};
+use crate::night::{build_deck_schedule, format_role_order, NightTimings, TierPhase};
 use crate::role::{Role, Team};
 use crate::roles::{
     alien::{
-        alien::ALIEN, blob::BLOB, cow::COW, leader::LEADER, mortician::MORTICIAN,
+        alien::ALIEN, blob::BLOB, cow::COW, groob_zerb::{GROOB, ZERB}, leader::LEADER,
+        mortician::MORTICIAN,
     },
     base::{
         doppelganger::DOPPELGANGER, hunter::HUNTER, insomniac::INSOMNIAC, robber::ROBBER,
@@ -926,4 +927,100 @@ async fn dusk_doppelganger_splits_dusk_vs_night_immediates_respecting_fear_and_s
     let rep3 = h_shield.finish_night(n3).await;
     assert_eq!(rep3.effective_role_at(&h_shield.roster, "Alice"), "Sentinel");
     assert_eq!(rep3.effective_role_at(&h_shield.roster, "Bob"), "Vampire");
+}
+
+#[tokio::test(start_paused = true)]
+async fn canonical_deck_role_order_formats_all_phases_and_announces_at_night_start() {
+    // 1. Night-only deck (invariant to card order, deduplicates packs & duplicates, omits sleeping cards):
+    let night_deck_a: Vec<&'static dyn Role> = vec![
+        &INSOMNIAC,
+        &ROBBER,
+        &VILLAGER,
+        &ALPHA_WOLF,
+        &WEREWOLF,
+        &DREAM_WOLF,
+        &SEER,
+        &DOPPELGANGER,
+        &SENTINEL,
+        &TANNER,
+    ];
+    let mut night_deck_b = night_deck_a.clone();
+    night_deck_b.reverse();
+
+    let line_a = format_role_order(&night_deck_a).plain();
+    let line_b = format_role_order(&night_deck_b).plain();
+    assert_eq!(line_a, line_b);
+    assert_eq!(
+        line_a,
+        "📋 Role order: Sentinel → Doppelgänger → Werewolves → Alpha Wolf → Seer → Robber → Insomniac"
+    );
+
+    // 2. Dusk + Night deck with Doppelgänger & immediate-copy Night roles includes `#1` copied action:
+    let dusk_night_deck: Vec<&'static dyn Role> = vec![
+        &INSOMNIAC,
+        &WITCH,
+        &SEER,
+        &ALPHA_WOLF,
+        &COUNT,
+        &VAMPIRE,
+        &DOPPELGANGER,
+        &COPYCAT,
+        &SENTINEL,
+    ];
+    assert_eq!(
+        format_role_order(&dusk_night_deck).plain(),
+        "📋 Role order — Dusk: Copycat → Doppelgänger → Vampires → The Count · Night: Sentinel → Doppelgänger (copied action) → Werewolves → Alpha Wolf → Seer → Witch → Insomniac"
+    );
+
+    // 3. Dusk-only deck omits `Night:` section:
+    let dusk_only: Vec<&'static dyn Role> = vec![
+        &PRIEST,
+        &CUPID,
+        &COUNT,
+        &VAMPIRE,
+        &VILLAGER,
+        &TANNER,
+    ];
+    assert_eq!(
+        format_role_order(&dusk_only).plain(),
+        "📋 Role order — Dusk: Vampires → The Count → Cupid → Priest"
+    );
+
+    // 4. Alien Groob & Zerb pair step deduplicates cleanly:
+    let alien_deck: Vec<&'static dyn Role> =
+        vec![&LEADER, &ZERB, &GROOB, &COW, &ALIEN, &VILLAGER];
+    assert_eq!(
+        format_role_order(&alien_deck).plain(),
+        "📋 Role order: Aliens → Cow → Groob & Zerb → Leader"
+    );
+
+    // 5. All-sleeping deck reports `No waking roles`:
+    let sleeping_deck: Vec<&'static dyn Role> =
+        vec![&VILLAGER, &VILLAGER, &TANNER, &HUNTER, &PRINCE, &DREAM_WOLF];
+    assert_eq!(
+        format_role_order(&sleeping_deck).plain(),
+        "📋 Role order: No waking roles"
+    );
+
+    // 6. `run_night_phase` announces the canonical role order at `t = 0` at the beginning of Night:
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &INSOMNIAC),
+            ("Bob", &ROBBER),
+            ("Carol", &WEREWOLF),
+        ],
+        [&SEER, &VILLAGER, &TANNER],
+    )
+    .await;
+    let night = h.spawn_night();
+    h.reply_dm("Carol", "pass").await;
+    h.reply_dm("Bob", "pass").await;
+    let report = h.finish_night(night).await;
+
+    let (first_ts, first_msg) = &report.timed_channel[0];
+    assert_eq!(*first_ts, Duration::ZERO);
+    assert_eq!(
+        Text::parse(first_msg).plain(),
+        "📋 Role order: Werewolves → Seer → Robber → Insomniac"
+    );
 }

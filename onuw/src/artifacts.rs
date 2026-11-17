@@ -307,7 +307,7 @@ impl DayConductTracker {
 }
 
 /// True iff `msg` is a public game-control command (`!vote <valid_nick>`, `!ready`, `!time`,
-/// `!players`, `!who`, `!deck`, `!help`, `!role <name>`) that is exempt from both `TokenOfMute` and `ShroudOfShame`.
+/// `!players`, `!who`, `!deck`, `!order`, `!help`, `!role <name>`) that is exempt from both `TokenOfMute` and `ShroudOfShame`.
 pub fn is_exempt_public_command(msg: &ChatMessage, roster: &Roster) -> bool {
     if msg.is_action() {
         return false;
@@ -315,7 +315,7 @@ pub fn is_exempt_public_command(msg: &ChatMessage, roster: &Roster) -> bool {
     let trimmed = msg.text.trim();
     if matches!(
         trimmed.to_ascii_lowercase().as_str(),
-        "!ready" | "!time" | "!players" | "!who" | "!deck" | "!help"
+        "!ready" | "!time" | "!players" | "!who" | "!deck" | "!order" | "!help"
     ) {
         return true;
     }

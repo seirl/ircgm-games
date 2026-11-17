@@ -10,7 +10,7 @@ use crate::voting::{resolve_and_announce_winners, GameReveal};
 use crate::day::{run_day_phase, run_voting_phase};
 use crate::deck::DeckSpec;
 use crate::lobby::{recruit_players_tracked, send_active_game_help, send_single_role_info, LobbyPhaseTracker};
-use crate::night::{run_night_phase, NightTimings};
+use crate::night::{format_role_order, run_night_phase, NightTimings};
 use crate::roles::find_role;
 
 pub const MIN_PLAYERS: usize = 3;
@@ -164,14 +164,19 @@ pub async fn run_dealt_game(
 
     let deck_snapshot = roster.format_deck_styled();
     let deck_len = roster.deck.len();
-    let info_scope = InboxScope::new().room(room).dms_from(&players);
-    let info_responder = bot.inbox_scope(info_scope).on_map(move |msg| {
+    let order_snapshot = format_role_order(&roster.deck);
+    let info_responder = bot.inbox().on_map(move |msg| {
+        if !(msg.is_in(room) || msg.is_dm()) {
+            return None::<Infallible>;
+        }
         if msg.is_cmd("!deck") {
             let _ = msg.reply(irc_format!(
                 "🃏 {} {}",
                 format!("Deck ({deck_len} cards):").bold(),
                 deck_snapshot.clone(),
             ));
+        } else if msg.is_cmd("!order") {
+            let _ = msg.reply(order_snapshot.clone());
         } else if msg.is_cmd("!players") || msg.is_cmd("!who") {
             let _ = msg.reply(irc_format!(
                 "👥 {}: {}",
