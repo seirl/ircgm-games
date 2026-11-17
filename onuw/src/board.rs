@@ -530,21 +530,6 @@ impl BoardCards {
         s
     }
 
-    pub(crate) fn format_visible_players(&self, roster: &Roster) -> String {
-        (0..roster.len())
-            .map(|i| self.format_seat_visible(roster, i))
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-
-    pub(crate) fn format_visible_seats(&self, roster: &Roster, seats: SeatSet) -> String {
-        seats
-            .into_iter()
-            .map(|i| self.format_seat_visible(roster, i))
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-
     /// Returns a concise 1-line summary of publicly visible tabletop markers (`🛡`, `🔦 Role`, `🏺`),
     /// or `None` when no visible markers are currently on the table.
     pub(crate) fn visible_table_summary(&self, roster: &Roster) -> Option<Text> {
@@ -555,6 +540,15 @@ impl BoardCards {
                 || self.artifacts[i].is_some();
             if has_marker {
                 items.push(self.format_seat_visible(roster, i));
+            }
+        }
+        for c in 0..3 {
+            if self.center[c].face_up {
+                items.push(format!(
+                    "Center #{} [🔦 {}]",
+                    c + 1,
+                    self.center[c].visible_role().name()
+                ));
             }
         }
         if items.is_empty() {
@@ -645,6 +639,10 @@ impl BoardCards {
             align = art.adjust_alignment(seat, self, align);
         }
         align.threat_team == Some(monster_team)
+    }
+
+    pub(crate) fn transform_player_on_vote(&mut self, seat: usize, new_role: &'static dyn Role) {
+        self.players[seat].transform(new_role);
     }
 
     #[cfg(test)]
@@ -973,7 +971,7 @@ impl<'a> BoardMut<'a> {
         self.inner.shielded.insert(target);
     }
 
-    /// Peeks `target` (`Revealer`) and flips `players[target]` face-up iff it does not trigger flip-back,
+    /// Peeks `target` (`Revealer`, `Flipper`) and flips `players[target]` face-up iff it does not trigger flip-back,
     /// returning `Some((card, stayed_face_up))` when unshielded.
     pub fn reveal_player_if_village(&mut self, actor: usize, target: usize) -> Option<(Card, bool)> {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
@@ -983,12 +981,20 @@ impl<'a> BoardMut<'a> {
         }
         self.inner.viewed_or_moved_actors.insert(actor);
         let card = self.inner.players[target];
-        if card.visible_role().triggers_pi_and_revealer() {
+        if card.visible_role().flips_back_on_reveal() {
             Some((card, false))
         } else {
             self.inner.players[target].face_up = true;
             Some((card, true))
         }
+    }
+
+    /// Flips `center[slot]` face-up (`Exposer`), returning the exposed card.
+    pub fn expose_center(&mut self, actor: usize, slot: usize) -> Card {
+        self.check_write(BoardAccess::FACE_UP, "FACE_UP");
+        self.inner.viewed_or_moved_actors.insert(actor);
+        self.inner.center[slot].face_up = true;
+        self.inner.center[slot]
     }
 
     /// Draws and places a random unused `Artifact` on `target` (`Curator`) if unshielded and un-artifacted.

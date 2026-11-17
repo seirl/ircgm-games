@@ -46,7 +46,7 @@ impl Marksman {
         let roster = ctx.roster;
         let view = ctx.view();
         let has_marks = roster.deck_has_marks();
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let prompt = if has_marks {
             irc_format!(
                 "🎯 Marksman: Reply {} (two DIFFERENT other players), {}, {}, or {}. Players: {players_str}",
@@ -234,3 +234,7 @@ impl Marksman {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "marksman_test.rs"]
+mod test;

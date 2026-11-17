@@ -33,7 +33,7 @@ impl Role for Seer {
 
 impl Seer {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let view = ctx.view();
         let prompt = irc_format!(
             "🔮 Seer: Reply {} (or {}) OR {}, or {}. Players: {players_str}",

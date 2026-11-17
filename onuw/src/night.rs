@@ -219,7 +219,10 @@ pub fn build_deck_schedule(
 
     let has_dusk = steps.iter().any(|st| st.phase == Phase::Dusk);
     let player_count = deck.len().saturating_sub(3).max(1);
-    let copycat_count = deck.iter().filter(|&&r| r.id() == "copycat").count();
+    let center_copier_count = deck
+        .iter()
+        .filter(|&&r| matches!(r.id(), "copycat" | "mirror_man"))
+        .count();
     let doppelganger_count = deck.iter().filter(|&&r| r.is_doppelganger()).count();
 
     let mut entries: Vec<(Phase, u16, u8, &'static str, SchedEntry)> = steps
@@ -300,7 +303,7 @@ pub fn build_deck_schedule(
 
         if matches!(step.kind, StepKind::Solo(_)) {
             let direct = deck.iter().filter(|&&r| r.has_step(step)).count();
-            let cc_extra = if step.order > 8 { copycat_count } else { 0 };
+            let cc_extra = if step.order > 9 { center_copier_count } else { 0 };
             let holders_before_dg = direct.max(direct.saturating_sub(1) + cc_extra);
             let dg_extra = if step.copy_timing == Some(CopyTiming::OnRoleTurn) {
                 doppelganger_count
@@ -618,6 +621,7 @@ pub async fn run_night_phase(
                                     step.callout_name(),
                                     step.effective_prompt_reads(),
                                     step.eyes_open,
+                                    active_seats,
                                     roster,
                                     cfg_ref,
                                     tier_deadline,

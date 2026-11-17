@@ -270,3 +270,7 @@ impl Psychic {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "psychic_test.rs"]
+mod test;

@@ -215,3 +215,7 @@ impl Role for Zerb {
             .then_some(SpecialVictory::independent())
     }
 }
+
+#[cfg(test)]
+#[path = "groob_zerb_test.rs"]
+mod test;

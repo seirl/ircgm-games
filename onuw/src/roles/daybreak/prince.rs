@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::role::{DeathCtx, GameSet, Role, RoleInfo, Team, VoteProtection};
+use crate::role::{DeathCtx, GameSet, Role, RoleInfo, Team, VoteDefense};
 
 pub struct Prince;
 pub static PRINCE: Prince = Prince;
@@ -16,16 +16,16 @@ impl Role for Prince {
         )
     }
 
-    fn vote_protection(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteProtection> {
-        Some(VoteProtection {
-            protected_seat: seat,
-            blocks_hunter_shot: false,
-            announcement: irc_format!(
+    fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
+        Some(VoteDefense::immune(
+            seat,
+            false,
+            irc_format!(
                 "👑 {} ({}) holds royal immunity and cannot be executed!",
                 ctx.roster.seats[seat].user.nick().bold(),
                 self.info().styled_name(),
             ),
-        })
+        ))
     }
 }
 

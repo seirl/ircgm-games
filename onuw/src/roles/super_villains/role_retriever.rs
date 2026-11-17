@@ -37,7 +37,7 @@ impl RoleRetriever {
 
         let roster = ctx.roster;
         let view = ctx.view();
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let prompt = irc_format!(
             "🐕 Role Retriever: Reply {} to swap cards with another player and see your new card, or {}. Players: {players_str}",
             "<nick>".bold(),

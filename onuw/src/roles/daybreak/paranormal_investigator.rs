@@ -45,7 +45,7 @@ impl ParanormalInvestigator {
         let mut became: Option<&'static dyn Role> = None;
 
         for step in 1..=2 {
-            let players_str = ctx.format_visible_players();
+            let players_str = ctx.roster.format_players();
             let view = ctx.view();
             let prompt = irc_format!(
                 "🕵️ Paranormal Investigator (peek {step}/2): Reply {} to inspect, or {}. Players: {players_str}",

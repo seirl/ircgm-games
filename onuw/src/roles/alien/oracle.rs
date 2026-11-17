@@ -410,7 +410,7 @@ impl Oracle {
                         );
                         None
                     } else {
-                        let players_str = ctx.format_visible_seats(roster.all_seats().without(seat));
+                        let players_str = roster.format_seats(roster.all_seats().without(seat));
                         let prompt = irc_format!(
                             "🔮🛸 Oracle: Reply {} to view another player's card (viewed player is announced publicly)! Players: {players_str}",
                             "<nick>".bold(),
@@ -764,3 +764,7 @@ impl Oracle {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "oracle_test.rs"]
+mod test;

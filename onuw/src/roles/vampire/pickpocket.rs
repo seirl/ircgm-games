@@ -42,7 +42,7 @@ impl Pickpocket {
             ctx.say("🤏 Pickpocket: No Mark-placing roles are in this deck — there are no Marks to steal tonight.");
             return Ok(SeatEffect::noop());
         }
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let prompt = irc_format!(
             "🤏 Pickpocket: Reply {} to swap Marks and view your new Mark, or {}. Players: {players_str}",
             "<nick>".bold(),
@@ -101,3 +101,7 @@ impl Pickpocket {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "pickpocket_test.rs"]
+mod test;

@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::role::{DeathCtx, GameSet, Role, RoleInfo, Team, VoteProtection};
+use crate::role::{DeathCtx, GameSet, Role, RoleInfo, Team, VoteDefense};
 
 pub struct Bodyguard;
 pub static BODYGUARD: Bodyguard = Bodyguard;
@@ -17,18 +17,18 @@ impl Role for Bodyguard {
         .aliases(&["bg"])
     }
 
-    fn vote_protection(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteProtection> {
+    fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
         let target = ctx.votes[seat]?;
-        Some(VoteProtection {
-            protected_seat: target,
-            blocks_hunter_shot: true,
-            announcement: irc_format!(
+        Some(VoteDefense::immune(
+            target,
+            true,
+            irc_format!(
                 "🛡️ {} ({}) shielded {} from execution!",
                 ctx.roster.seats[seat].user.nick().bold(),
                 self.info().styled_name(),
                 ctx.roster.seats[target].user.nick().bold(),
             ),
-        })
+        ))
     }
 }
 

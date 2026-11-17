@@ -31,7 +31,7 @@ impl Role for Instigator {
 impl Instigator {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let roster = ctx.roster;
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let prompt = irc_format!(
             "🐍 Instigator: Reply {} to bestow the Mark of the Traitor (including yourself), or {}. Players: {players_str}",
             "<nick>".bold(),
@@ -82,3 +82,7 @@ impl Instigator {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "instigator_test.rs"]
+mod test;

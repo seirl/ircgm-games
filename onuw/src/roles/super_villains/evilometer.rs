@@ -57,3 +57,7 @@ impl Evilometer {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "evilometer_test.rs"]
+mod test;

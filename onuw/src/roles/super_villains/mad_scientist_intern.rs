@@ -116,3 +116,7 @@ impl Intern {
         }))
     }
 }
+
+#[cfg(test)]
+#[path = "mad_scientist_intern_test.rs"]
+mod test;

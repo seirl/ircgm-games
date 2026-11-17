@@ -27,7 +27,7 @@ impl Role for Sentinel {
 
 impl Sentinel {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let view = ctx.view();
         let prompt = irc_format!(
             "🛡️ Sentinel: Reply with {} to place a Shield token on another player's card, or {}. Players: {players_str}",

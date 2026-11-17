@@ -41,7 +41,7 @@ impl Doppelganger {
             }));
         }
 
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let view = ctx.view();
         let ans = ctx
             .ask(

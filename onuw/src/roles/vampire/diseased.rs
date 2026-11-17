@@ -109,3 +109,7 @@ impl Diseased {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "diseased_test.rs"]
+mod test;

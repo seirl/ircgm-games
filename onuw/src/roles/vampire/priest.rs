@@ -44,7 +44,7 @@ impl Priest {
             ctx.say("✝️ Priest: No Mark-placing roles are in this deck — everyone already has clarity tonight.");
             return Ok(SeatEffect::noop());
         }
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let prompt = irc_format!(
             "✝️ Priest: You cleanse yourself; reply {} to ALSO cleanse another player with Mark of Clarity, or {}. Players: {players_str}",
             "<nick>".bold(),
@@ -107,3 +107,7 @@ impl Priest {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "priest_test.rs"]
+mod test;

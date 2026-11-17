@@ -743,17 +743,19 @@ async fn doppelganger_curator_wakes_sequentially_after_curator_and_sees_first_ar
     h.reply_dm("Bob", "Carol").await;
     // #11a: Alice (Doppelgänger-Curator #2/2) wakes sequentially AFTER Bob's tier ends, sees `Carol🏺`,
     // gets rejected when trying `Carol`, and places an Artifact on herself:
-    let alice_curator_prompt = loop {
+    let mut saw_carol_artifact = false;
+    loop {
         let m = h.wait_for_new_dm("Alice").await;
-        if m.contains("Curator:") {
-            break m;
+        if Text::parse(&m).plain().contains("Carol🏺") {
+            saw_carol_artifact = true;
         }
-    };
+        if m.contains("Curator:") {
+            break;
+        }
+    }
     assert!(
-        Text::parse(&alice_curator_prompt)
-            .plain()
-            .contains("Carol🏺"),
-        "Doppelgänger-Curator must see Curator's artifact on Carol: {alice_curator_prompt}"
+        saw_carol_artifact,
+        "Doppelgänger-Curator must see Curator's artifact on Carol"
     );
     h.send_dm("Alice", "Carol").await;
     let rej = h.wait_for_new_dm("Alice").await;
@@ -910,13 +912,17 @@ async fn dusk_doppelganger_splits_dusk_vs_night_immediates_respecting_fear_and_s
     h_shield.reply_dm("Bob", "Dave").await; // Dusk #-6: Vampire marks Dave
     h_shield.reply_dm("Dave", "Bob").await; // Night #0: Sentinel shields Bob!
     // Night #1: Alice (Doppel-Robber) wakes AFTER Sentinel, tries shielded Bob -> rejected, then robs Dave:
-    let alice_rob_prompt = loop {
+    let mut saw_bob_shield = false;
+    loop {
         let m = h_shield.wait_for_new_dm("Alice").await;
-        if m.contains("Robber:") {
-            break m;
+        if Text::parse(&m).plain().contains("Bob🛡") {
+            saw_bob_shield = true;
         }
-    };
-    assert!(Text::parse(&alice_rob_prompt).plain().contains("Bob🛡"));
+        if m.contains("Robber:") {
+            break;
+        }
+    }
+    assert!(saw_bob_shield);
     h_shield.send_dm("Alice", "Bob").await;
     let rej = h_shield.wait_for_new_dm("Alice").await;
     assert!(rej.contains("shielded"), "got: {rej}");

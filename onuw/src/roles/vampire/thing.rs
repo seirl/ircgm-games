@@ -15,7 +15,7 @@ impl Role for Thing {
             Team::Village,
             "Go bump in the night! May tap either your immediate left or right neighbor on the shoulder so they know Thing sits beside them.",
         )
-        .aliases(&["the thing"])
+        .aliases(&["the thing", "thing that goes bump in the night", "bump"])
     }
 
     fn steps(&self) -> &'static [WakeStep] {

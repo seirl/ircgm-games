@@ -61,7 +61,7 @@ impl AlphaWolf {
             return Ok(SeatEffect::noop());
         }
 
-        let non_wolves_str = ctx.format_visible_seats(non_wolves);
+        let non_wolves_str = ctx.roster.format_seats(non_wolves);
         let view = ctx.view();
         let prompt = irc_format!(
             "🐺 Alpha Wolf: You MUST swap the center Werewolf card onto a non-Wolf player ({})! Non-Wolves: {non_wolves_str}",

@@ -3,6 +3,13 @@ use crate::roles::{find_role, roles_in_game, ALL_ROLES};
 
 #[test]
 fn all_role_ids_and_names_are_unique_and_resolvable() {
+    assert_eq!(ALL_ROLES.len(), 80);
+    assert_eq!(roles_in_game(GameSet::Base).len(), 12);
+    assert_eq!(roles_in_game(GameSet::Daybreak).len(), 14);
+    assert_eq!(roles_in_game(GameSet::Vampire).len(), 18);
+    assert_eq!(roles_in_game(GameSet::Alien).len(), 15);
+    assert_eq!(roles_in_game(GameSet::SuperVillains).len(), 21);
+
     let mut ids = std::collections::HashSet::new();
     let mut names = std::collections::HashSet::new();
     for &role in ALL_ROLES {

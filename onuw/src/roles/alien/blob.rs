@@ -154,3 +154,7 @@ impl Blob {
         }))
     }
 }
+
+#[cfg(test)]
+#[path = "blob_test.rs"]
+mod test;

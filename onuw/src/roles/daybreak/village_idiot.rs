@@ -36,7 +36,7 @@ impl Role for VillageIdiot {
 
 impl VillageIdiot {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let prompt = irc_format!(
             "🤪 Village Idiot: Reply {} ({}), {} ({}), or {} to rotate all other unshielded cards! Players: {players_str}",
             "left".bold(),
@@ -99,3 +99,7 @@ impl VillageIdiot {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "village_idiot_test.rs"]
+mod test;

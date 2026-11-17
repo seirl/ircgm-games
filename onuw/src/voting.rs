@@ -8,7 +8,8 @@ use crate::board::{BoardCards, Roster, SeatSet};
 use crate::game::GameSummary;
 use crate::marks::Mark;
 use crate::role::{
-    DeathCtx, DeathEffect, SpecialVictory, Team, TeamBlock, VictoryCtx, WinnerFilterCtx, WinnerMap,
+    DeathCtx, DeathEffect, Role, SpecialVictory, Team, TeamBlock, VictoryCtx, VoteDefense,
+    WinnerFilterCtx, WinnerMap,
 };
 
 /// Deferred full game record (center cards, Dusk/Night chronicle, and per-seat `start → end`
@@ -38,8 +39,8 @@ impl GameReveal {
 pub fn resolve_and_announce_winners(
     room: &Room,
     roster: &Roster,
-    board: BoardCards,
-    chronicle: Vec<Text>,
+    mut board: BoardCards,
+    mut chronicle: Vec<Text>,
     votes: Vec<Option<usize>>,
     day_channel_log: &[ChatMessage],
 ) -> Result<GameSummary> {
@@ -51,10 +52,28 @@ pub fn resolve_and_announce_winners(
         }
     }
 
+    // Apply vote-triggered role conversions (`Cursed`, `Windy Wendy`) before evaluating alignments & protections:
+    let mut vote_conversions: Vec<(usize, &'static dyn Role, Text)> = Vec::new();
+    for seat in 0..n {
+        if !board.has_role_override_artifact(seat) && board.mark(seat) != Mark::Vampire {
+            let role = board.player_card(seat).effective_role();
+            if let Some((new_role, entry)) = role.vote_conversion(seat, roster, &board, &votes) {
+                vote_conversions.push((seat, new_role, entry));
+            }
+        }
+    }
+    for (seat, new_role, entry) in vote_conversions {
+        board.transform_player_on_vote(seat, new_role);
+        chronicle.push(entry);
+    }
+
+    let max_raw_votes = tally.iter().copied().max().unwrap_or(0);
     let death_ctx = DeathCtx {
         roster,
         board: &board,
         votes: &votes,
+        tally: &tally,
+        max_votes: max_raw_votes,
     };
 
     // Determine active monster factions in front of players (`Epic Battle` when >= 2 monster factions clash):
@@ -76,18 +95,33 @@ pub fn resolve_and_announce_winners(
     let is_epic_battle = present_monster_factions.len() >= 3
         || (present_monster_factions.len() == 2 && has_non_monster);
 
-    // Collect unified vote protections across each seat's active EndgameModifiers:
+    // Collect unified vote defenses across each seat's active EndgameModifiers:
     let mut vote_immune = SeatSet::EMPTY;
     let mut hunter_shielded = SeatSet::EMPTY;
-    let mut protections = Vec::new();
+    let mut immunities: Vec<(usize, Text)> = Vec::new();
+    let mut ricochets: Vec<(usize, usize, Text)> = Vec::new();
     for seat in 0..n {
         for modifier in board.seat_endgame_modifiers(seat) {
-            if let Some(prot) = modifier.vote_protection(seat, &death_ctx) {
-                vote_immune.insert(prot.protected_seat);
-                if prot.blocks_hunter_shot {
-                    hunter_shielded.insert(prot.protected_seat);
+            match modifier.vote_defense(seat, &death_ctx) {
+                Some(VoteDefense::Immune {
+                    seat: protected_seat,
+                    blocks_hunter_shot,
+                    announcement,
+                }) => {
+                    vote_immune.insert(protected_seat);
+                    if blocks_hunter_shot {
+                        hunter_shielded.insert(protected_seat);
+                    }
+                    immunities.push((protected_seat, announcement));
                 }
-                protections.push(prot);
+                Some(VoteDefense::Ricochet {
+                    from,
+                    to,
+                    announcement,
+                }) => {
+                    ricochets.push((from, to, announcement));
+                }
+                None => {}
             }
         }
     }
@@ -101,15 +135,14 @@ pub fn resolve_and_announce_winners(
         .map(|idx| tally[idx])
         .max()
         .unwrap_or(0);
-    let max_raw_votes = tally.iter().copied().max().unwrap_or(0);
 
-    let mut death_announcements: Vec<Text> = Vec::new();
-    for prot in protections {
-        let p_votes = tally[prot.protected_seat];
+    let mut saved_by_immunity = SeatSet::EMPTY;
+    for &(protected_seat, _) in &immunities {
+        let p_votes = tally[protected_seat];
         let saved_from_vote = (p_votes >= 2 && p_votes >= max_killable_votes)
             || (is_epic_battle && max_raw_votes >= 2 && p_votes >= 1 && p_votes >= max_killable_votes);
         if saved_from_vote {
-            death_announcements.push(prot.announcement);
+            saved_by_immunity.insert(protected_seat);
         }
     }
 
@@ -135,6 +168,43 @@ pub fn resolve_and_announce_winners(
                     }
                 }
             }
+        }
+    }
+
+    // Apply vote-execution ricochets (`Ricochet Rhino`) before `on_death` chain-kills:
+    let mut ricochet_announcements: Vec<Text> = Vec::new();
+    if !ricochets.is_empty() && !dead.is_empty() {
+        let initial_vote_dead = dead;
+        for s in initial_vote_dead {
+            if ricochets.iter().any(|&(src, _, _)| src == s) {
+                dead.remove(s);
+                let mut cur = s;
+                for _ in 0..n {
+                    if let Some(&(_, dst, ref msg)) = ricochets.iter().find(|&&(src, _, _)| src == cur) {
+                        ricochet_announcements.push(msg.clone());
+                        cur = dst;
+                        if cur == s {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+                if cur != s {
+                    if vote_immune.contains(cur) {
+                        saved_by_immunity.insert(cur);
+                    } else {
+                        dead.insert(cur);
+                    }
+                }
+            }
+        }
+    }
+
+    let mut death_announcements: Vec<Text> = ricochet_announcements;
+    for (protected_seat, announcement) in immunities {
+        if saved_by_immunity.contains(protected_seat) {
+            death_announcements.push(announcement);
         }
     }
 

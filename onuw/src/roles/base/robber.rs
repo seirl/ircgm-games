@@ -39,7 +39,7 @@ impl Robber {
                 ));
             }));
         }
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let view = ctx.view();
         let prompt = irc_format!(
             "🦹 Robber: Reply with {} to steal their card, or {}. Players: {players_str}",

@@ -47,7 +47,7 @@ impl DrPeeker {
             return Ok(SeatEffect::noop());
         }
 
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let prompt = irc_format!(
             "🔬 Dr. Peeker: Reply {} to X-ray another player's card, or {}. Players: {players_str}",
             "<nick>".bold(),
@@ -112,3 +112,7 @@ impl DrPeeker {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "dr_peeker_test.rs"]
+mod test;

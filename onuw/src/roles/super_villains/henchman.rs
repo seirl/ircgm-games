@@ -88,3 +88,7 @@ impl Henchman {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "henchman_test.rs"]
+mod test;

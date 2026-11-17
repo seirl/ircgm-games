@@ -109,3 +109,7 @@ impl Copycat {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "copycat_test.rs"]
+mod test;

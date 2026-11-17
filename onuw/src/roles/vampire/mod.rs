@@ -1,4 +1,6 @@
+pub mod apprentice_tanner;
 pub mod assassin;
+pub mod beholder;
 pub mod copycat;
 pub mod count;
 pub mod cupid;
@@ -9,6 +11,7 @@ pub mod marksman;
 pub mod pickpocket;
 pub mod priest;
 pub mod renfield;
+pub mod squire;
 pub mod the_master;
 pub mod thing;
 pub mod vampire;

@@ -49,7 +49,7 @@ impl Count {
             return Ok(SeatEffect::noop());
         }
 
-        let non_vamps_str = ctx.format_visible_seats(valid_targets);
+        let non_vamps_str = ctx.roster.format_seats(valid_targets);
         let view = ctx.view();
         let prompt = irc_format!(
             "🦇 The Count: You MUST reply {} to place the Mark of Fear on a non-Vampire (suppressing their Night wake)! Non-Vampires: {non_vamps_str}",
@@ -95,3 +95,7 @@ impl Count {
         ));
     }
 }
+
+#[cfg(test)]
+#[path = "count_test.rs"]
+mod test;

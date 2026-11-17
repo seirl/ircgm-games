@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use ircgm::prelude::*;
 use ircgm::{CaseMap, IntoAskMatch};
@@ -714,7 +713,6 @@ pub struct PromptCtx<'a> {
     step_name: &'static str,
     reads: u16,
     seat: usize,
-    eyes_open: bool,
     is_immediate_copy: bool,
     dm: Option<ExclusiveDm>,
     pub roster: &'a Roster,
@@ -722,7 +720,6 @@ pub struct PromptCtx<'a> {
     pub deadline: Instant,
     wakers: &'a NightWakers,
     board: PromptBoard<'a>,
-    saw_visible_table: AtomicBool,
 }
 
 /// `Copy` read-only snapshot view extracted from [`PromptCtx::view`] for capture inside
@@ -768,6 +765,11 @@ impl<'a> PromptView<'a> {
         self.check_read(BoardAccess::FACE_UP, "FACE_UP");
         self.board.raw().is_player_face_up(seat)
     }
+
+    pub fn is_center_face_up(self, slot: usize) -> bool {
+        self.check_read(BoardAccess::FACE_UP, "FACE_UP");
+        self.board.raw().is_center_face_up(slot)
+    }
 }
 
 impl<'a> PromptCtx<'a> {
@@ -784,11 +786,17 @@ impl<'a> PromptCtx<'a> {
         wakers: &'a NightWakers,
         board: PromptBoard<'a>,
     ) -> Self {
+        if eyes_open {
+            if let Some(dm_ref) = &dm {
+                if let Some(summary) = board.raw().visible_table_summary(roster) {
+                    let _ = dm_ref.say(summary);
+                }
+            }
+        }
         Self {
             step_name,
             reads,
             seat,
-            eyes_open,
             is_immediate_copy: false,
             dm,
             roster,
@@ -796,7 +804,6 @@ impl<'a> PromptCtx<'a> {
             deadline,
             wakers,
             board,
-            saw_visible_table: AtomicBool::new(false),
         }
     }
 
@@ -823,16 +830,6 @@ impl<'a> PromptCtx<'a> {
         }
     }
 
-    fn maybe_emit_table_summary(&self) {
-        if self.eyes_open && !self.saw_visible_table.swap(true, Ordering::Relaxed) {
-            if let Some(dm) = &self.dm {
-                if let Some(summary) = self.board.raw().visible_table_summary(self.roster) {
-                    let _ = dm.say(summary);
-                }
-            }
-        }
-    }
-
     /// Sends `prompt` in DM using the tier's `AskConfig`. If the player already disconnected
     /// before the tier started, immediately returns `Ok(Answer::Left { .. })` without sending traffic.
     pub async fn ask<F, R>(
@@ -845,7 +842,6 @@ impl<'a> PromptCtx<'a> {
         R: IntoAskMatch,
         R::Output: Send,
     {
-        self.maybe_emit_table_summary();
         match &mut self.dm {
             Some(dm) => dm.ask(prompt, matcher).config(self.ask_cfg).await,
             None => Ok(Answer::Left {
@@ -856,7 +852,6 @@ impl<'a> PromptCtx<'a> {
     }
 
     pub fn say(&self, text: impl Into<Text>) {
-        self.maybe_emit_table_summary();
         if let Some(dm) = &self.dm {
             let _ = dm.say(text);
         }
@@ -881,17 +876,9 @@ impl<'a> PromptCtx<'a> {
         self.board.raw().artifact(seat).is_some()
     }
 
-    /// Formats all seats with inline visible tabletop markers (`🛡`, `[🔦 Role]`, `🏺`).
-    pub fn format_visible_players(&self) -> String {
-        self.check_read(BoardAccess::VISIBLE_TABLE, "VISIBLE_TABLE");
-        self.saw_visible_table.store(true, Ordering::Relaxed);
-        self.board.raw().format_visible_players(self.roster)
-    }
-
-    /// Formats `seats` with inline visible tabletop markers (`🛡`, `[🔦 Role]`, `🏺`).
-    pub fn format_visible_seats(&self, seats: SeatSet) -> String {
-        self.check_read(BoardAccess::VISIBLE_TABLE, "VISIBLE_TABLE");
-        self.board.raw().format_visible_seats(self.roster, seats)
+    pub fn is_center_face_up(&self, slot: usize) -> bool {
+        self.check_read(BoardAccess::FACE_UP, "FACE_UP");
+        self.board.raw().is_center_face_up(slot)
     }
 
     /// Reads `players[seat]` mid-prompt (`Paranormal Investigator`).
@@ -926,6 +913,11 @@ impl<'a> PromptCtx<'a> {
         self.wakers.seats_with_faction(faction)
     }
 
+    /// All seats holding `role` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
+    pub fn seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
+        self.wakers.seats_with_role(role)
+    }
+
     /// Waking seats holding `faction` (excluding seats suppressed by `Mark::Fear`).
     pub fn waking_seats_with_faction(&self, faction: NightFaction) -> SeatSet {
         self.wakers.waking_seats_with_faction(faction)
@@ -951,38 +943,43 @@ impl<'a> PromptCtx<'a> {
 pub struct GroupPromptCtx<'a> {
     step_name: &'static str,
     reads: u16,
-    eyes_open: bool,
     pub roster: &'a Roster,
     pub ask_cfg: &'a AskConfig,
     pub deadline: Instant,
     pub waking_roles: &'a [&'static dyn Role],
     wakers: &'a NightWakers,
     board: PromptBoard<'a>,
-    notified_table_seats: AtomicU64,
 }
 
 impl<'a> GroupPromptCtx<'a> {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         step_name: &'static str,
         reads: u16,
         eyes_open: bool,
+        active_seats: SeatSet,
         roster: &'a Roster,
         ask_cfg: &'a AskConfig,
         deadline: Instant,
         wakers: &'a NightWakers,
         board: PromptBoard<'a>,
     ) -> Self {
+        if eyes_open {
+            if let Some(summary) = board.raw().visible_table_summary(roster) {
+                for seat in active_seats {
+                    let _ = roster.seats[seat].user.say(summary.clone());
+                }
+            }
+        }
         Self {
             step_name,
             reads,
-            eyes_open,
             roster,
             ask_cfg,
             deadline,
             waking_roles: wakers.roles(),
             wakers,
             board,
-            notified_table_seats: AtomicU64::new(0),
         }
     }
 
@@ -993,18 +990,6 @@ impl<'a> GroupPromptCtx<'a> {
             "{}: undeclared group prompt read of {zone} — add .reads(BoardAccess::{zone}) to WakeStep",
             self.step_name
         );
-    }
-
-    pub(crate) fn maybe_emit_table_summary_to(&self, seat: usize) {
-        if !self.eyes_open || seat >= SeatSet::MAX_SEATS {
-            return;
-        }
-        let bit = 1u64 << seat;
-        if (self.notified_table_seats.fetch_or(bit, Ordering::Relaxed) & bit) == 0 {
-            if let Some(summary) = self.board.raw().visible_table_summary(self.roster) {
-                let _ = self.roster.seats[seat].user.say(summary);
-            }
-        }
     }
 
     pub async fn ask<F, R>(
@@ -1018,7 +1003,6 @@ impl<'a> GroupPromptCtx<'a> {
         R: IntoAskMatch,
         R::Output: Send,
     {
-        self.maybe_emit_table_summary_to(seat);
         self.roster.seats[seat]
             .user
             .ask(prompt, matcher)
@@ -1027,7 +1011,6 @@ impl<'a> GroupPromptCtx<'a> {
     }
 
     pub fn dm(&self, seat: usize, text: impl Into<Text>) {
-        self.maybe_emit_table_summary_to(seat);
         let _ = self.roster.seats[seat].user.say(text);
     }
 
@@ -1045,24 +1028,19 @@ impl<'a> GroupPromptCtx<'a> {
         self.board.raw().shielded_seats()
     }
 
-    pub fn format_visible_seats(&self, seats: SeatSet) -> String {
-        self.check_read(BoardAccess::VISIBLE_TABLE, "VISIBLE_TABLE");
-        self.board.raw().format_visible_seats(self.roster, seats)
-    }
-
     /// All seats holding `faction` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
     pub fn seats_with_faction(&self, faction: NightFaction) -> SeatSet {
         self.wakers.seats_with_faction(faction)
     }
 
+    /// All seats holding `role` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
+    pub fn seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
+        self.wakers.seats_with_role(role)
+    }
+
     /// Waking seats holding `faction` (excluding seats suppressed by `Mark::Fear`).
     pub fn waking_seats_with_faction(&self, faction: NightFaction) -> SeatSet {
         self.wakers.waking_seats_with_faction(faction)
-    }
-
-    /// All seats holding `role` (initial role or copied by `Copycat` / `Doppelgänger`).
-    pub fn seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
-        self.wakers.seats_with_role(role)
     }
 
     /// Waking seats holding `role` (excluding seats suppressed by `Mark::Fear`).
@@ -1119,13 +1097,45 @@ pub struct DeathCtx<'a> {
     pub roster: &'a Roster,
     pub board: &'a BoardCards,
     pub votes: &'a [Option<usize>],
+    pub tally: &'a [usize],
+    pub max_votes: usize,
 }
 
-pub struct VoteProtection {
-    pub protected_seat: usize,
-    /// True if this protection also blocks `Hunter`-style death shots (`Bodyguard`), false for vote-only immunity (`Prince`).
-    pub blocks_hunter_shot: bool,
-    pub announcement: Text,
+pub enum VoteDefense {
+    /// Votes against `seat` cannot execute them (`Prince`, `The Sponge`, `Bodyguard`, `Defender-er`, `The Master`);
+    /// the runner-up with `>= 2` votes dies instead.
+    Immune {
+        seat: usize,
+        /// True if this defense also blocks `Hunter`-style death shots (`Bodyguard`, `Defender-er`, `The Master`),
+        /// false for vote-only immunity (`Prince`, `The Sponge`).
+        blocks_hunter_shot: bool,
+        announcement: Text,
+    },
+    /// Votes against `from` still count for top-vote comparison, and if `from` would be executed by the vote,
+    /// execution bounces onto `to` instead (`Ricochet Rhino`).
+    Ricochet {
+        from: usize,
+        to: usize,
+        announcement: Text,
+    },
+}
+
+impl VoteDefense {
+    pub fn immune(seat: usize, blocks_hunter_shot: bool, announcement: impl Into<Text>) -> Self {
+        Self::Immune {
+            seat,
+            blocks_hunter_shot,
+            announcement: announcement.into(),
+        }
+    }
+
+    pub fn ricochet(from: usize, to: usize, announcement: impl Into<Text>) -> Self {
+        Self::Ricochet {
+            from,
+            to,
+            announcement: announcement.into(),
+        }
+    }
 }
 
 pub enum DeathEffect {
@@ -1245,7 +1255,7 @@ pub trait EndgameModifier: Send + Sync {
         cur
     }
 
-    fn vote_protection(&self, _seat: usize, _ctx: &DeathCtx<'_>) -> Option<VoteProtection> {
+    fn vote_defense(&self, _seat: usize, _ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
         None
     }
 
@@ -1278,7 +1288,7 @@ pub trait EndgameModifier: Send + Sync {
 // Object-Safe `Role` Trait
 // ============================================================================
 
-/// Object-safe role trait implemented by all 59 cards across Base + 4 Expansions.
+/// Object-safe role trait implemented by all 80 cards across Base + 5 Expansions.
 pub trait Role: Send + Sync + 'static {
     fn info(&self) -> RoleInfo;
 
@@ -1290,6 +1300,17 @@ pub trait Role: Send + Sync + 'static {
         &[]
     }
 
+    /// Optional Voting-time conversion triggered by who voted for `seat` (`Cursed`, `Windy Wendy`).
+    fn vote_conversion(
+        &self,
+        _seat: usize,
+        _roster: &Roster,
+        _board: &BoardCards,
+        _votes: &[Option<usize>],
+    ) -> Option<(&'static dyn Role, Text)> {
+        None
+    }
+
     fn adjust_alignment(
         &self,
         _seat: usize,
@@ -1299,7 +1320,7 @@ pub trait Role: Send + Sync + 'static {
         cur
     }
 
-    fn vote_protection(&self, _seat: usize, _ctx: &DeathCtx<'_>) -> Option<VoteProtection> {
+    fn vote_defense(&self, _seat: usize, _ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
         None
     }
 
@@ -1309,6 +1330,14 @@ pub trait Role: Send + Sync + 'static {
 
     fn special_victory(&self, _seat: usize, _ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
         None
+    }
+
+    fn override_win(
+        &self,
+        _holder: usize,
+        _ctx: &WinnerFilterCtx<'_>,
+        _winners: &mut WinnerMap,
+    ) {
     }
 
     fn apply_forfeits(
@@ -1334,8 +1363,8 @@ impl EndgameModifier for &'static dyn Role {
         (**self).adjust_alignment(seat, board, cur)
     }
 
-    fn vote_protection(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteProtection> {
-        (**self).vote_protection(seat, ctx)
+    fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
+        (**self).vote_defense(seat, ctx)
     }
 
     fn on_death(&self, dead_seat: usize, ctx: &DeathCtx<'_>) -> Vec<DeathEffect> {
@@ -1350,6 +1379,15 @@ impl EndgameModifier for &'static dyn Role {
             }
             ind @ (SpecialVictory::Independent(_) | SpecialVictory::Hunted) => Some(ind),
         }
+    }
+
+    fn override_win(
+        &self,
+        holder: usize,
+        ctx: &WinnerFilterCtx<'_>,
+        winners: &mut WinnerMap,
+    ) {
+        (**self).override_win(holder, ctx, winners);
     }
 
     fn apply_forfeits(
@@ -1420,10 +1458,16 @@ impl dyn Role {
         self.threat_team().is_some()
     }
 
-    /// True for roles that cause `Paranormal Investigator` to stop & transform and `Revealer`
-    /// to flip a card back face-down (monster threats and `Independent` roles, excluding minions).
+    /// True for roles that cause `Paranormal Investigator` to stop & transform (monster threats
+    /// and `Independent` roles, excluding minions and `Innocent Bystander`).
     pub fn triggers_pi_and_revealer(&self) -> bool {
         self.team() != Team::Village && !self.is_minion()
+    }
+
+    /// True for roles that `Revealer` and `Flipper` must flip back face-down (all `triggers_pi_and_revealer`
+    /// roles PLUS `Innocent Bystander`, who wins with Heroes/Village but is not on the Hero team).
+    pub fn flips_back_on_reveal(&self) -> bool {
+        self.triggers_pi_and_revealer() || self.id() == "innocent_bystander"
     }
 
     pub fn has_step(&self, step: &WakeStep) -> bool {

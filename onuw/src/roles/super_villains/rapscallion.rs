@@ -95,3 +95,7 @@ impl Rapscallion {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "rapscallion_test.rs"]
+mod test;

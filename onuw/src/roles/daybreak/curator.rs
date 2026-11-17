@@ -20,7 +20,7 @@ impl Role for Curator {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&CURATOR, 194, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&CURATOR, 195, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .copy_on_turn()
                 .writes(BoardAccess::ARTIFACTS)]
         }
@@ -29,7 +29,7 @@ impl Role for Curator {
 
 impl Curator {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let view = ctx.view();
         let prompt = irc_format!(
             "🏺 Curator: Reply {} to bestow a random Artifact token (including yourself), or {}. Players: {players_str}",

@@ -26,7 +26,7 @@ impl Role for Revealer {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::solo(&REVEALER, 192, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+            &[WakeStep::solo(&REVEALER, 191, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .copy_on_turn()
                 .writes(BoardAccess::FACE_UP)]
         }
@@ -35,7 +35,7 @@ impl Role for Revealer {
 
 impl Revealer {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let view = ctx.view();
         let prompt = irc_format!(
             "🔦 Revealer: Reply {} to flip their card, or {}. Players: {players_str}",

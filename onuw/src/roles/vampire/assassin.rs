@@ -55,7 +55,7 @@ impl Role for Assassin {
 
 impl Assassin {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let view = ctx.view();
         let prompt = irc_format!(
             "🗡️ Assassin: Reply {} to place the Mark of the Assassin (any player, including yourself)! Players: {players_str}",
@@ -238,3 +238,7 @@ impl ApprenticeAssassin {
         }))
     }
 }
+
+#[cfg(test)]
+#[path = "assassin_test.rs"]
+mod test;

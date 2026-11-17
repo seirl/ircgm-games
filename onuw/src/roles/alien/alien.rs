@@ -218,7 +218,7 @@ impl Alien {
         shielded: SeatSet,
     ) -> Result<AlienDirective> {
         let roster = ctx.roster;
-        let non_aliens_str = ctx.format_visible_seats(non_alien_seats);
+        let non_aliens_str = ctx.roster.format_seats(non_alien_seats);
 
         let picked = silent_point(
             ctx,

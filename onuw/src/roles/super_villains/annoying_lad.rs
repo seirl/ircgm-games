@@ -95,3 +95,7 @@ impl AnnoyingLad {
         }))
     }
 }
+
+#[cfg(test)]
+#[path = "annoying_lad_test.rs"]
+mod test;

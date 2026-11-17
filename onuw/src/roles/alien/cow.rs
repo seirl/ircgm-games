@@ -56,3 +56,7 @@ impl Cow {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "cow_test.rs"]
+mod test;

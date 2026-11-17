@@ -30,7 +30,7 @@ impl Role for Troublemaker {
 
 impl Troublemaker {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let view = ctx.view();
         let prompt = irc_format!(
             "😈 Troublemaker: Reply with TWO other players ({}) to swap, or {}. Players: {players_str}",

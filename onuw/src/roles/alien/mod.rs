@@ -1,8 +1,13 @@
 pub mod alien;
 pub mod blob;
+pub mod body_snatcher;
 pub mod cow;
+pub mod empath;
+pub mod exposer;
 pub mod groob_zerb;
 pub mod leader;
 pub mod mortician;
+pub mod nostradamus;
 pub mod oracle;
 pub mod psychic;
+pub mod rascal;

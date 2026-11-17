@@ -36,30 +36,6 @@ async fn alpha_wolf_and_mystic_wolf_wake_together_even_without_base_werewolf_in_
 }
 
 #[tokio::test(start_paused = true)]
-async fn lone_mystic_wolf_gets_lone_wolf_center_peek_then_mystic_peek_cleanly() {
-    let mut h = OnuwTestHarness::new(
-        &[
-            ("Alice", &MYSTIC_WOLF),
-            ("Bob", &SEER),
-            ("Carol", &VILLAGER),
-        ],
-        [&VILLAGER, &SEER, &VILLAGER],
-    )
-    .await;
-
-    let night = h.spawn_night();
-    // Tier 1 (Werewolf pack wake, 120): Lone Wolf Alice center peek:
-    h.reply_dm("Alice", "2").await;
-    // Tier 2 (Mystic Wolf 123 + Seer 150): Alice peeks Bob, Bob passes:
-    h.reply_dm("Bob", "pass").await;
-    h.reply_dm("Alice", "Bob").await;
-
-    let report = h.finish_night(night).await;
-    assert!(report.dms_to("Alice").contains("Center #2 is: Seer"));
-    assert!(report.dms_to("Alice").contains("Bob's card is: Seer"));
-}
-
-#[tokio::test(start_paused = true)]
 async fn alpha_wolf_prompt_excludes_waking_wolves_and_dream_wolf_keeps_shields_and_hides_feared_wolf() {
     // 1. Standard Daybreak: Alpha Wolf (Alice), Mystic Wolf (Bob), Dream Wolf (Carol),
     //    Sentinel (Dave -> shields Eve), Minion (Eve), Villager (Frank).
@@ -87,7 +63,8 @@ async fn alpha_wolf_prompt_excludes_waking_wolves_and_dream_wolf_keeps_shields_a
     let report = h.finish_night(night).await;
     let alice_plain = Text::parse(&report.dms_to("Alice")).plain();
     assert!(
-        alice_plain.contains("Non-Wolves: Dave, Eve🛡, Frank"),
+        alice_plain.contains("On the table: Eve🛡")
+            && alice_plain.contains("Non-Wolves: Dave, Eve, Frank"),
         "unexpected Alpha Wolf DMs:\n{alice_plain}"
     );
 

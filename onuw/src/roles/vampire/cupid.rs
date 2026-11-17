@@ -30,7 +30,7 @@ impl Role for Cupid {
 
 impl Cupid {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let view = ctx.view();
         let prompt = irc_format!(
             "💘 Cupid: Reply with TWO players ({}) to bestow the Mark of Love, or {}. Players: {players_str}",
@@ -91,3 +91,7 @@ impl Cupid {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "cupid_test.rs"]
+mod test;

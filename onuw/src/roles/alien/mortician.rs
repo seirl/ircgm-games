@@ -320,3 +320,7 @@ impl Mortician {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "mortician_test.rs"]
+mod test;

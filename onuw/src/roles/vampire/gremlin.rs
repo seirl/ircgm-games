@@ -48,7 +48,7 @@ impl Gremlin {
         let roster = ctx.roster;
         let view = ctx.view();
         let has_marks = roster.deck_has_marks();
-        let players_str = ctx.format_visible_players();
+        let players_str = ctx.roster.format_players();
         let prompt = if has_marks {
             irc_format!(
                 "👺 Gremlin: Reply {} OR {} (any two players, including yourself), or {}. Players: {players_str}",

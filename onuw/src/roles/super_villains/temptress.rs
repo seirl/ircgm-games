@@ -63,7 +63,7 @@ impl Temptress {
             return Ok(SeatEffect::noop());
         }
 
-        let non_villains_str = ctx.format_visible_seats(non_villains);
+        let non_villains_str = ctx.roster.format_seats(non_villains);
         let prompt = irc_format!(
             "💋 Temptress: You MUST plant the extra Villain card on a non-Villain player ({})! Non-Villains: {non_villains_str}",
             "<nick>".bold(),
@@ -141,3 +141,7 @@ impl Temptress {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "temptress_test.rs"]
+mod test;

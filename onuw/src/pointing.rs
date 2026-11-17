@@ -40,10 +40,6 @@ where
     P: Fn(usize) -> Text,
     M: Fn(usize, &str) -> std::result::Result<(String, Option<T>), Text> + Send + Sync,
 {
-    for s in seats {
-        ctx.maybe_emit_table_summary_to(s);
-    }
-
     let roster = ctx.roster;
     if let Some(solo) = seats.only() {
         let Some(mut dm) = roster.seats[solo].user.exclusive_available().await? else {
