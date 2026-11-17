@@ -81,7 +81,7 @@ async fn temptress_dr_peeker_evilometer_role_retriever_and_annoying_lad_work() {
     .await;
 
     let night = h.spawn_night();
-    // Wait for Alice and Carol to finish the Super Villain Syndicate huddle, then act in the Villain solo tier:
+    // Wait for Alice and Carol to finish the Super Villain Syndicate wake, then act in the Villain solo tier:
     // Dr. Peeker (Carol, 126) X-rays fellow Villain Alice BEFORE Temptress (Alice, 128) plants Henchman #7 onto Eve!
     h.reply_dm("Carol", "Alice").await;
     h.reply_dm("Alice", "Eve").await;

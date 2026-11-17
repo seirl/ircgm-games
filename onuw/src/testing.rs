@@ -137,7 +137,6 @@ impl OnuwTestHarness {
     /// Spawns [`run_night_phase`] in a background task and records `t = 0`.
     pub fn spawn_night(&mut self) -> NightRunHandle {
         self.night_origin = Some(Instant::now());
-        let bot = self.bot.clone();
         let room = self.room.clone();
         let seats = self.roster.seats.clone();
         let deck = self.roster.deck.clone();
@@ -146,7 +145,7 @@ impl OnuwTestHarness {
 
         let join = tokio::spawn(async move {
             let roster = Roster { seats, deck };
-            run_night_phase(&bot, &room, &roster, board, &timings).await
+            run_night_phase(&room, &roster, board, &timings).await
         });
         NightRunHandle { join }
     }
@@ -160,7 +159,7 @@ impl OnuwTestHarness {
         self.drain_channel_with_timestamps();
     }
 
-    /// Sends a DM from `nick` without waiting for a new prompt (e.g. huddle banter whispers).
+    /// Sends a DM from `nick` without waiting for a new prompt (e.g. silent-pointing updates or follow-up replies).
     pub async fn send_dm(&mut self, nick: &str, text: &str) {
         self.srv.dm(nick, text);
         self.srv.settle().await;

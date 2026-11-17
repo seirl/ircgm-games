@@ -11,7 +11,7 @@ pub static WEREWOLF: Werewolf = Werewolf;
 pub(crate) const WOLF_PACK_STEP: WakeStep = WakeStep::pack(
     NightFaction::Werewolf,
     120,
-    |seats, ctx| Box::pin(Werewolf::huddle(seats, ctx)),
+    |seats, ctx| Box::pin(Werewolf::wake_group(seats, ctx)),
 );
 
 enum WolfIntent {
@@ -41,7 +41,7 @@ impl Role for Werewolf {
 }
 
 impl Werewolf {
-    async fn huddle(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let dream_wolves = ctx.waking_seats_with_faction(NightFaction::Werewolf) - active_seats;
 
         let intent = if let Some(solo) = active_seats.only() {
@@ -95,7 +95,7 @@ impl Werewolf {
                     ctx.dm(
                         w_seat,
                         irc_format!(
-                            "🐺 Fellow Werewolf pack: {} (chat here to coordinate!)",
+                            "🐺 Fellow Werewolf pack: {}",
                             ctx.roster.format_seats(partners).bold().red()
                         ),
                     );
@@ -103,14 +103,13 @@ impl Werewolf {
                     ctx.dm(
                         w_seat,
                         irc_format!(
-                            "🐺 Fellow Werewolf pack: {} · 💤 Dream Wolf (asleep): {} (chat here to coordinate!)",
+                            "🐺 Fellow Werewolf pack: {} · 💤 Dream Wolf (asleep): {}",
                             ctx.roster.format_seats(partners).bold().red(),
                             ctx.roster.format_seats(dream_wolves).bold().red(),
                         ),
                     );
                 }
             }
-            ctx.relay_huddle("Pack".red().bold(), active_seats).await?;
             WolfIntent::Pack { dream_wolves }
         };
 

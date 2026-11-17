@@ -14,6 +14,7 @@ pub mod game;
 pub mod lobby;
 pub mod marks;
 pub mod night;
+pub(crate) mod pointing;
 pub mod role;
 pub mod roles;
 pub mod scenarios;

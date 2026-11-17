@@ -51,10 +51,11 @@ async fn two_werewolves_see_each_other_without_center_peek() {
     let night = h.spawn_night();
     let _ = h.wait_for_new_dm("Alice").await;
     let _ = h.wait_for_new_dm("Bob").await;
+    // Talking at night is forbidden in ONUW — Werewolves recognize each other silently without chat relay!
     h.send_dm("Alice", "I'll claim Seer!").await;
     let report = h.finish_night(night).await;
     assert!(report.dms_to("Alice").contains("Fellow Werewolf pack: Bob"));
     assert!(report.dms_to("Bob").contains("Fellow Werewolf pack: Alice"));
-    assert!(report.dms_to("Bob").contains("[Pack] <Alice> I'll claim Seer!"));
+    assert!(!report.dms_to("Bob").contains("I'll claim Seer!"));
     assert!(report.has_chronicle_substr("Werewolves (Alice, Bob) recognized each other."));
 }

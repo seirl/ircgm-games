@@ -12,7 +12,7 @@ pub static HENCHMAN: Henchman = Henchman;
 pub(crate) const VILLAIN_PACK_STEP: WakeStep = WakeStep::pack(
     NightFaction::SuperVillain,
     124,
-    |seats, ctx| Box::pin(Henchman::huddle(seats, ctx)),
+    |seats, ctx| Box::pin(Henchman::wake_group(seats, ctx)),
 );
 
 impl Role for Henchman {
@@ -34,7 +34,7 @@ impl Role for Henchman {
 }
 
 impl Henchman {
-    async fn huddle(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let evilometers = ctx.waking_seats_with_role(&EVILOMETER);
         let evilometer_list = ctx.roster.format_seats(evilometers);
 
@@ -61,13 +61,11 @@ impl Henchman {
                 ctx.dm(
                     v_seat,
                     irc_format!(
-                        "🦹‍♂️ Evil Syndicate: Fellow Super Villains: {} (chat here to coordinate!)",
+                        "🦹‍♂️ Evil Syndicate: Fellow Super Villains: {}",
                         ctx.roster.format_seats(partners).bold().red(),
                     ),
                 );
             }
-            ctx.relay_huddle("Syndicate".red().bold(), active_seats)
-                .await?;
         }
 
         Ok(GroupEffect::new(move |board, rctx| {

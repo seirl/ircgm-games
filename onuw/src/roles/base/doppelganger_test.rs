@@ -89,7 +89,7 @@ async fn doppelganger_werewolf_joins_pack_wake_and_is_seen_by_minion() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn doppelganger_mystic_wolf_peeks_immediately_then_joins_pack_huddle() {
+async fn doppelganger_mystic_wolf_peeks_immediately_then_joins_pack_wake() {
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &DOPPELGANGER),
@@ -102,7 +102,7 @@ async fn doppelganger_mystic_wolf_peeks_immediately_then_joins_pack_huddle() {
 
     let night = h.spawn_night();
     // #1: Alice (Doppelgänger) copies Bob (Mystic Wolf), then IMMEDIATELY peeks Carol's card at #1
-    // (before the Werewolf pack huddle at #2), and stays asleep during Bob's #2-C Mystic Wolf turn:
+    // (before the Werewolf pack wake at #2), and stays asleep during Bob's #2-C Mystic Wolf turn:
     h.reply_dm("Alice", "Bob").await;
     h.reply_dm("Alice", "Carol").await;
     // #2-C / #5: Bob (Mystic Wolf) peeks Carol and Carol (Seer) peeks Bob:
@@ -116,10 +116,10 @@ async fn doppelganger_mystic_wolf_peeks_immediately_then_joins_pack_huddle() {
         .expect("Alice got immediate Mystic Wolf peek prompt at #1");
     let pack_pos = alice_plain
         .find("Fellow Werewolf pack: Bob")
-        .expect("Alice woke in Werewolf pack huddle at #2");
+        .expect("Alice woke in Werewolf pack wake at #2");
     assert!(
         peek_pos < pack_pos,
-        "Doppelgänger-Mystic Wolf must peek immediately at #1 before joining the #2 Werewolf huddle"
+        "Doppelgänger-Mystic Wolf must peek immediately at #1 before joining the #2 Werewolf wake"
     );
     assert!(alice_plain.contains("Carol's card is: Seer"));
     assert!(report.has_chronicle_substr("Doppelgänger-Mystic Wolf (Alice) viewed Carol's card (Seer)."));
@@ -157,7 +157,7 @@ async fn doppelganger_alpha_wolf_swaps_immediately_without_pack_leak_before_real
     );
     h.send_dm("Alice", "Dave").await;
 
-    // #2-B: After the #2 pack huddle (Alice, Bob, Carol), ONLY Bob wakes as Alpha Wolf (seeing only
+    // #2-B: After the #2 pack wake (Alice, Bob, Carol), ONLY Bob wakes as Alpha Wolf (seeing only
     // Dave & Eve as non-Wolves!) and swaps CenterWolfCard (now Dave's old Villager!) onto Eve, while Eve peeks Bob:
     let bob_prompt = loop {
         let m = h.wait_for_new_dm("Bob").await;

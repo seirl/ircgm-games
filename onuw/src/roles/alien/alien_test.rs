@@ -19,7 +19,7 @@ use crate::roles::{
 use crate::testing::OnuwTestHarness;
 
 #[tokio::test(start_paused = true)]
-async fn psychic_both_neighbors_alien_bioscan_huddle_and_cow_hoof_tap_work() {
+async fn psychic_both_neighbors_alien_bioscan_silent_point_and_cow_hoof_tap_work() {
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &ALIEN),
@@ -38,22 +38,24 @@ async fn psychic_both_neighbors_alien_bioscan_huddle_and_cow_hoof_tap_work() {
     let night = h.spawn_night();
     // Oracle Carol (#3) states her seat parity publicly:
     h.reply_dm("Carol", "odd").await;
-    // Aliens Alice & Synthetic Alien Eve wake in [Aliens] huddle:
-    // Synthetic Alien Eve tries `!scan Carol` and gets rejected; real Alien Alice locks in `!scan Carol`,
-    // and huddle whispers still relay between Alice & Eve!
+    // Aliens Alice & Synthetic Alien Eve wake together:
+    // Talking is rejected; Eve points at Dave first, then Alice points at Carol (and Eve aligns onto Carol):
+    h.wait_for_prompt_dm("Alice").await;
     h.wait_for_prompt_dm("Eve").await;
-    h.send_dm("Eve", "!scan Carol").await;
-    let eve_rej = h.wait_for_new_dm("Eve").await;
-    assert!(eve_rej.contains("Only true Aliens"), "got: {eve_rej}");
     h.send_dm("Alice", "blend in, Eve").await;
-    h.send_dm("Alice", "!scan Carol").await;
+    let talk_rej = h.wait_for_new_dm("Alice").await;
+    assert!(talk_rej.contains("Silent night"), "got: {talk_rej}");
+    h.send_dm("Eve", "Dave").await;
+    h.send_dm("Alice", "Carol").await;
 
     let report = h.finish_night(night).await;
     assert!(report
         .channel_lines
         .iter()
         .any(|l| Text::parse(l).plain().contains("seat number (1..=5) is ODD")));
-    assert!(report.dms_to("Eve").contains("blend in, Eve"));
+    assert!(!report.dms_to("Eve").contains("blend in, Eve"));
+    assert!(report.dms_to("Alice").contains("Eve points at Dave!"));
+    assert!(report.dms_to("Eve").contains("Alice points at Carol!"));
     // Psychic Dave (seat #4, BothNeighbors) reads Carol (#3, Oracle) and Eve (#5, Synthetic Alien):
     let dave_dms = report.dms_to("Dave");
     assert!(dave_dms.contains("Carol holds Oracle"));
@@ -96,11 +98,14 @@ async fn leader_unanimous_alien_point_steals_victory_even_when_alien_dies() {
     h.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
 
     let night = h.spawn_night();
-    // Under StandardRecon with 2 Aliens, Alice & Bob coordinate in [Aliens] huddle:
+    // Under StandardRecon with 2 Aliens, Alice & Bob silently recognize each other without talking:
     let _ = h.wait_for_new_dm("Alice").await;
     h.send_dm("Alice", "vote Carol if she claims Leader").await;
     let report = h.finish_night(night).await;
     assert!(report
+        .dms_to("Bob")
+        .contains("Aliens aboard: Alice, Bob"));
+    assert!(!report
         .dms_to("Bob")
         .contains("vote Carol if she claims Leader"));
     assert!(report
@@ -143,8 +148,15 @@ async fn groob_zerb_blob_mortician_and_tractor_beam_work() {
     h.set_key(ForcedMorticianMode(Some(MorticianMode::OwnCard)));
 
     let night = h.spawn_night();
-    // Non-aliens are Dave (Blob) and Eve (Mortician); Alien Alice tractor-beams them via `!beam`:
-    h.reply_dm("Alice", "!beam Dave Eve").await;
+    // Non-aliens are Dave (Blob) and Eve (Mortician):
+    // Bob points `"Eve Dave"` and Alice points `"Dave Eve"` (opposite order -> 2 votes for the same pair!),
+    // beating Carol's later `"pass"`!
+    h.wait_for_prompt_dm("Alice").await;
+    h.wait_for_prompt_dm("Bob").await;
+    h.wait_for_prompt_dm("Carol").await;
+    h.send_dm("Bob", "Eve Dave").await;
+    h.send_dm("Alice", "Dave Eve").await;
+    h.send_dm("Carol", "pass").await;
     // Eve (waking as Mortician at #13A in OwnCard mode) peeks her own card and discovers she now holds Blob!
     h.reply_dm("Eve", "self").await;
 

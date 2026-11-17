@@ -19,7 +19,7 @@ use crate::roles::vampire::{
 use crate::testing::OnuwTestHarness;
 
 #[tokio::test(start_paused = true)]
-async fn vampire_coven_huddle_relays_whispers_marks_thrall_and_count_fears_seer() {
+async fn vampire_coven_rejects_talking_relays_silent_points_and_count_fears_seer() {
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &VAMPIRE),
@@ -33,21 +33,26 @@ async fn vampire_coven_huddle_relays_whispers_marks_thrall_and_count_fears_seer(
     .await;
 
     let night = h.spawn_night();
-    // Wait for both Alice and Bob to enter the Vampire Coven Huddle:
-    let _ = h.wait_for_new_dm("Alice").await;
-    let _ = h.wait_for_new_dm("Bob").await;
+    // Wait for both Alice and Bob to receive their Vampire Coven silent-pointing prompts:
+    h.wait_for_prompt_dm("Alice").await;
+    h.wait_for_prompt_dm("Bob").await;
 
-    // Alice whispers to Bob in the Coven Huddle -> relayed to Bob!
+    // Talking at night is rejected privately and never relayed to Bob:
     h.send_dm("Alice", "let's turn Eve and fear Dave?").await;
-    // Bob locks in `!mark Eve` in Dusk (#-6), then in Dusk (#-6B, The Count) fears Dave (Seer),
-    // while Carol (Renfield, #-6C) places Mark of the Bat on herself:
-    h.send_dm("Bob", "!mark Eve").await;
+    let alice_rej = h.wait_for_new_dm("Alice").await;
+    assert!(alice_rej.contains("Silent night"), "got: {alice_rej}");
+
+    // Alice points at Dave -> relayed as a silent point to Bob; then Bob points at Eve (latest pointer wins 1-1 tie, or Alice also points Eve!):
+    h.send_dm("Alice", "Dave").await;
+    h.send_dm("Bob", "Eve").await;
+    // In Dusk (#-6B, The Count), Bob fears Dave (Seer), while Carol (Renfield, #-6C) places Mark of the Bat on herself:
     h.reply_dm("Bob", "Dave").await;
 
     let report = h.finish_night(night).await;
-    assert!(report
-        .dms_to("Bob")
-        .contains("[Coven] <Alice> let's turn Eve and fear Dave?"));
+    let bob_dms = report.dms_to("Bob");
+    assert!(!bob_dms.contains("let's turn Eve"));
+    assert!(bob_dms.contains("Alice points at Dave!"));
+    assert!(report.dms_to("Alice").contains("Bob points at Eve!"));
     assert_eq!(report.mark_at(&h.roster, "Eve"), Mark::Vampire);
     assert_eq!(report.mark_at(&h.roster, "Carol"), Mark::Bat);
     assert_eq!(report.mark_at(&h.roster, "Dave"), Mark::Fear);
@@ -91,7 +96,7 @@ async fn copycat_runs_before_doppelganger_and_doppel_copycat_follows_cardboard_r
     use crate::roles::daybreak::witch::WITCH;
 
     // 1. Copycat (#-8) peeks Werewolf in Center #1; Doppelgänger copies Copycat, sees ONLY "Copycat",
-    //    stays asleep (does NOT wake in Werewolf huddle), and inherits Werewolf for endgame!
+    //    stays asleep (does NOT wake in Werewolf pack), and inherits Werewolf for endgame!
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &DOPPELGANGER),
@@ -271,9 +276,9 @@ async fn priest_pickpocket_marksman_instigator_cupid_diseased_master_and_assassi
     .await;
 
     let night2 = h2.spawn_night();
-    let _ = h2.wait_for_new_dm("Alice").await;
-    let _ = h2.wait_for_new_dm("Bob").await;
-    h2.send_dm("Bob", "!mark Grace").await;
+    h2.wait_for_prompt_dm("Alice").await;
+    h2.wait_for_prompt_dm("Bob").await;
+    h2.send_dm("Bob", "Grace").await;
     // Eve (Diseased, #-5) places Mark::Disease on her immediate right neighbor Frank:
     h2.reply_dm("Eve", "Frank").await;
     // Carol (Cupid, #-4) links Carol and Dave with Mark::Love:

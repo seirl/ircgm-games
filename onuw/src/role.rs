@@ -932,8 +932,8 @@ impl<'a> PromptCtx<'a> {
     }
 
     /// Packmates known to `self.seat` at the time of this prompt:
-    /// - After the pack huddle (`OnRoleTurn`), all waking members of `faction`.
-    /// - Before the pack huddle (`DoppelgangerImmediate` at `#1`), only `self.seat` and the player
+    /// - After the pack wake (`OnRoleTurn`), all waking members of `faction`.
+    /// - Before the pack wake (`DoppelgangerImmediate` at `#1`), only `self.seat` and the player
     ///   card she just copied (so unrevealed Werewolves are not leaked before `#2`).
     pub fn known_pack_mates(&self, faction: NightFaction) -> SeatSet {
         if self.is_immediate_copy {
@@ -952,7 +952,6 @@ pub struct GroupPromptCtx<'a> {
     step_name: &'static str,
     reads: u16,
     eyes_open: bool,
-    pub bot: &'a Bot,
     pub roster: &'a Roster,
     pub ask_cfg: &'a AskConfig,
     pub deadline: Instant,
@@ -963,12 +962,10 @@ pub struct GroupPromptCtx<'a> {
 }
 
 impl<'a> GroupPromptCtx<'a> {
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         step_name: &'static str,
         reads: u16,
         eyes_open: bool,
-        bot: &'a Bot,
         roster: &'a Roster,
         ask_cfg: &'a AskConfig,
         deadline: Instant,
@@ -979,7 +976,6 @@ impl<'a> GroupPromptCtx<'a> {
             step_name,
             reads,
             eyes_open,
-            bot,
             roster,
             ask_cfg,
             deadline,
@@ -999,7 +995,7 @@ impl<'a> GroupPromptCtx<'a> {
         );
     }
 
-    fn maybe_emit_table_summary_to(&self, seat: usize) {
+    pub(crate) fn maybe_emit_table_summary_to(&self, seat: usize) {
         if !self.eyes_open || seat >= SeatSet::MAX_SEATS {
             return;
         }
@@ -1033,26 +1029,6 @@ impl<'a> GroupPromptCtx<'a> {
     pub fn dm(&self, seat: usize, text: impl Into<Text>) {
         self.maybe_emit_table_summary_to(seat);
         let _ = self.roster.seats[seat].user.say(text);
-    }
-
-    /// Opens a drop-out-tolerant DM [`Huddle`] across `seats` using [`Bot::huddle_available`].
-    pub async fn huddle(&self, name: impl Into<Text>, seats: SeatSet) -> Result<Huddle> {
-        for s in seats {
-            self.maybe_emit_table_summary_to(s);
-        }
-        let users: Vec<User> = seats
-            .into_iter()
-            .map(|s| self.roster.seats[s].user.clone())
-            .collect();
-        self.bot.huddle_available(name, &users).await
-    }
-
-    /// Opens a drop-out-tolerant DM [`Huddle`] across `seats` and keeps its pump-dispatched
-    /// relay active until the tier deadline.
-    pub async fn relay_huddle(&self, name: impl Into<Text>, seats: SeatSet) -> Result<()> {
-        let _huddle = self.huddle(name, seats).await?;
-        tokio::time::sleep_until(self.deadline).await;
-        Ok(())
     }
 
     pub fn nick(&self, seat: usize) -> String {

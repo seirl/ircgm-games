@@ -201,7 +201,7 @@ pub async fn run_dealt_game(
             let _ = g.set_topic("ONUW — 🌙 Dusk & Night Phase");
         }
         let (final_board, chronicle) =
-            run_night_phase(bot, room, roster, initial_board, &config.night_timings).await?;
+            run_night_phase(room, roster, initial_board, &config.night_timings).await?;
 
         // Phase 3: Timed Day Discussion (open one channel inbox across Day + Voting for Artifact conduct rules)
         let mut day_channel_log: Vec<ChatMessage> = Vec::new();

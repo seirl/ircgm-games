@@ -384,7 +384,6 @@ enum StepTierResolution {
 }
 
 pub async fn run_night_phase(
-    bot: &Bot,
     room: &Room,
     roster: &Roster,
     mut board: BoardCards,
@@ -619,7 +618,6 @@ pub async fn run_night_phase(
                                     step.callout_name(),
                                     step.effective_prompt_reads(),
                                     step.eyes_open,
-                                    bot,
                                     roster,
                                     cfg_ref,
                                     tier_deadline,
