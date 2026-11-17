@@ -17,8 +17,8 @@ use crate::board::{BoardAccess, BoardCards, BoardMut, PromptBoard, Roster, SeatS
 use crate::marks::Mark;
 pub use crate::role::Phase as TierPhase;
 use crate::role::{
-    BoxFuture, CopyTiming, GroupEffect, GroupPromptCtx, NightWakers, PassiveWakeFn, Phase,
-    PromptCtx, ResolveCtx, Role, SeatEffect, StepKind, WakeStep,
+    BoxFuture, CopierKind, CopyTiming, GroupEffect, GroupPromptCtx, NightWakers, PassiveWakeFn,
+    Phase, PromptCtx, ResolveCtx, Role, SeatEffect, StepKind, WakeStep,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -129,7 +129,7 @@ impl ScheduledTier {
 }
 
 fn step_exec_order(st: &WakeStep, has_dusk: bool) -> u16 {
-    if st.is_doppelganger && has_dusk {
+    if st.copier == Some(CopierKind::Player) && has_dusk {
         10
     } else {
         st.order
@@ -219,11 +219,7 @@ pub fn build_deck_schedule(
 
     let has_dusk = steps.iter().any(|st| st.phase == Phase::Dusk);
     let player_count = deck.len().saturating_sub(3).max(1);
-    let center_copier_count = deck
-        .iter()
-        .filter(|&&r| matches!(r.id(), "copycat" | "mirror_man"))
-        .count();
-    let doppelganger_count = deck.iter().filter(|&&r| r.is_doppelganger()).count();
+    let player_copier_count = deck.iter().filter(|&&r| r.is_player_copier()).count();
 
     let mut entries: Vec<(Phase, u16, u8, &'static str, SchedEntry)> = steps
         .iter()
@@ -238,7 +234,11 @@ pub fn build_deck_schedule(
         })
         .collect();
 
-    if let Some(dg) = steps.iter().copied().find(|st| st.is_doppelganger) {
+    if let Some(dg) = steps
+        .iter()
+        .copied()
+        .find(|st| st.copier == Some(CopierKind::Player))
+    {
         for (imm_phase, imm_order) in [(Phase::Dusk, 10), (Phase::Night, 105)] {
             let needed = deck.iter().any(|r| {
                 r.immediate_copy_step()
@@ -303,10 +303,16 @@ pub fn build_deck_schedule(
 
         if matches!(step.kind, StepKind::Solo(_)) {
             let direct = deck.iter().filter(|&&r| r.has_step(step)).count();
-            let cc_extra = if step.order > 9 { center_copier_count } else { 0 };
+            let cc_extra = deck
+                .iter()
+                .filter(|&&r| {
+                    r.center_copier_order()
+                        .is_some_and(|cc_ord| step.order > cc_ord)
+                })
+                .count();
             let holders_before_dg = direct.max(direct.saturating_sub(1) + cc_extra);
             let dg_extra = if step.copy_timing == Some(CopyTiming::OnRoleTurn) {
-                doppelganger_count
+                player_copier_count
             } else {
                 0
             };
@@ -442,7 +448,7 @@ pub async fn run_night_phase(
         match &tier.kind {
             TierKind::DoppelgangerImmediate(_) => {
                 let tier_phase = tier.phase;
-                let immediate_seats: SeatSet = (wakers.doppelganger_copied_seats()
+                let immediate_seats: SeatSet = (wakers.player_copied_seats()
                     - wakers.feared
                     - wakers.acted_immediately)
                     .into_iter()

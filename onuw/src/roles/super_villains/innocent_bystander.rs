@@ -13,5 +13,6 @@ impl Role for InnocentBystander {
             "Sleep at night. You have no powers (and Flipper/Revealer flips your card back face-down!), and you win if the Hero/Village team wins!",
         )
         .aliases(&["bystander", "ib", "2nd innocent bystander"])
+        .flips_back_on_reveal()
     }
 }

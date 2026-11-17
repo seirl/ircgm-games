@@ -191,6 +191,7 @@ pub struct RoleInfo {
     pub summary: &'static str,
     pub aliases: &'static [&'static str],
     pub is_minion: bool,
+    pub flips_back_on_reveal: bool,
     pub places_marks: bool,
     pub requires_pair_in_deck: bool,
     pub anarchy_bundle: Option<&'static str>,
@@ -219,6 +220,7 @@ impl RoleInfo {
             summary,
             aliases: &[],
             is_minion: false,
+            flips_back_on_reveal: false,
             places_marks: false,
             requires_pair_in_deck: false,
             anarchy_bundle: None,
@@ -244,6 +246,11 @@ impl RoleInfo {
     pub const fn minion(mut self) -> Self {
         self.is_minion = true;
         self.threat_team = None;
+        self
+    }
+
+    pub const fn flips_back_on_reveal(mut self) -> Self {
+        self.flips_back_on_reveal = true;
         self
     }
 
@@ -363,13 +370,20 @@ enum StepTarget {
     },
 }
 
+/// Whether a [`WakeStep`] copies another player's card (`Doppelgänger`) or a center card (`Copycat`, `Mirror Man`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CopierKind {
+    Player,
+    Center,
+}
+
 /// Declarative Dusk/Night schedule entry contributed by [`Role::steps`].
 ///
 /// Defaults across all constructors:
 /// - `eyes_open = true` (override with `.eyes_closed()` for eyes-closed roles like `Cow` and `Evilometer`).
 /// - `prompt_reads = VISIBLE_TABLE` for interactive steps (extend with `.reads(...)` when reading other zones mid-prompt).
 /// - `resolve_writes = NONE` (set with `.writes(...)` when mutating board state at resolution time).
-/// - `copy_timing = Immediate` for [`WakeStep::solo`] (override with `.copy_on_turn()` when `Doppelgänger` waits for the role's scheduled turn), `OnRoleTurn` for `group`/`passive`, `None` for `pack`/`doppelganger`.
+/// - `copy_timing = Immediate` for [`WakeStep::solo`] (override with `.copy_on_turn()` when `Doppelgänger` waits for the role's scheduled turn), `OnRoleTurn` for `group`/`passive`, `None` for `pack`/`player_copier`.
 #[derive(Clone, Copy)]
 pub struct WakeStep {
     target: StepTarget,
@@ -377,7 +391,7 @@ pub struct WakeStep {
     pub order: u16,
     pub eyes_open: bool,
     pub short_budget: bool,
-    pub is_doppelganger: bool,
+    pub copier: Option<CopierKind>,
     pub run_when_unheld: bool,
     pub copy_timing: Option<CopyTiming>,
     pub prompt_reads: BoardAccess,
@@ -406,7 +420,7 @@ impl WakeStep {
             order,
             eyes_open: true,
             short_budget: false,
-            is_doppelganger: false,
+            copier: None,
             run_when_unheld: false,
             copy_timing: Some(CopyTiming::Immediate),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
@@ -415,18 +429,26 @@ impl WakeStep {
         }
     }
 
-    /// `Doppelgänger`: wakes at `#-7` (`order 10`) when Dusk roles are in play, or `#1` (`order 105`) otherwise.
-    pub const fn doppelganger(owner: &'static dyn Role, f: SoloPromptFn) -> Self {
-        Self::solo(owner, 105, f)
+    /// Player-card copier (`Doppelgänger`): wakes at `#-7` (`order 10`) when Dusk roles are in play,
+    /// or `#1` (`order 105`) otherwise.
+    pub const fn player_copier(owner: &'static dyn Role, f: SoloPromptFn) -> Self {
+        let mut s = Self::solo(owner, 105, f)
             .short_budget()
-            .writes(BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES)
-            .mark_doppelganger()
+            .writes(BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES);
+        s.copier = Some(CopierKind::Player);
+        s.copy_timing = None;
+        s
     }
 
-    const fn mark_doppelganger(mut self) -> Self {
-        self.is_doppelganger = true;
-        self.copy_timing = None;
-        self
+    /// Center-card copier (`Copycat`, `Mirror Man`): views 1 center card on a short pick budget
+    /// and adopts that role for the rest of the game.
+    pub const fn center_copier(owner: &'static dyn Role, order: u16, f: SoloPromptFn) -> Self {
+        let mut s = Self::solo(owner, order, f)
+            .short_budget()
+            .copy_on_turn()
+            .writes(BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES);
+        s.copier = Some(CopierKind::Center);
+        s
     }
 
     /// Role-owned group wake (`Mason`, `Minion`, `Leader`, `Intern`, `Groob`, `Zerb`, `Apprentice Assassin`).
@@ -437,7 +459,7 @@ impl WakeStep {
             order,
             eyes_open: true,
             short_budget: false,
-            is_doppelganger: false,
+            copier: None,
             run_when_unheld: false,
             copy_timing: Some(CopyTiming::OnRoleTurn),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
@@ -454,7 +476,7 @@ impl WakeStep {
             order,
             eyes_open: true,
             short_budget: false,
-            is_doppelganger: false,
+            copier: None,
             run_when_unheld: false,
             copy_timing: None,
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
@@ -483,7 +505,7 @@ impl WakeStep {
             order,
             eyes_open: true,
             short_budget: false,
-            is_doppelganger: false,
+            copier: None,
             run_when_unheld: false,
             copy_timing: Some(CopyTiming::OnRoleTurn),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
@@ -500,7 +522,7 @@ impl WakeStep {
             order,
             eyes_open: true,
             short_budget: false,
-            is_doppelganger: false,
+            copier: None,
             run_when_unheld: false,
             copy_timing: Some(CopyTiming::OnRoleTurn),
             prompt_reads: BoardAccess(BoardAccess::NONE),
@@ -654,7 +676,7 @@ impl NightWakers {
         self.copied_from[seat]
     }
 
-    pub fn doppelganger_copied_seats(&self) -> SeatSet {
+    pub fn player_copied_seats(&self) -> SeatSet {
         self.copied_from
             .iter()
             .enumerate()
@@ -678,7 +700,7 @@ impl NightWakers {
     }
 
     pub fn copy_center(&mut self, actor: usize, copied: &'static dyn Role) {
-        if !copied.is_doppelganger() {
+        if !copied.is_player_copier() {
             self.waking_roles[actor] = copied;
         }
     }
@@ -1465,9 +1487,9 @@ impl dyn Role {
     }
 
     /// True for roles that `Revealer` and `Flipper` must flip back face-down (all `triggers_pi_and_revealer`
-    /// roles PLUS `Innocent Bystander`, who wins with Heroes/Village but is not on the Hero team).
+    /// roles PLUS `Innocent Bystander`, who wins with Heroes/Village without being on the Hero team).
     pub fn flips_back_on_reveal(&self) -> bool {
-        self.triggers_pi_and_revealer() || self.id() == "innocent_bystander"
+        self.triggers_pi_and_revealer() || self.info().flips_back_on_reveal
     }
 
     pub fn has_step(&self, step: &WakeStep) -> bool {
@@ -1475,29 +1497,40 @@ impl dyn Role {
         self.steps().iter().any(|st| st.id() == target_id)
     }
 
-    pub fn is_doppelganger(&self) -> bool {
-        self.steps().iter().any(|st| st.is_doppelganger)
-    }
-
-    /// Returns the step executed in `DoppelgangerImmediate` if `Doppelgänger` acts immediately on copying `self`.
-    pub fn immediate_copy_step(&self) -> Option<&'static WakeStep> {
+    pub fn is_player_copier(&self) -> bool {
         self.steps()
             .iter()
-            .find(|st| !st.is_doppelganger && st.copy_timing == Some(CopyTiming::Immediate))
+            .any(|st| st.copier == Some(CopierKind::Player))
     }
 
-    pub fn doppelganger_acts_immediately(&self) -> bool {
-        self.immediate_copy_step().is_some()
+    pub fn center_copier_order(&self) -> Option<u16> {
+        self.steps()
+            .iter()
+            .find(|st| st.copier == Some(CopierKind::Center))
+            .map(|st| st.order)
     }
 
-    /// True if `Doppelgänger` copying this role will wake later during Dusk or Night on schedule.
-    pub fn doppelganger_wakes_on_schedule(&self) -> bool {
-        if self.doppelganger_acts_immediately() {
+    /// Returns the step executed in `DoppelgangerImmediate` if a player-copier acts immediately on copying `self`.
+    pub fn immediate_copy_step(&self) -> Option<&'static WakeStep> {
+        self.steps().iter().find(|st| {
+            st.copier != Some(CopierKind::Player) && st.copy_timing == Some(CopyTiming::Immediate)
+        })
+    }
+
+    /// True if a center-copier waking at `copier_order` (`Copycat`, `Mirror Man`) will wake again later on schedule.
+    pub fn wakes_after_center_copy(&self, copier_order: u16) -> bool {
+        !self.is_player_copier() && self.steps().iter().any(|st| st.order > copier_order)
+    }
+
+    /// True if a player-copier (`Doppelgänger`) copying `self` will wake later on schedule (rather than immediately).
+    pub fn wakes_after_player_copy(&self, has_dusk: bool) -> bool {
+        if self.immediate_copy_step().is_some() {
             return false;
         }
+        let cutoff = if has_dusk { 10 } else { 105 };
         self.steps()
             .iter()
-            .any(|st| !st.is_doppelganger && st.order > 10)
+            .any(|st| st.copier != Some(CopierKind::Player) && st.order > cutoff)
     }
 }
 

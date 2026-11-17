@@ -23,7 +23,7 @@ impl Role for Doppelganger {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const { &[WakeStep::doppelganger(&DOPPELGANGER, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
+        const { &[WakeStep::player_copier(&DOPPELGANGER, |s, ctx| Box::pin(Self::prompt(s, ctx)))] }
     }
 }
 
@@ -171,7 +171,7 @@ impl Doppelganger {
                     "🌙 Stand by—your copied Night action will fire at the start of Night!",
                 );
             }
-        } else if role.doppelganger_wakes_on_schedule() {
+        } else if role.wakes_after_player_copy(roster_has_dusk) {
             ctx.dm(
                 seat,
                 "🌙 Stand by—your copied role's night info will arrive on schedule!",

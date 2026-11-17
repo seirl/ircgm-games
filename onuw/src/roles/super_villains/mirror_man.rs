@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::board::{BoardMut, Roster};
 use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct MirrorMan;
@@ -20,12 +20,9 @@ impl Role for MirrorMan {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[
-                WakeStep::solo(&MIRROR_MAN, 9, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                    .short_budget()
-                    .copy_on_turn()
-                    .writes(BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES),
-            ]
+            &[WakeStep::center_copier(&MIRROR_MAN, 9, |s, ctx| {
+                Box::pin(Self::prompt(s, ctx))
+            })]
         }
     }
 }
@@ -98,9 +95,7 @@ impl MirrorMan {
                 copied.styled_name(),
             ),
         );
-        let wakes_later =
-            !copied.is_doppelganger() && copied.steps().iter().any(|st| st.order > 9);
-        if wakes_later {
+        if copied.wakes_after_center_copy(9) {
             ctx.dm(
                 seat,
                 "🌙 Stand by — your copied role's action will fire on schedule!",
