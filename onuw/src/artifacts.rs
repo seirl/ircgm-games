@@ -1,26 +1,41 @@
-//! Daybreak **Artifact** tokens (`Claw`, `Brand`, `Cudgel`, `Mask of Muting`, `Shroud of Shame`, `Void`)
-//! and their Day/Voting channel-conduct rules (`DayConductTracker`).
+//! Daybreak & Bonus **Artifact** tokens (`Claw`, `Brand`, `Cudgel`, `Bow`, `Cloak`, `Sword`,
+//! `Mist`, `Dagger`, `Alien Artifact`, `Mask of Muting`, `Shroud of Shame`, `Void`),
+//! monster-faction deck gating, and Day/Voting channel-conduct rules (`DayConductTracker`).
 
 use std::collections::HashMap;
 
 use ircgm::prelude::*;
 use ircgm::CaseMap;
 
-use crate::board::{BoardCards, Roster, SeatSet};
+use crate::board::{deck_has_monster_faction, BoardCards, Roster, SeatSet};
+use crate::marks::apply_traitor_win_override;
 use crate::role::{
-    EffectiveAlignment, EndgameModifier, SpecialVictory, Team, VictoryCtx, WinnerFilterCtx,
-    WinnerMap,
+    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, Role, SpecialVictory, Team,
+    VictoryCtx, VoteDefense, WinnerFilterCtx, WinnerMap,
 };
+use crate::roles::find_role;
 
-/// Daybreak `Curator` Artifacts placed face-down on a player's card.
+/// Daybreak & Bonus Roles `Curator` Artifacts placed face-down on a player's card.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Artifact {
-    /// Turns the holder into a Werewolf (`Team::Werewolf` + primary threat).
+    /// Turns the holder into a Werewolf (`Team::Werewolf` + primary threat; gated on Werewolf faction in deck).
     ClawOfTheWerewolf,
     /// Turns the holder into a Villager (`Team::Village`, clears threats).
     BrandOfTheVillager,
     /// Turns the holder into a Tanner (`Team::Independent`, wins iff killed).
     CudgelOfTheTanner,
+    /// Turns the holder into a Hunter (`Team::Village`, kills voted target on death).
+    BowOfTheHunter,
+    /// Turns the holder into a Prince (`Team::Village`, royal vote immunity).
+    CloakOfThePrince,
+    /// Turns the holder into a Bodyguard (`Team::Village`, voted target cannot die).
+    SwordOfTheBodyguard,
+    /// Turns the holder into a Vampire (`Team::Vampire` + primary threat; gated on Vampire faction in deck).
+    MistOfTheVampire,
+    /// Turns the holder into a Traitor to their team (wins iff a teammate dies; keeps underlying team/role).
+    DaggerOfTheTraitor,
+    /// Turns the holder into an Alien (`Team::Alien` + primary threat; gated on Alien faction in deck).
+    AlienArtifact,
     /// Holder personally loses if they send any public channel message containing letters/numbers
     /// before voting ends (except restricted `/me` gestures or punctuation-only messages).
     TokenOfMute,
@@ -36,24 +51,72 @@ impl Artifact {
         Artifact::ClawOfTheWerewolf,
         Artifact::BrandOfTheVillager,
         Artifact::CudgelOfTheTanner,
+        Artifact::BowOfTheHunter,
+        Artifact::CloakOfThePrince,
+        Artifact::SwordOfTheBodyguard,
+        Artifact::MistOfTheVampire,
+        Artifact::DaggerOfTheTraitor,
+        Artifact::AlienArtifact,
         Artifact::TokenOfMute,
         Artifact::ShroudOfShame,
         Artifact::VoidOfNothingness,
     ];
 
+    /// Returns `Some(team)` for monster-converting tokens that are only included in the Curator's
+    /// stack when at least one role from that monster faction is present in the deck.
+    pub fn required_monster_faction(self) -> Option<Team> {
+        match self {
+            Artifact::ClawOfTheWerewolf => Some(Team::Werewolf),
+            Artifact::MistOfTheVampire => Some(Team::Vampire),
+            Artifact::AlienArtifact => Some(Team::Alien),
+            Artifact::BrandOfTheVillager
+            | Artifact::CudgelOfTheTanner
+            | Artifact::BowOfTheHunter
+            | Artifact::CloakOfThePrince
+            | Artifact::SwordOfTheBodyguard
+            | Artifact::DaggerOfTheTraitor
+            | Artifact::TokenOfMute
+            | Artifact::ShroudOfShame
+            | Artifact::VoidOfNothingness => None,
+        }
+    }
+
+    /// True iff `self` is eligible to be drawn by the Curator for `deck`.
+    pub fn is_enabled_for_deck(self, deck: &[&'static dyn Role]) -> bool {
+        match self.required_monster_faction() {
+            Some(team) => deck_has_monster_faction(deck, team),
+            None => true,
+        }
+    }
+
+    /// Returns all Curator `Artifact` tokens active for `deck` (the 9 non-monster tokens plus any
+    /// monster tokens whose faction is present in `deck`).
+    pub fn pool_for_deck(deck: &[&'static dyn Role]) -> Vec<Artifact> {
+        Self::ALL
+            .iter()
+            .copied()
+            .filter(|art| art.is_enabled_for_deck(deck))
+            .collect()
+    }
+
     pub fn random() -> Artifact {
         Self::ALL[fastrand::usize(..Self::ALL.len())]
     }
 
-    /// Draws a random Artifact not yet present in `existing` (without replacement when multiple Curators act).
-    pub fn random_unused(existing: &[Option<Artifact>]) -> Artifact {
-        let unused: Vec<Artifact> = Self::ALL
+    /// Draws a random Artifact valid for `deck` not yet present in `existing`
+    /// (without replacement when multiple Curators act).
+    pub fn random_unused_for_deck(
+        deck: &[&'static dyn Role],
+        existing: &[Option<Artifact>],
+    ) -> Artifact {
+        let pool = Self::pool_for_deck(deck);
+        let unused: Vec<Artifact> = pool
             .iter()
             .copied()
             .filter(|cand| !existing.contains(&Some(*cand)))
             .collect();
         if unused.is_empty() {
-            Self::random()
+            pool[fastrand::usize(..pool.len())]
         } else {
             unused[fastrand::usize(..unused.len())]
         }
@@ -64,6 +127,12 @@ impl Artifact {
             Artifact::ClawOfTheWerewolf => "claw_of_the_werewolf",
             Artifact::BrandOfTheVillager => "brand_of_the_villager",
             Artifact::CudgelOfTheTanner => "cudgel_of_the_tanner",
+            Artifact::BowOfTheHunter => "bow_of_the_hunter",
+            Artifact::CloakOfThePrince => "cloak_of_the_prince",
+            Artifact::SwordOfTheBodyguard => "sword_of_the_bodyguard",
+            Artifact::MistOfTheVampire => "mist_of_the_vampire",
+            Artifact::DaggerOfTheTraitor => "dagger_of_the_traitor",
+            Artifact::AlienArtifact => "alien_artifact",
             Artifact::TokenOfMute => "token_of_mute",
             Artifact::ShroudOfShame => "shroud_of_shame",
             Artifact::VoidOfNothingness => "void_of_nothingness",
@@ -75,6 +144,12 @@ impl Artifact {
             Artifact::ClawOfTheWerewolf => "Claw of the Werewolf",
             Artifact::BrandOfTheVillager => "Brand of the Villager",
             Artifact::CudgelOfTheTanner => "Cudgel of the Tanner",
+            Artifact::BowOfTheHunter => "Bow of the Hunter",
+            Artifact::CloakOfThePrince => "Cloak of the Prince",
+            Artifact::SwordOfTheBodyguard => "Sword of the Bodyguard",
+            Artifact::MistOfTheVampire => "Mist of the Vampire",
+            Artifact::DaggerOfTheTraitor => "Dagger of the Traitor",
+            Artifact::AlienArtifact => "Alien Artifact",
             Artifact::TokenOfMute => "Mask of Muting",
             Artifact::ShroudOfShame => "Shroud of Shame",
             Artifact::VoidOfNothingness => "Void of Nothingness",
@@ -84,11 +159,17 @@ impl Artifact {
     pub fn styled(self) -> Text {
         match self {
             Artifact::ClawOfTheWerewolf => self.name().bold().red().into(),
-            Artifact::CudgelOfTheTanner => self.name().bold().orange().into(),
-            Artifact::TokenOfMute | Artifact::ShroudOfShame => self.name().bold().yellow().into(),
-            Artifact::BrandOfTheVillager | Artifact::VoidOfNothingness => {
-                self.name().bold().light_cyan().into()
+            Artifact::MistOfTheVampire => self.name().bold().magenta().into(),
+            Artifact::AlienArtifact => self.name().bold().green().into(),
+            Artifact::CudgelOfTheTanner | Artifact::DaggerOfTheTraitor => {
+                self.name().bold().orange().into()
             }
+            Artifact::TokenOfMute | Artifact::ShroudOfShame => self.name().bold().yellow().into(),
+            Artifact::BrandOfTheVillager
+            | Artifact::BowOfTheHunter
+            | Artifact::CloakOfThePrince
+            | Artifact::SwordOfTheBodyguard
+            | Artifact::VoidOfNothingness => self.name().bold().light_cyan().into(),
         }
     }
 
@@ -130,6 +211,36 @@ impl Artifact {
                 "Artifact token".bold().yellow(),
                 self.styled(),
             ),
+            Artifact::BowOfTheHunter => irc_format!(
+                "🏺 An {} was placed on your card! You secretly hold the {} — you are now a Hunter on the Village team (if you die, whoever you point at also dies)!",
+                "Artifact token".bold().yellow(),
+                self.styled(),
+            ),
+            Artifact::CloakOfThePrince => irc_format!(
+                "🏺 An {} was placed on your card! You secretly hold the {} — you are now a Prince on the Village team (votes against you do not count)!",
+                "Artifact token".bold().yellow(),
+                self.styled(),
+            ),
+            Artifact::SwordOfTheBodyguard => irc_format!(
+                "🏺 An {} was placed on your card! You secretly hold the {} — you are now a Bodyguard on the Village team (whoever you point at during the vote cannot die)!",
+                "Artifact token".bold().yellow(),
+                self.styled(),
+            ),
+            Artifact::MistOfTheVampire => irc_format!(
+                "🏺 An {} was placed on your card! You secretly hold the {} — you are now a Vampire!",
+                "Artifact token".bold().yellow(),
+                self.styled(),
+            ),
+            Artifact::DaggerOfTheTraitor => irc_format!(
+                "🏺 An {} was placed on your card! You secretly hold the {} — you are now a Traitor to your team and ONLY win if a teammate dies!",
+                "Artifact token".bold().yellow(),
+                self.styled(),
+            ),
+            Artifact::AlienArtifact => irc_format!(
+                "🏺 An {} was placed on your card! You secretly hold the {} — you are now an Alien!",
+                "Artifact token".bold().yellow(),
+                self.styled(),
+            ),
             Artifact::VoidOfNothingness => irc_format!(
                 "🏺 An {} was placed on your card! You secretly hold the {} — it does nothing!",
                 "Artifact token".bold().yellow(),
@@ -146,6 +257,11 @@ impl Artifact {
             Artifact::ClawOfTheWerewolf
                 | Artifact::BrandOfTheVillager
                 | Artifact::CudgelOfTheTanner
+                | Artifact::BowOfTheHunter
+                | Artifact::CloakOfThePrince
+                | Artifact::SwordOfTheBodyguard
+                | Artifact::MistOfTheVampire
+                | Artifact::AlienArtifact
         )
     }
 
@@ -196,7 +312,18 @@ impl EndgameModifier for Artifact {
                 team: Team::Werewolf,
                 threat_team: Some(Team::Werewolf),
             },
-            Artifact::BrandOfTheVillager => EffectiveAlignment {
+            Artifact::MistOfTheVampire => EffectiveAlignment {
+                team: Team::Vampire,
+                threat_team: Some(Team::Vampire),
+            },
+            Artifact::AlienArtifact => EffectiveAlignment {
+                team: Team::Alien,
+                threat_team: Some(Team::Alien),
+            },
+            Artifact::BrandOfTheVillager
+            | Artifact::BowOfTheHunter
+            | Artifact::CloakOfThePrince
+            | Artifact::SwordOfTheBodyguard => EffectiveAlignment {
                 team: Team::Village,
                 threat_team: None,
             },
@@ -204,7 +331,62 @@ impl EndgameModifier for Artifact {
                 team: Team::Independent,
                 threat_team: None,
             },
-            Artifact::TokenOfMute | Artifact::ShroudOfShame | Artifact::VoidOfNothingness => cur,
+            Artifact::DaggerOfTheTraitor
+            | Artifact::TokenOfMute
+            | Artifact::ShroudOfShame
+            | Artifact::VoidOfNothingness => cur,
+        }
+    }
+
+    fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
+        match self {
+            Artifact::CloakOfThePrince => Some(VoteDefense::immune(
+                seat,
+                false,
+                irc_format!(
+                    "👑 {} ({}) holds royal immunity and cannot be executed!",
+                    ctx.roster.seats[seat].user.nick().bold(),
+                    self.styled(),
+                ),
+            )),
+            Artifact::SwordOfTheBodyguard => {
+                let target = ctx.votes[seat]?;
+                Some(VoteDefense::immune(
+                    target,
+                    true,
+                    irc_format!(
+                        "🛡️ {} ({}) shielded {} from execution!",
+                        ctx.roster.seats[seat].user.nick().bold(),
+                        self.styled(),
+                        ctx.roster.seats[target].user.nick().bold(),
+                    ),
+                ))
+            }
+            _ => None,
+        }
+    }
+
+    fn on_death(&self, dead_seat: usize, ctx: &DeathCtx<'_>) -> Vec<DeathEffect> {
+        match self {
+            Artifact::BowOfTheHunter => match ctx.votes[dead_seat] {
+                Some(target_seat) => {
+                    let hunter_nick = ctx.roster.seats[dead_seat].user.nick();
+                    let target_nick = ctx.roster.seats[target_seat].user.nick();
+                    vec![DeathEffect::Kill {
+                        seat: target_seat,
+                        respects_protection: true,
+                        announcement: irc_format!(
+                            "{} {} died with the {} and took down {}!",
+                            "🏹 HUNTER SHOT!".bold().orange(),
+                            hunter_nick.bold(),
+                            self.styled(),
+                            target_nick.bold().red(),
+                        ),
+                    }]
+                }
+                None => Vec::new(),
+            },
+            _ => Vec::new(),
         }
     }
 
@@ -214,6 +396,12 @@ impl EndgameModifier for Artifact {
                 Some(SpecialVictory::independent_blocking_monsters())
             }
             _ => None,
+        }
+    }
+
+    fn override_win(&self, holder: usize, ctx: &WinnerFilterCtx<'_>, winners: &mut WinnerMap) {
+        if *self == Artifact::DaggerOfTheTraitor {
+            apply_traitor_win_override(holder, ctx, winners);
         }
     }
 
@@ -319,8 +507,8 @@ pub fn is_exempt_public_command(msg: &ChatMessage, roster: &Roster) -> bool {
     ) {
         return true;
     }
-    if msg.cmd_arg("!role").is_some() || msg.cmd_arg("!info").is_some() {
-        return true;
+    if let Some(arg) = msg.cmd_arg("!role").or_else(|| msg.cmd_arg("!info")) {
+        return find_role(arg).is_some();
     }
     if let Some(arg) = msg.cmd_arg("!vote") {
         return !arg.contains(char::is_whitespace) && roster.resolve_nick(arg).is_some();
@@ -434,11 +622,11 @@ pub fn find_mentioned_player_nick(
         let needle = folded_needle.as_str();
         for (start, _) in hay.match_indices(needle) {
             let end = start + needle.len();
-            let before_ok = text[..start]
+            let before_ok = hay[..start]
                 .chars()
                 .next_back()
                 .is_none_or(|c| !is_nick_word_char(c));
-            let after_ok = text[end..]
+            let after_ok = hay[end..]
                 .chars()
                 .next()
                 .is_none_or(|c| !is_nick_word_char(c));

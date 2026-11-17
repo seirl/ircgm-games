@@ -170,28 +170,8 @@ impl EndgameModifier for Mark {
     }
 
     fn override_win(&self, holder: usize, ctx: &WinnerFilterCtx<'_>, winners: &mut WinnerMap) {
-        if *self != Mark::Traitor {
-            return;
-        }
-        let team = ctx.board.effective_team(holder);
-        if team != Team::Independent {
-            let teammates: SeatSet = ctx
-                .roster
-                .all_seats()
-                .without(holder)
-                .into_iter()
-                .filter(|&o| ctx.board.effective_team(o) == team)
-                .collect();
-            if !teammates.is_empty() {
-                let traitor_won = ctx.team_block != TeamBlock::AllTeams
-                    && !ctx.dead_seats.contains(holder)
-                    && teammates.intersects(ctx.dead_seats);
-                if traitor_won {
-                    winners.insert(holder, "Traitor");
-                } else {
-                    winners.remove(&holder);
-                }
-            }
+        if *self == Mark::Traitor {
+            apply_traitor_win_override(holder, ctx, winners);
         }
     }
 
@@ -206,6 +186,38 @@ impl EndgameModifier for Mark {
                 if ctx.votes[voter] == Some(holder) {
                     winners.remove(&voter);
                 }
+            }
+        }
+    }
+}
+
+/// Shared Traitor win-condition evaluation for `Mark::Traitor` and `Artifact::DaggerOfTheTraitor`:
+/// when at least one other player shares the holder's effective team, the holder wins iff
+/// at least one teammate dies (and no global `AllTeams` block / `Oracle Slain` override applies).
+pub(crate) fn apply_traitor_win_override(
+    holder: usize,
+    ctx: &WinnerFilterCtx<'_>,
+    winners: &mut WinnerMap,
+) {
+    if winners.get(&holder) == Some(&"Oracle Slain") {
+        return;
+    }
+    let team = ctx.board.effective_team(holder);
+    if team != Team::Independent {
+        let teammates: SeatSet = ctx
+            .roster
+            .all_seats()
+            .without(holder)
+            .into_iter()
+            .filter(|&o| ctx.board.effective_team(o) == team)
+            .collect();
+        if !teammates.is_empty() {
+            let traitor_won =
+                ctx.team_block != TeamBlock::AllTeams && teammates.intersects(ctx.dead_seats);
+            if traitor_won {
+                winners.insert(holder, "Traitor");
+            } else {
+                winners.remove(&holder);
             }
         }
     }

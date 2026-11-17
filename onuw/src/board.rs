@@ -252,6 +252,10 @@ impl Roster {
         self.deck.iter().any(|r| r.places_marks())
     }
 
+    pub fn deck_has_monster_faction(&self, team: Team) -> bool {
+        deck_has_monster_faction(&self.deck, team)
+    }
+
     /// Human-readable phrase naming ONLY the non-Village categories actually present in `self.deck`.
     pub fn describe_non_village_roles(&self) -> String {
         let mut labels: Vec<&'static str> = Vec::new();
@@ -336,6 +340,14 @@ impl Roster {
             "pass" | "skip" | "none" | "!pass" | "!skip"
         )
     }
+}
+
+pub fn deck_has_monster_faction(deck: &[&'static dyn Role], team: Team) -> bool {
+    deck.iter().any(|r| {
+        r.team() == team
+            || r.threat_team() == Some(team)
+            || r.night_faction().is_some_and(|nf| nf.team() == team)
+    })
 }
 
 pub fn format_role_slice(roles: &[&'static dyn Role]) -> String {
@@ -997,8 +1009,13 @@ impl<'a> BoardMut<'a> {
         self.inner.center[slot]
     }
 
-    /// Draws and places a random unused `Artifact` on `target` (`Curator`) if unshielded and un-artifacted.
-    pub fn place_random_artifact(&mut self, target: usize) -> Option<Artifact> {
+    /// Draws and places a random unused `Artifact` valid for `deck` on `target` (`Curator`)
+    /// if unshielded and un-artifacted.
+    pub fn place_random_artifact(
+        &mut self,
+        target: usize,
+        deck: &[&'static dyn Role],
+    ) -> Option<Artifact> {
         self.check_read(
             BoardAccess::SHIELDS | BoardAccess::ARTIFACTS,
             "SHIELDS | ARTIFACTS",
@@ -1007,7 +1024,7 @@ impl<'a> BoardMut<'a> {
         if self.inner.shielded.contains(target) || self.inner.artifacts[target].is_some() {
             return None;
         }
-        let art = Artifact::random_unused(&self.inner.artifacts);
+        let art = Artifact::random_unused_for_deck(deck, &self.inner.artifacts);
         self.inner.artifacts[target] = Some(art);
         Some(art)
     }

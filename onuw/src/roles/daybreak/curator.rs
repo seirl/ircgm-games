@@ -13,9 +13,8 @@ impl Role for Curator {
             "Curator",
             GameSet::Daybreak,
             Team::Village,
-            "May place a random face-down Artifact token on any player's card (secretly altering their team/goal!).",
+            "May place a random face-down Artifact token on any player's card (secretly altering their role, team, or goal!).",
         )
-        .non_village_labels(&["Werewolf", "Tanner"])
     }
 
     fn steps(&self) -> &'static [WakeStep] {
@@ -73,7 +72,7 @@ impl Curator {
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            if let Some(art) = board.place_random_artifact(target) {
+            if let Some(art) = board.place_random_artifact(target, &ctx.roster.deck) {
                 ctx.dm(target, art.recipient_dm());
                 ctx.record(irc_format!(
                     "🏺 {actor_label} ({}) placed {} on {}.",

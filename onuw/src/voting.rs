@@ -420,7 +420,9 @@ pub fn resolve_and_announce_winners(
     let minions_for = |team: Team| -> SeatSet {
         (0..n)
             .filter(|&i| {
-                board.effective_team(i) == team && board.player_card(i).effective_role().is_minion()
+                !board.has_role_override_artifact(i)
+                    && board.effective_team(i) == team
+                    && board.player_card(i).effective_role().is_minion()
             })
             .collect()
     };

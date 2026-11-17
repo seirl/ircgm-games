@@ -55,3 +55,53 @@ async fn curator_can_place_artifact_on_face_up_card_flipped_by_revealer() {
         .expect("Face-up Bob received an artifact");
     assert!(report.dms_to("Bob").contains(art.name()));
 }
+
+#[tokio::test(start_paused = true)]
+async fn curator_gates_drawn_artifacts_by_deck_monster_factions() {
+    use crate::artifacts::Artifact;
+    use crate::roles::{
+        alien::alien::ALIEN, super_villains::temptress::TEMPTRESS, vampire::vampire::VAMPIRE,
+    };
+
+    // 1. Super Villains + Curator (`Temptress`, 0 Werewolves/Vampires/Aliens):
+    //    Curator never draws Claw, Mist, or Alien Artifact across repeated placements.
+    for _ in 0..25 {
+        let mut h = OnuwTestHarness::new(
+            &[
+                ("Alice", &CURATOR),
+                ("Bob", &TEMPTRESS),
+                ("Carol", &VILLAGER),
+            ],
+            [&VILLAGER, &VILLAGER, &VILLAGER],
+        )
+        .await;
+        let night = h.spawn_night();
+        h.reply_dm("Bob", "Carol").await;
+        h.reply_dm("Alice", "Carol").await;
+        let report = h.finish_night(night).await;
+        let art = report.artifact_at(&h.roster, "Carol").unwrap();
+        assert_ne!(art, Artifact::ClawOfTheWerewolf);
+        assert_ne!(art, Artifact::MistOfTheVampire);
+        assert_ne!(art, Artifact::AlienArtifact);
+    }
+
+    // 2. Vampire + Alien + Curator (0 Werewolves): Curator never draws Claw of the Werewolf.
+    for _ in 0..15 {
+        let mut h_va = OnuwTestHarness::new(
+            &[
+                ("Alice", &CURATOR),
+                ("Bob", &VAMPIRE),
+                ("Carol", &ALIEN),
+            ],
+            [&VILLAGER, &VILLAGER, &VILLAGER],
+        )
+        .await;
+        let n_va = h_va.spawn_night();
+        h_va.reply_dm("Bob", "Alice").await;
+        h_va.reply_dm("Carol", "pass").await;
+        h_va.reply_dm("Alice", "Bob").await;
+        let rep_va = h_va.finish_night(n_va).await;
+        let placed = rep_va.artifact_at(&h_va.roster, "Bob").unwrap();
+        assert_ne!(placed, Artifact::ClawOfTheWerewolf);
+    }
+}
