@@ -4,12 +4,15 @@ use std::collections::{HashMap, HashSet};
 
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Roster, SeatSet};
+use crate::board::{BoardCards, Card, Roster, SeatSet};
 use crate::game::GameSummary;
 use crate::marks::Mark;
 use crate::role::{
     DeathCtx, DeathEffect, Role, SpecialVictory, Team, TeamBlock, VictoryCtx, VoteDefense,
     WinnerFilterCtx, WinnerMap,
+};
+use crate::roles::{
+    daybreak::alpha_wolf::CenterWolfCard, super_villains::temptress::ExtraVillainCard,
 };
 
 /// Deferred full game record (center cards, Dusk/Night chronicle, and per-seat `start → end`
@@ -169,6 +172,14 @@ pub fn resolve_and_announce_winners(
                 }
             }
         }
+    } else if is_epic_battle && max_raw_votes >= 2 && max_killable_votes == 1 {
+        // An immune seat absorbed the >= 2-vote top spot in an Epic Battle;
+        // the unprotected 1-vote runner(s)-up still die!
+        for idx in killable_seats {
+            if tally[idx] == 1 {
+                dead.insert(idx);
+            }
+        }
     }
 
     // Apply vote-execution ricochets (`Ricochet Rhino`) before `on_death` chain-kills:
@@ -206,14 +217,10 @@ pub fn resolve_and_announce_winners(
     }
 
     let mut death_announcements: Vec<Text> = ricochet_announcements;
-    for (protected_seat, announcement) in immunities {
-        if saved_by_immunity.contains(protected_seat) {
-            death_announcements.push(announcement);
-        }
-    }
 
     // Fixpoint loop over `EndgameModifier::on_death` (`Hunter`, `Mark::Love`, etc.):
     let mut processed_deaths = SeatSet::EMPTY;
+    let mut chain_announcements: Vec<Text> = Vec::new();
     loop {
         let unprocessed = dead - processed_deaths;
         if unprocessed.is_empty() {
@@ -230,15 +237,33 @@ pub fn resolve_and_announce_winners(
                         announcement,
                     } = effect;
                     let blocked = respects_protection && hunter_shielded.contains(kill_seat);
-                    if !(dead | newly_killed).contains(kill_seat) && !blocked {
-                        newly_killed.insert(kill_seat);
-                        death_announcements.push(announcement);
+                    if !(dead | newly_killed).contains(kill_seat) {
+                        if blocked {
+                            saved_by_immunity.insert(kill_seat);
+                            chain_announcements.push(irc_format!(
+                                "🏹 {} ({}) fired at {}, but {} could not be killed!",
+                                roster.seats[d].user.nick().bold(),
+                                modifier.modifier_name().bold().orange(),
+                                roster.seats[kill_seat].user.nick().bold(),
+                                roster.seats[kill_seat].user.nick().bold(),
+                            ));
+                        } else {
+                            newly_killed.insert(kill_seat);
+                            chain_announcements.push(announcement);
+                        }
                     }
                 }
             }
         }
         dead |= newly_killed;
     }
+
+    for (protected_seat, announcement) in immunities {
+        if saved_by_immunity.contains(protected_seat) {
+            death_announcements.push(announcement);
+        }
+    }
+    death_announcements.extend(chain_announcements);
 
     // Build the deferred `!reveal` record (center cards, compact per-seat roles, and Dusk & Night chronicle):
     let sep = " · ".grey();
@@ -363,33 +388,36 @@ pub fn resolve_and_announce_winners(
     let mut winners: WinnerMap = HashMap::new();
     for seat in 0..n {
         for modifier in board.seat_endgame_modifiers(seat) {
-            match modifier.victory_claim(seat, &vctx) {
-                Some(SpecialVictory::ForceTeam { team, announcement })
-                    if forced_team_candidate.is_none() =>
-                {
-                    forced_team_candidate = Some((team, announcement));
+            for claim in modifier.victory_claims(seat, &vctx) {
+                match claim {
+                    SpecialVictory::ForceTeam { team, announcement }
+                        if forced_team_candidate.is_none() =>
+                    {
+                        forced_team_candidate = Some((team, announcement));
+                    }
+                    SpecialVictory::Independent(block) => {
+                        winners.insert(seat, modifier.modifier_name());
+                        team_block = team_block.max(block);
+                    }
+                    SpecialVictory::Hunted => {
+                        hunted_seats.insert(seat);
+                        hunted_label = modifier.modifier_name();
+                    }
+                    _ => {}
                 }
-                Some(SpecialVictory::Independent(block))
-                    if board.effective_team(seat) == Team::Independent =>
-                {
-                    winners.insert(seat, modifier.modifier_name());
-                    team_block = team_block.max(block);
-                }
-                Some(SpecialVictory::Hunted) => {
-                    hunted_seats.insert(seat);
-                    hunted_label = modifier.modifier_name();
-                }
-                _ => {}
             }
         }
     }
 
-    let center_hunted = (0..3).any(|c| {
+    let is_hunted_card = |c: Card| {
         matches!(
-            board.center_card(c).effective_role().special_victory(0, &vctx),
+            c.effective_role().special_victory(0, &vctx),
             Some(SpecialVictory::Hunted)
         )
-    });
+    };
+    let center_hunted = (0..3).any(|c| is_hunted_card(board.center_card(c)))
+        || is_hunted_card(board.get_key::<CenterWolfCard>().0)
+        || is_hunted_card(board.get_key::<ExtraVillainCard>().0);
     if !hunted_seats.is_empty() || center_hunted {
         forced_team_candidate = None;
         team_block = TeamBlock::AllTeams;
@@ -451,7 +479,7 @@ pub fn resolve_and_announce_winners(
             let minions = minions_for(team);
             if !threats.is_empty() {
                 let all_own_survive = threats.is_disjoint(dead);
-                let won = if is_epic_battle {
+                let won = if present_monster_factions.len() >= 2 {
                     let rival_killed = present_monster_factions
                         .iter()
                         .any(|&other| other != team && threats_of(other).intersects(dead));

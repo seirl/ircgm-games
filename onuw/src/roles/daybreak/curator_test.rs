@@ -104,4 +104,34 @@ async fn curator_gates_drawn_artifacts_by_deck_monster_factions() {
         let placed = rep_va.artifact_at(&h_va.roster, "Bob").unwrap();
         assert_ne!(placed, Artifact::ClawOfTheWerewolf);
     }
+
+    // 3. Curator (#11) Artifact DM is delivered at Daybreak (AFTER #13-A Mortician wakes & acts):
+    use crate::roles::alien::mortician::{ForcedMorticianMode, MorticianMode, MORTICIAN};
+    let mut h_mort = OnuwTestHarness::new(
+        &[
+            ("Alice", &CURATOR),
+            ("Bob", &MORTICIAN),
+            ("Carol", &VILLAGER),
+        ],
+        [&WEREWOLF, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h_mort.set_key(ForcedMorticianMode(Some(MorticianMode::ChooseNeighbor)));
+    let n_mort = h_mort.spawn_night();
+    h_mort.reply_dm("Alice", "Bob").await;
+    // When Mortician Bob receives his #13-A prompt, he must NOT yet have been told his Artifact's secret identity!
+    let mort_prompt = h_mort.wait_for_prompt_dm("Bob").await;
+    assert!(mort_prompt.contains("Mortician"));
+    h_mort.send_dm("Bob", "pass").await;
+    let rep_mort = h_mort.finish_night(n_mort).await;
+    let bob_timed = &rep_mort.timed_dms["Bob"];
+    let mort_prompt_idx = bob_timed
+        .iter()
+        .position(|(_, m)| m.contains("Mortician:"))
+        .unwrap();
+    let art_dm_idx = bob_timed
+        .iter()
+        .position(|(_, m)| m.contains("Artifact") || m.contains("You have the"))
+        .unwrap();
+    assert!(art_dm_idx > mort_prompt_idx);
 }

@@ -416,6 +416,16 @@ impl Rascal {
                         "😜 {actor_label} ({}) shifted {moved} unshielded cards {dir}.",
                         actor_nick.bold(),
                     ));
+                } else {
+                    ctx.dm(
+                        seat,
+                        "🛡️ Rascal: Fewer than 2 unshielded other cards could be shifted!"
+                            .yellow(),
+                    );
+                    ctx.record(irc_format!(
+                        "😜 {actor_label} ({}) could not shift (< 2 unshielded other cards).",
+                        actor_nick.bold(),
+                    ));
                 }
             }
             RascalAction::SwapTwo(a, b) => {

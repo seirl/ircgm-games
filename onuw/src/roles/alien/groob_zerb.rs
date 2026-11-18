@@ -65,10 +65,25 @@ async fn wake_groob_zerb_pair(
             rival_suspects.remove(src);
         }
 
-        if open_others.is_empty() {
-            let msg = if !rival_in_deck {
-                format!("👾 {self_name}: {rival_name} is not in the deck — you are on the regular Alien team tonight!")
-            } else if has_marks {
+        if !rival_in_deck {
+            if open_others.is_empty() {
+                ctx.dm(
+                    s,
+                    format!(
+                        "👾 {self_name}: {rival_name} is not in the deck — you are on the regular Alien team tonight!"
+                    ),
+                );
+            } else {
+                ctx.dm(
+                    s,
+                    irc_format!(
+                        "👾 {self_name}: {rival_name} is not in the deck — fellow {self_name}(s) {} also woke, and you are all on the regular Alien team tonight!",
+                        ctx.roster.format_seats(open_others).bold().green(),
+                    ),
+                );
+            }
+        } else if open_others.is_empty() {
+            let msg = if has_marks {
                 format!("👾 {self_name}: Nobody else opened their eyes — if {rival_name} is in the center, you are on the regular Alien team tonight!")
             } else {
                 format!("👾 {self_name}: {rival_name} is in the center — you are on the regular Alien team tonight!")

@@ -912,6 +912,12 @@ impl<'a> PromptCtx<'a> {
         self.board.raw().player_card(seat)
     }
 
+    /// Snapshot of board cards for roles that already declare `PLAYER_FACES` (`Nostradamus`).
+    pub(crate) fn board_for_peek(&self) -> &BoardCards {
+        self.check_read(BoardAccess::PLAYER_FACES, "PLAYER_FACES");
+        self.board.raw()
+    }
+
     /// Reads `center[slot]` mid-prompt (`Witch`).
     pub fn peek_center_card(&self, slot: usize) -> Card {
         self.check_read(BoardAccess::CENTER_FACES, "CENTER_FACES");
@@ -1365,8 +1371,8 @@ pub trait EndgameModifier: Send + Sync {
         Vec::new()
     }
 
-    fn victory_claim(&self, _seat: usize, _ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        None
+    fn victory_claims(&self, _seat: usize, _ctx: &VictoryCtx<'_>) -> Vec<SpecialVictory> {
+        Vec::new()
     }
 
     fn override_win(
@@ -1434,6 +1440,10 @@ pub trait Role: Send + Sync + 'static {
         None
     }
 
+    fn special_victories(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Vec<SpecialVictory> {
+        self.special_victory(seat, ctx).into_iter().collect()
+    }
+
     fn override_win(
         &self,
         _holder: usize,
@@ -1473,14 +1483,23 @@ impl EndgameModifier for &'static dyn Role {
         (**self).on_death(dead_seat, ctx).into_iter().collect()
     }
 
-    fn victory_claim(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        match (**self).special_victory(seat, ctx)? {
-            SpecialVictory::ForceTeam { team, announcement } => {
-                (ctx.board.effective_team(seat) == self.team())
-                    .then_some(SpecialVictory::ForceTeam { team, announcement })
-            }
-            ind @ (SpecialVictory::Independent(_) | SpecialVictory::Hunted) => Some(ind),
+    fn victory_claims(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Vec<SpecialVictory> {
+        // Respect `Role < Mark < Artifact` precedence: if a higher-priority modifier changed this
+        // seat's effective team away from the role's own team, the role's victory claims do not apply.
+        let role_team = (**self)
+            .adjust_alignment(
+                seat,
+                ctx.board,
+                EffectiveAlignment {
+                    team: self.team(),
+                    threat_team: self.threat_team(),
+                },
+            )
+            .team;
+        if ctx.board.effective_team(seat) != role_team {
+            return Vec::new();
         }
+        (**self).special_victories(seat, ctx)
     }
 
     fn override_win(

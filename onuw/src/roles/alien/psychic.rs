@@ -54,12 +54,23 @@ impl Role for Psychic {
 }
 
 impl Psychic {
-    fn roll_mode() -> PsychicMode {
-        match fastrand::u8(..100) {
-            0..=34 => PsychicMode::ChooseNeighbor,
-            35..=59 => PsychicMode::BothNeighbors,
-            60..=79 => PsychicMode::OddSeat,
-            _ => PsychicMode::EvenSeat,
+    fn roll_mode(roster: &Roster, active_seats: SeatSet) -> PsychicMode {
+        // In a 3-player game (#1, #2, #3), Seat #2 (`idx == 1`) is the ONLY even seat on the table,
+        // so `EvenSeat` has zero valid other-player targets when Seat #2 is Psychic.
+        let allow_even = !(roster.len() == 3 && active_seats.contains(1));
+        if allow_even {
+            match fastrand::u8(..100) {
+                0..=34 => PsychicMode::ChooseNeighbor,
+                35..=59 => PsychicMode::BothNeighbors,
+                60..=79 => PsychicMode::OddSeat,
+                _ => PsychicMode::EvenSeat,
+            }
+        } else {
+            match fastrand::u8(..80) {
+                0..=34 => PsychicMode::ChooseNeighbor,
+                35..=59 => PsychicMode::BothNeighbors,
+                _ => PsychicMode::OddSeat,
+            }
         }
     }
 
@@ -67,7 +78,7 @@ impl Psychic {
         let mode = ctx
             .get_key::<ForcedPsychicMode>()
             .0
-            .unwrap_or_else(Self::roll_mode);
+            .unwrap_or_else(|| Self::roll_mode(ctx.roster, active_seats));
         let effects = ctx
             .prompt_seats(&PSYCHIC, active_seats, |seat, pctx| {
                 Box::pin(Self::prompt_seat(seat, mode, pctx))
@@ -159,8 +170,7 @@ impl Psychic {
                         .await?;
                     match ans {
                         Answer::Ok(Some(t)) => SeatSet::single(t),
-                        Answer::Ok(None) => SeatSet::EMPTY,
-                        _ => SeatSet::single(unshielded.first().expect("unshielded non-empty")),
+                        _ => SeatSet::EMPTY,
                     }
                 }
             }
@@ -238,8 +248,7 @@ impl Psychic {
                         .await?;
                     match ans {
                         Answer::Ok(Some(t)) => SeatSet::single(t),
-                        Answer::Ok(None) => SeatSet::EMPTY,
-                        _ => SeatSet::single(unshielded.choose_random().expect("unshielded non-empty")),
+                        _ => SeatSet::EMPTY,
                     }
                 }
             }

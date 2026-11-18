@@ -30,8 +30,10 @@ impl Role for Mason {
 impl Mason {
     async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
         let total_masons = ctx.seats_with_role(&MASON).len();
+        let has_pre_mason_center_swap =
+            ctx.roster.deck_has_marks() || ctx.roster.deck.iter().any(|r| r.id() == "oracle");
         if let Some(solo) = active_seats.only() {
-            if ctx.roster.deck_has_marks() {
+            if has_pre_mason_center_swap {
                 ctx.dm(
                     solo,
                     irc_format!(

@@ -60,7 +60,7 @@ impl Role for Nostradamus {
             "Nostradamus",
             GameSet::Alien,
             Team::Independent,
-            "Look at up to 2 players' cards (3 at 6+ players): the LAST card you view determines your team (announced publicly right after your turn), and you MUST survive to win!",
+            "Look at up to 2 players' cards (3 at 6+ players), stopping immediately if you see a non-Village card: the LAST card you view sets your team (announced publicly), and you MUST survive to win!",
         )
         .aliases(&["nostra"])
     }
@@ -147,11 +147,21 @@ impl Role for Nostradamus {
 }
 
 impl Nostradamus {
-    fn format_adopted_banner(role: &'static dyn Role) -> Text {
-        if role.team() == Team::Independent {
+    fn format_adopted_banner(role: &'static dyn Role, board: &BoardCards) -> Text {
+        let team = role
+            .adjust_alignment(
+                0,
+                board,
+                EffectiveAlignment {
+                    team: role.team(),
+                    threat_team: None,
+                },
+            )
+            .team;
+        if team == Team::Independent {
             role.styled_name()
         } else {
-            role.team().style_text(role.team().win_label())
+            team.style_text(team.win_label())
         }
     }
 
@@ -292,7 +302,7 @@ impl Nostradamus {
                     "🔭 {} holds {} (non-Village — you MUST stop looking! Joined {})!",
                     ctx.nick(target).bold(),
                     card.display_for_peek(),
-                    Self::format_adopted_banner(role),
+                    Self::format_adopted_banner(role, ctx.board_for_peek()),
                 ));
                 break;
             }
@@ -301,14 +311,14 @@ impl Nostradamus {
                 "🔭 {} holds {} (current destiny: {})!",
                 ctx.nick(target).bold(),
                 card.display_for_peek(),
-                Self::format_adopted_banner(role),
+                Self::format_adopted_banner(role, ctx.board_for_peek()),
             ));
         }
 
         if let Some(role) = last_role {
             ctx.say(irc_format!(
                 "🔭 Destiny sealed: you join {} (and MUST survive to win)!",
-                Self::format_adopted_banner(role),
+                Self::format_adopted_banner(role, ctx.board_for_peek()),
             ));
         }
 
@@ -333,13 +343,13 @@ impl Nostradamus {
                     "🔭 {label} ({}) viewed {} — joined {}!",
                     actor_nick.bold(),
                     names.bold(),
-                    Self::format_adopted_banner(role),
+                    Self::format_adopted_banner(role, board.cards()),
                 ));
                 role
             }
             None => {
                 let picked = Self::pick_random_deck_role(rctx.roster);
-                let banner = Self::format_adopted_banner(picked);
+                let banner = Self::format_adopted_banner(picked, board.cards());
                 rctx.dm(
                     v.chosen_seat,
                     irc_format!(
@@ -355,7 +365,7 @@ impl Nostradamus {
                 picked
             }
         };
-        let banner = Self::format_adopted_banner(adopted);
+        let banner = Self::format_adopted_banner(adopted, board.cards());
         let role_title = if v.is_player_copy {
             "Doppelgänger-Nostradamus"
         } else {
@@ -404,7 +414,7 @@ impl Nostradamus {
                 destinies.set("nostradamus", picked);
                 rctx.record(irc_format!(
                     "🔭 Nostradamus (in center) randomly joined {}.",
-                    Self::format_adopted_banner(picked),
+                    Self::format_adopted_banner(picked, board.cards()),
                 ));
                 picked
             }
@@ -413,7 +423,7 @@ impl Nostradamus {
             "🔭 {} {} has joined {}!",
             "Nostradamus Prophecy:".bold().orange(),
             NOSTRADAMUS.info().styled_name(),
-            Self::format_adopted_banner(main_role),
+            Self::format_adopted_banner(main_role, board.cards()),
         ));
 
         // 2. Separate Doppelgänger-Nostradamus prophecy whenever a player-copier is in the deck
@@ -428,7 +438,7 @@ impl Nostradamus {
                         destinies.set(r.id(), decoy);
                     }
                 }
-                let decoy_banner = Self::format_adopted_banner(decoy);
+                let decoy_banner = Self::format_adopted_banner(decoy, board.cards());
                 rctx.announce(irc_format!(
                     "🔭 {} {} has joined {}!",
                     "Nostradamus Prophecy:".bold().orange(),
@@ -445,7 +455,7 @@ impl Nostradamus {
                         "🔭 {} {} has joined {}!",
                         "Nostradamus Prophecy:".bold().orange(),
                         dg_label.clone(),
-                        Self::format_adopted_banner(role),
+                        Self::format_adopted_banner(role, board.cards()),
                     ));
                 }
             }

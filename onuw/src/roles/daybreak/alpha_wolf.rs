@@ -9,8 +9,8 @@ use crate::roles::base::werewolf::{WEREWOLF, WOLF_PACK_STEP};
 pub struct AlphaWolf;
 pub static ALPHA_WOLF: AlphaWolf = AlphaWolf;
 
-#[derive(Clone, Debug)]
-struct CenterWolfCard(Card);
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct CenterWolfCard(pub(crate) Card);
 
 impl BoardKey for CenterWolfCard {
     const ACCESS: u16 = BoardAccess::CUSTOM_1;

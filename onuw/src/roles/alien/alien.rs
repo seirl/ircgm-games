@@ -149,19 +149,30 @@ impl Alien {
             }
         }
 
+        let shielded = ctx.shielded_seats();
+
         if ctx.get_key::<OracleAlienExchange>().0 {
-            if active_seats.len() >= 2 {
-                for s in active_seats {
+            let unshielded_active = active_seats - shielded;
+            if unshielded_active.len() >= 2 {
+                for s in unshielded_active {
                     ctx.dm(
                         s,
                         "🛸 Mother Ship Override (Oracle): Your Alien cards will exchange places at the end of this phase!",
                     );
                 }
-            } else if let Some(solo) = active_seats.only() {
-                ctx.dm(
-                    solo,
-                    "🛸 Mother Ship Override (Oracle): No other Alien woke to exchange cards with!",
-                );
+                for s in active_seats - unshielded_active {
+                    ctx.dm(
+                        s,
+                        "🛡️🛸 Mother Ship Override (Oracle): Your Shield blocks your Alien card from being exchanged!",
+                    );
+                }
+            } else {
+                for s in active_seats {
+                    ctx.dm(
+                        s,
+                        "🛸 Mother Ship Override (Oracle): Fewer than 2 unshielded Aliens woke — no cards can be exchanged!",
+                    );
+                }
             }
             return Ok(GroupEffect::new(move |board, rctx| {
                 Self::resolve(
@@ -174,7 +185,6 @@ impl Alien {
             }));
         }
 
-        let shielded = ctx.shielded_seats();
         let non_alien_seats = ctx.roster.all_seats() - visible_aliens;
         let non_aliens = non_alien_seats - shielded;
 
@@ -432,8 +442,7 @@ impl Alien {
             }
             AlienDirective::TractorBeam { actor, a, b } => {
                 if let Some((card_a, card_b)) = board.swap_players(actor, a, b) {
-                    board.record_card_viewers(active_seats);
-                    for s in active_seats.without(actor) {
+                    for s in active_seats {
                         ctx.dm(
                             s,
                             irc_format!(

@@ -86,4 +86,28 @@ async fn alien_tractor_beam_plurality_matches_reversed_seat_pair_order() {
     let report = h.finish_night(night).await;
     assert_eq!(report.effective_role_at(&h.roster, "Dave"), "Villager");
     assert_eq!(report.effective_role_at(&h.roster, "Eve"), "Tanner");
+    // Confirmation DM also reaches actor Bob:
+    assert!(report.dms_to("Bob").contains("Tractor Beam swapped"));
+
+    // Passing Aliens in TractorBeam do NOT trigger Aura Seer — only the swapping Alien does!
+    let mut h_aura = OnuwTestHarness::new(
+        &[
+            ("Alice", &ALIEN),
+            ("Bob", &ALIEN),
+            ("Carol", &AURA_SEER),
+            ("Dave", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h_aura.set_key(ForcedAlienEvent(Some(AlienEvent::TractorBeam)));
+    let n_aura = h_aura.spawn_night();
+    h_aura.wait_for_prompt_dm("Alice").await;
+    h_aura.wait_for_prompt_dm("Bob").await;
+    h_aura.send_dm("Bob", "pass").await;
+    h_aura.send_dm("Alice", "Carol Dave").await;
+    let rep_aura = h_aura.finish_night(n_aura).await;
+    let carol_plain = Text::parse(&rep_aura.dms_to("Carol")).plain();
+    assert!(carol_plain.contains("Alice"));
+    assert!(!carol_plain.contains("Bob"));
 }

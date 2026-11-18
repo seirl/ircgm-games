@@ -96,6 +96,16 @@ impl VillageIdiot {
                 "🤪 {actor_label} ({}) rotated {moved} unshielded cards {dir_str}.",
                 actor_nick.bold(),
             ));
+        } else {
+            ctx.dm(
+                seat,
+                "🛡️ Village Idiot: Fewer than 2 unshielded other cards could be rotated!"
+                    .yellow(),
+            );
+            ctx.record(irc_format!(
+                "🤪 {actor_label} ({}) could not rotate (< 2 unshielded other cards).",
+                actor_nick.bold(),
+            ));
         }
     }
 }

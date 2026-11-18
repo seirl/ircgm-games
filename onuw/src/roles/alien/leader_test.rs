@@ -66,4 +66,68 @@ async fn leader_unanimous_alien_point_steals_victory_and_groob_zerb_survival_win
         )
         .await;
     assert_eq!(dawn2.winner_nicks(&h2.roster), vec!["Carol"]);
+
+    // 3. Both Groob & Zerb AND Alien in play: unanimous vote (Alien + Groob + Zerb) on Leader
+    //    triggers Alien abduction win AND Leader co-wins because Groob & Zerb survived!
+    let mut h3 = OnuwTestHarness::new(
+        &[
+            ("Alice", &ALIEN),
+            ("Bob", &GROOB),
+            ("Carol", &ZERB),
+            ("Dave", &LEADER),
+            ("Eve", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h3.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
+    let n3 = h3.spawn_night();
+    let rep3 = h3.finish_night(n3).await;
+    let dawn3 = h3
+        .resolve_voting(
+            rep3,
+            &[
+                ("Alice", Some("Dave")),
+                ("Bob", Some("Dave")),
+                ("Carol", Some("Dave")),
+                ("Dave", Some("Alice")),
+                ("Eve", Some("Alice")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn3.winner_nicks(&h3.roster), vec!["Alice", "Dave"]);
+
+    // 4. Oracle [Alien Team] is on the Alien team, so her vote is ALSO required for Leader abduction!
+    use crate::roles::alien::oracle::{ForcedOracleQuestion, OracleQuestion, ORACLE};
+    let mut h4 = OnuwTestHarness::new(
+        &[
+            ("Alice", &ORACLE),
+            ("Bob", &ALIEN),
+            ("Carol", &LEADER),
+            ("Dave", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h4.set_key(ForcedOracleQuestion(Some(OracleQuestion::AlienExchange {
+        symp_on_no: true,
+    })));
+    h4.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
+    let n4 = h4.spawn_night();
+    h4.reply_dm("Alice", "no").await;
+    h4.reply_dm("Bob", "pass").await;
+    let rep4 = h4.finish_night(n4).await;
+    let dawn4 = h4
+        .resolve_voting(
+            rep4,
+            &[
+                ("Alice", Some("Bob")),   // Oracle [Alien Team] did NOT vote for Leader Carol!
+                ("Bob", Some("Carol")),   // Alien voted for Leader Carol
+                ("Carol", Some("Bob")),
+                ("Dave", Some("Bob")),
+            ],
+        )
+        .await;
+    // Bob (Alien) died and Oracle [Alien Team] didn't point at Leader -> Village (Carol, Dave) wins!
+    assert_eq!(dawn4.winner_nicks(&h4.roster), vec!["Carol", "Dave"]);
 }

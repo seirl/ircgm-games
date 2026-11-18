@@ -47,3 +47,33 @@ async fn sentinel_shield_blocks_seer_robber_and_village_idiot_from_shielded_card
     assert!(report.has_chronicle_substr("Sentinel (Alice) placed a Shield token on Bob's card."));
     assert!(report.has_chronicle_substr("Village Idiot (Eve) rotated 3 unshielded cards right."));
 }
+
+#[tokio::test(start_paused = true)]
+async fn dusk_doppelganger_copying_sentinel_wakes_once_sequentially_after_sentinel() {
+    use crate::roles::base::doppelganger::DOPPELGANGER;
+    use crate::roles::vampire::vampire::VAMPIRE;
+
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &SENTINEL),
+            ("Carol", &VAMPIRE),
+            ("Dave", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night = h.spawn_night();
+    // Dusk #-7: Alice copies Sentinel Bob; Dusk #-6: Vampire Carol marks Dave:
+    h.reply_dm("Alice", "Bob").await;
+    h.reply_dm("Carol", "Dave").await;
+    // Night #0: Sentinel Bob shields Carol; Night #1: Doppelgänger-Sentinel Alice wakes ONCE and shields Dave:
+    h.reply_dm("Bob", "Carol").await;
+    h.reply_dm("Alice", "Dave").await;
+
+    let report = h.finish_night(night).await;
+    assert_eq!(report.board.shielded_seats().len(), 2);
+    assert!(report.board.is_shielded(h.seat_of("Carol")));
+    assert!(report.board.is_shielded(h.seat_of("Dave")));
+}

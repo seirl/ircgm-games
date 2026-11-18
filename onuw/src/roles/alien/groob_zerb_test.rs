@@ -84,4 +84,25 @@ async fn groob_and_zerb_rival_win_solo_fallback_and_doppelganger_pointing_rules(
             && dave2.contains("Carol → Alice, Bob (both hands)"),
         "Dave DMs: {dave2}"
     );
+
+    // 4. Copycat + Mirror Man both copying center Groob with no Zerb in deck learn they are Alien allies:
+    use crate::roles::{super_villains::mirror_man::MIRROR_MAN, vampire::copycat::COPYCAT};
+    let mut h3 = OnuwTestHarness::new(
+        &[
+            ("Alice", &COPYCAT),
+            ("Bob", &MIRROR_MAN),
+            ("Carol", &VILLAGER),
+        ],
+        [&GROOB, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h3.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
+    let n3 = h3.spawn_night();
+    h3.reply_dm("Alice", "1").await;
+    h3.reply_dm("Bob", "1").await;
+    let rep3 = h3.finish_night(n3).await;
+    assert!(rep3
+        .dms_to("Alice")
+        .contains("you are all on the regular Alien team"));
+    assert!(!rep3.dms_to("Alice").contains("mortal nemesis"));
 }

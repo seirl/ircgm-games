@@ -318,4 +318,32 @@ async fn feared_doppelganger_nostradamus_adopts_announced_decoy_and_monster_foll
         )
         .await;
     assert_eq!(dawn2.winner_nicks(&h2.roster), vec!["Alice", "Bob"]);
+
+    // 3. Viewing a solo Groob (with Zerb in the center) announces "Alien Team!", never leaking "Groob"!
+    use crate::roles::alien::{
+        alien::{AlienEvent, ForcedAlienEvent},
+        groob_zerb::{GROOB, ZERB},
+    };
+    let mut h3 = OnuwTestHarness::new(
+        &[
+            ("Alice", &NOSTRADAMUS),
+            ("Bob", &GROOB),
+            ("Carol", &VILLAGER),
+        ],
+        [&ZERB, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h3.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
+    let n3 = h3.spawn_night();
+    h3.reply_dm("Bob", "pass").await;
+    h3.reply_dm("Alice", "Bob").await;
+    let rep3 = h3.finish_night(n3).await;
+    let plain3 = rep3
+        .channel_lines
+        .iter()
+        .map(|l| Text::parse(l).plain())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(plain3.contains("Nostradamus has joined Alien Team!"));
+    assert!(!plain3.contains("joined Groob"));
 }

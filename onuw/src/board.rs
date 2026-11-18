@@ -758,6 +758,10 @@ impl<'a> BoardMut<'a> {
         self.inner.marks[seat]
     }
 
+    pub(crate) fn cards(&self) -> &BoardCards {
+        self.inner
+    }
+
     pub fn aura_actors_excluding(&self, seat: usize) -> SeatSet {
         self.inner.viewed_or_moved_actors.without(seat)
     }

@@ -41,23 +41,25 @@ impl Role for Leader {
         cur
     }
 
-    fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        if both_groob_and_zerb_in_play(ctx.board) {
-            let gz_survive =
-                (ctx.active_holders(&GROOB) | ctx.active_holders(&ZERB)).is_disjoint(ctx.dead_seats);
-            return gz_survive.then_some(SpecialVictory::independent());
-        }
+    fn special_victories(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Vec<SpecialVictory> {
+        let mut claims = Vec::new();
 
-        let alien_threats: SeatSet = ctx
+        // ONUA rulebook: "the village team loses and the alien team wins if all players on the
+        // alien team (including Zerb and Groob, if either or both are in the game) point to the
+        // Leader, even if an alien is killed" — applies even when both Groob & Zerb are in play!
+        let alien_voters: SeatSet = ctx
             .roster
             .all_seats()
             .into_iter()
-            .filter(|&i| ctx.board.is_monster_threat_for(i, Team::Alien))
+            .filter(|&i| {
+                ctx.board.effective_team(i) == Team::Alien
+                    || ctx.board.is_monster_threat_for(i, Team::Alien)
+            })
             .collect();
 
-        if !alien_threats.is_empty() && alien_threats.into_iter().all(|a| ctx.votes[a] == Some(seat))
+        if !alien_voters.is_empty() && alien_voters.into_iter().all(|a| ctx.votes[a] == Some(seat))
         {
-            Some(SpecialVictory::force_team(
+            claims.push(SpecialVictory::force_team(
                 Team::Alien,
                 format!(
                     "🛸 All Aliens pointed at the Leader ({}) — Aliens abduct the Leader and WIN!",
@@ -65,11 +67,17 @@ impl Role for Leader {
                 )
                 .bold()
                 .yellow(),
-            ))
-        } else {
-            None
+            ));
         }
-    }
+
+        if both_groob_and_zerb_in_play(ctx.board)
+            && (ctx.active_holders(&GROOB) | ctx.active_holders(&ZERB)).is_disjoint(ctx.dead_seats)
+        {
+            claims.push(SpecialVictory::independent());
+        }
+
+        claims
+     }
 }
 
 impl Leader {

@@ -73,7 +73,6 @@ impl Curator {
     ) {
         if let Answer::Ok(Some(target)) = ans {
             if let Some(art) = board.place_random_artifact(target, &ctx.roster.deck) {
-                ctx.dm(target, art.recipient_dm());
                 ctx.record(irc_format!(
                     "🏺 {actor_label} ({}) placed {} on {}.",
                     ctx.nick(seat).bold(),

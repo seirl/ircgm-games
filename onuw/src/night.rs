@@ -808,6 +808,14 @@ pub async fn run_night_phase(
         }
     }
 
+    // Daybreak rulebook: players inspect any Artifact token on their card when everyone wakes up
+    // at Daybreak (after all Night roles, including #13-A Mortician, have completed).
+    for seat in 0..roster.len() {
+        if let Some(art) = board.artifact(seat) {
+            let _ = roster.seats[seat].user.say(art.recipient_dm());
+        }
+    }
+
     Ok((board, all_chronicle))
 }
 
@@ -826,7 +834,14 @@ fn collect_solo_or_passive_actors(
             actors.push(s);
         }
     }
-    for s in eligible {
+    // Player-copied (`Doppelgänger`) seats with `CopyTiming::Immediate` execute exclusively in
+    // `TierKind::DoppelgangerImmediate` (#1 / #-7), never in an earlier regular tier (#0 Sentinel).
+    let copier_eligible = if step.copy_timing == Some(CopyTiming::Immediate) {
+        eligible - wakers.player_copied_seats()
+    } else {
+        eligible
+    };
+    for s in copier_eligible {
         if wakers.role(s).has_step(step) && !roster.seats[s].initial_role.has_step(step) {
             actors.push(s);
         }

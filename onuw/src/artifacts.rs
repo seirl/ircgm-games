@@ -458,12 +458,12 @@ impl EndgameModifier for Artifact {
         }
     }
 
-    fn victory_claim(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+    fn victory_claims(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Vec<SpecialVictory> {
         match self {
             Artifact::CudgelOfTheTanner if ctx.is_dead(seat) => {
-                Some(SpecialVictory::independent_blocking_monsters())
+                vec![SpecialVictory::independent_blocking_monsters()]
             }
-            _ => None,
+            _ => Vec::new(),
         }
     }
 

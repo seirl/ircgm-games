@@ -1,19 +1,23 @@
 use ircgm::prelude::*;
 
-use super::henchman::{HENCHMAN, VILLAIN_PACK_STEP};
+use super::{
+    dr_peeker::DR_PEEKER,
+    henchman::{HENCHMAN, VILLAIN_PACK_STEP},
+    rapscallion::RAPSCALLION,
+};
 use crate::board::{BoardAccess, BoardKey, BoardMut, Card, SeatSet};
 use crate::role::{
     GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
 
 #[derive(Clone, Copy, Debug)]
-struct ExtraVillainCard(Card);
+pub(crate) struct ExtraVillainCard(pub(crate) Card, bool);
 
 impl BoardKey for ExtraVillainCard {
     const ACCESS: u16 = BoardAccess::CUSTOM_1;
 
     fn init() -> Self {
-        Self(Card::new(&HENCHMAN))
+        Self(Card::new(&HENCHMAN), false)
     }
 }
 
@@ -44,6 +48,7 @@ impl Role for Temptress {
                 VILLAIN_PACK_STEP,
                 WakeStep::solo(&TEMPTRESS, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .copy_on_turn()
+                    .reads(ExtraVillainCard::ACCESS)
                     .writes(BoardAccess::PLAYER_FACES | ExtraVillainCard::ACCESS),
             ]
         }
@@ -108,6 +113,14 @@ impl Temptress {
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
+        if !board.get_key::<ExtraVillainCard>().1 {
+            let fallback_villains: [&'static dyn Role; 3] = [&HENCHMAN, &DR_PEEKER, &RAPSCALLION];
+            let chosen_villain = fallback_villains
+                .into_iter()
+                .find(|&v| !ctx.roster.deck_has(v))
+                .unwrap_or(&HENCHMAN);
+            board.set_key(ExtraVillainCard(Card::new(chosen_villain), true));
+        }
         if let Some((old_card, planted)) =
             board.swap_player_with_extra::<ExtraVillainCard>(seat, target)
         {
@@ -115,21 +128,34 @@ impl Temptress {
                 ctx.dm(
                     seat,
                     irc_format!(
-                        "💋 Time's up — automatically planted the extra Villain card onto {}!",
+                        "💋 Time's up — automatically swapped the extra card onto {}!",
                         ctx.nick(target).bold(),
                     ),
                 );
             }
+            let planted_villain = planted.effective_role().team() == Team::SuperVillain;
             for v in fellow_villains {
-                ctx.dm(
-                    v,
-                    irc_format!(
-                        "💋 Syndicate Update: {} ({}) planted the extra Villain card onto {}!",
-                        actor_label.bold().red(),
-                        ctx.nick(seat).bold(),
-                        ctx.nick(target).bold(),
-                    ),
-                );
+                if planted_villain {
+                    ctx.dm(
+                        v,
+                        irc_format!(
+                            "💋 Syndicate Update: {} ({}) planted the extra Villain card onto {}!",
+                            actor_label.bold().red(),
+                            ctx.nick(seat).bold(),
+                            ctx.nick(target).bold(),
+                        ),
+                    );
+                } else {
+                    ctx.dm(
+                        v,
+                        irc_format!(
+                            "💋 Syndicate Update: {} ({}) swapped the perpendicular card onto {}!",
+                            actor_label.bold().red(),
+                            ctx.nick(seat).bold(),
+                            ctx.nick(target).bold(),
+                        ),
+                    );
+                }
             }
             ctx.record(irc_format!(
                 "💋 {actor_label} ({}) planted {} onto {} (replacing {}).",

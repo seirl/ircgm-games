@@ -46,6 +46,7 @@ impl Count {
             .filter(|&i| ctx.mark_at(i) != Mark::Vampire)
             .collect();
         if valid_targets.is_empty() {
+            ctx.say("🦇 The Count: No valid non-Vampire targets are available tonight!");
             return Ok(SeatEffect::noop());
         }
 

@@ -48,6 +48,9 @@ impl Vampire {
         let non_vampires = ctx.roster.all_seats() - full_coven;
 
         if non_vampires.is_empty() {
+            for s in active_seats {
+                ctx.dm(s, "🧛 Vampire Coven: Everyone at the table is already a Vampire!");
+            }
             return Ok(GroupEffect::noop());
         }
 

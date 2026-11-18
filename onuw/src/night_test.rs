@@ -506,6 +506,75 @@ async fn epic_battle_eliminates_runner_up_and_tanner_blocks_forced_team_victory(
         )
         .await;
     assert_eq!(dawn_lead.winner_nicks(&h_lead.roster), vec!["Carol"]);
+
+    // 3. Epic Battle with Bodyguard shielding the 3-vote leader still executes the 1-vote runner-up,
+    //    blocked Hunter shots announce both shot + shield, and 2 monster teams with 0 Villagers require a rival kill!
+    use crate::roles::daybreak::bodyguard::BODYGUARD;
+    let mut h_bg = OnuwTestHarness::new(
+        &[
+            ("Alice", &BODYGUARD),
+            ("Bob", &WEREWOLF),
+            ("Carol", &VAMPIRE),
+            ("Dave", &HUNTER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_bg = h_bg.spawn_night();
+    h_bg.reply_dm("Carol", "Dave").await;
+    h_bg.reply_dm("Bob", "pass").await;
+    let mut rep_bg = h_bg.finish_night(n_bg).await;
+    let dave_idx = h_bg.seat_of("Dave");
+    rep_bg.board.set_mark_for_test(dave_idx, Mark::Clarity);
+    // Votes: Bob gets 3 (shielded by Bodyguard Alice!), Dave (Hunter, pointing at shielded Bob) gets 1:
+    // Epic Battle still executes 1-vote runner-up Dave, and Dave's Hunter shot at Bob announces blocked shot + shield!
+    let dawn_bg = h_bg
+        .resolve_voting(
+            rep_bg,
+            &[
+                ("Alice", Some("Bob")),
+                ("Bob", Some("Dave")),
+                ("Carol", Some("Bob")),
+                ("Dave", Some("Bob")),
+            ],
+        )
+        .await;
+    assert_eq!(
+        dawn_bg
+            .dead_nicks(&h_bg.roster)
+            .into_iter()
+            .collect::<Vec<_>>(),
+        vec!["Dave".to_owned()]
+    );
+    let chan_bg = dawn_bg.channel_text();
+    assert!(chan_bg.contains("fired at"));
+    assert!(chan_bg.contains("shielded"));
+
+    // 4. All-monster table (2 Werewolves vs 1 Vampire, 0 non-monsters) on a 1-1-1 circle vote -> nobody wins!
+    let mut h_allm = OnuwTestHarness::new(
+        &[
+            ("Alice", &WEREWOLF),
+            ("Bob", &WEREWOLF),
+            ("Carol", &VAMPIRE),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_allm = h_allm.spawn_night();
+    h_allm.reply_dm("Carol", "Alice").await;
+    let mut rep_allm = h_allm.finish_night(n_allm).await;
+    rep_allm.board.set_mark_for_test(0, Mark::Clarity);
+    let dawn_allm = h_allm
+        .resolve_voting(
+            rep_allm,
+            &[
+                ("Alice", Some("Bob")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Alice")),
+            ],
+        )
+        .await;
+    assert!(dawn_allm.winner_nicks(&h_allm.roster).is_empty());
 }
 
 #[tokio::test(start_paused = true)]
