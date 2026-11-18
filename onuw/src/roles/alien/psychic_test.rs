@@ -22,11 +22,40 @@ async fn psychic_both_neighbors_and_even_seat_modes_read_minds_and_show_visible_
     let night = h.spawn_night();
     h.reply_dm("Alice", "Dave").await;
     h.reply_dm("Bob", "pass").await;
+    h.reply_dm("Carol", "both").await;
     let report = h.finish_night(night).await;
     let carol_plain = Text::parse(&report.dms_to("Carol")).plain();
     assert!(carol_plain.contains("Dave🛡"));
     assert!(carol_plain.contains("Bob holds Seer"));
     assert!(!carol_plain.contains("Dave holds Tanner"));
+
+    // 1b. BothNeighbors mode supports explicit `pass` and timeout without triggering Aura Seer:
+    use crate::roles::daybreak::aura_seer::AURA_SEER;
+    for explicit_pass in [true, false] {
+        let mut hp = OnuwTestHarness::new(
+            &[
+                ("Alice", &AURA_SEER),
+                ("Bob", &SEER),
+                ("Carol", &PSYCHIC),
+                ("Dave", &TANNER),
+            ],
+            [&VILLAGER, &VILLAGER, &VILLAGER],
+        )
+        .await;
+        hp.set_key(ForcedPsychicMode(Some(PsychicMode::BothNeighbors)));
+        let np = hp.spawn_night();
+        hp.reply_dm("Bob", "pass").await;
+        if explicit_pass {
+            hp.reply_dm("Carol", "pass").await;
+        }
+        let repp = hp.finish_night(np).await;
+        let carol_p = Text::parse(&repp.dms_to("Carol")).plain();
+        assert!(!carol_p.contains("Bob holds Seer"));
+        assert!(!carol_p.contains("Dave holds Tanner"));
+        assert!(repp
+            .dms_to("Alice")
+            .contains("Nobody else viewed or moved any cards"));
+    }
 
     // 2. EvenSeat mode:
     let mut h2 = OnuwTestHarness::new(
@@ -47,7 +76,6 @@ async fn psychic_both_neighbors_and_even_seat_modes_read_minds_and_show_visible_
 
     // 3. Timed-out Psychic views nothing (does NOT trigger Aura Seer), and 3p games never roll EvenSeat
     //    regardless of which seat (or center) holds Psychic:
-    use crate::roles::daybreak::aura_seer::AURA_SEER;
     for seat2_psychic in [true, false] {
         for _ in 0..15 {
             let seats: &[(&str, &'static dyn crate::role::Role)] = if seat2_psychic {
@@ -63,6 +91,11 @@ async fn psychic_both_neighbors_and_even_seat_modes_read_minds_and_show_visible_
                 .channel_lines
                 .join("\n")
                 .contains("EVEN-numbered player's card"));
+            if seat2_psychic {
+                assert!(rep3
+                    .dms_to("Alice")
+                    .contains("Nobody else viewed or moved any cards"));
+            }
         }
     }
 

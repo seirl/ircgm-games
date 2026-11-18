@@ -45,7 +45,6 @@ async fn oracle_center_conversions_satisfy_4c_and_4d_with_copycat_and_drunk() {
 
     let n_4c = h_4c.spawn_night();
     h_4c.reply_dm("Alice", "1").await;
-    h_4c.reply_dm("Dave", "pass").await;
     h_4c.reply_dm("Bob", "1").await;
     let rep_4c = h_4c.finish_night(n_4c).await;
 
@@ -103,7 +102,6 @@ async fn oracle_center_conversions_satisfy_4c_and_4d_with_copycat_and_drunk() {
     let n_4d = h_4d.spawn_night();
     h_4d.reply_dm("Alice", "no").await;
     h_4d.reply_dm("Carol", "1").await;
-    h_4d.reply_dm("Eve", "pass").await;
     h_4d.reply_dm("Bob", "1").await;
     h_4d.reply_dm("Bob", "Alice").await;
     h_4d.reply_dm("Dave", "1").await;

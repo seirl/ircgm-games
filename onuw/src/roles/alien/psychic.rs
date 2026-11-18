@@ -113,10 +113,49 @@ impl Psychic {
 
         let targets: SeatSet = match mode {
             PsychicMode::BothNeighbors => {
-                ctx.say(
-                    "🧠 Psychic: Cosmic signals are AMPLIFIED — reading BOTH neighbors' minds! Vision arrives when the phase ends.",
-                );
-                SeatSet::from([left, right])
+                let unshielded = SeatSet::from([left, right]) - view.shielded_seats();
+                if unshielded.is_empty() {
+                    ctx.say(
+                        "🛡️ Psychic: Both neighboring cards are shielded — you cannot read either mind tonight!"
+                            .yellow(),
+                    );
+                    SeatSet::EMPTY
+                } else {
+                    let left_nick = roster.seats[left].user.nick();
+                    let right_nick = roster.seats[right].user.nick();
+                    let prompt = irc_format!(
+                        "🧠 Psychic: Cosmic signals are AMPLIFIED — you may read BOTH neighbors' minds ({left_nick} & {right_nick})! Reply {} (or {}) to read, or {}!",
+                        "both".bold(),
+                        "yes".bold(),
+                        "pass".bold(),
+                    );
+                    let ans = ctx
+                        .ask(prompt, |m| {
+                            let raw = m.text.trim();
+                            if Roster::is_pass(raw) {
+                                AskMatch::accept_say(
+                                    false,
+                                    "🧠 Passed — keeping your mind closed.",
+                                )
+                            } else if matches!(
+                                raw.to_ascii_lowercase().as_str(),
+                                "both" | "yes" | "y" | "peek" | "view" | "read"
+                            ) {
+                                AskMatch::accept_say(
+                                    true,
+                                    "🧠 Locked in reading neighboring minds — vision arrives when the phase ends!",
+                                )
+                            } else {
+                                AskMatch::reject("Reply both, yes, or pass.".yellow())
+                            }
+                        })
+                        .await?;
+                    if ans.ok() == Some(true) {
+                        unshielded
+                    } else {
+                        SeatSet::EMPTY
+                    }
+                }
             }
             PsychicMode::ChooseNeighbor => {
                 let unshielded = SeatSet::from([left, right]) - view.shielded_seats();

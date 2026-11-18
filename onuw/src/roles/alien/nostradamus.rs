@@ -131,15 +131,36 @@ impl Role for Nostradamus {
             votes: ctx.votes,
             dead_seats: ctx.dead_seats,
         };
-        let co_won = match adopted.special_victory(holder, &vctx) {
-            Some(SpecialVictory::WithTeam(t)) => ctx.winning_teams.contains(&t),
-            _ => ctx
-                .board
-                .active_holders(adopted)
-                .into_iter()
-                .any(|s| winners.contains_key(&s)),
+        if let Some(SpecialVictory::WithTeam(t)) = adopted.special_victory(holder, &vctx) {
+            if ctx.winning_teams.contains(&t) {
+                winners.insert(holder, "Nostradamus");
+            }
+            return;
+        }
+        if adopted.id() == "oracle_hunted" {
+            if ctx.board.active_holders(adopted).is_disjoint(ctx.dead_seats) {
+                winners.insert(holder, "Nostradamus");
+            } else {
+                winners.remove(&holder);
+            }
+            return;
+        }
+        if winners.get(&holder) == Some(&"Oracle Slain") {
+            return;
+        }
+        let is_hunted_card = |r: &'static dyn Role| {
+            matches!(r.special_victory(0, &vctx), Some(SpecialVictory::Hunted))
         };
-        if co_won {
+        let hunted_in_play = (0..ctx.roster.len()).any(|s| {
+            !ctx.board.has_role_override_artifact(s)
+                && ctx.board.mark(s) != Mark::Vampire
+                && is_hunted_card(ctx.board.player_card(s).effective_role())
+        }) || (0..3).any(|c| is_hunted_card(ctx.board.center_card(c).effective_role()));
+        if hunted_in_play {
+            return;
+        }
+
+        if Self::adopted_independent_won(adopted, holder, &vctx, winners) {
             winners.insert(holder, "Nostradamus");
         }
     }
@@ -157,6 +178,40 @@ impl Role for Nostradamus {
 }
 
 impl Nostradamus {
+    fn adopted_independent_won(
+        adopted: &'static dyn Role,
+        holder: usize,
+        vctx: &VictoryCtx<'_>,
+        winners: &WinnerMap,
+    ) -> bool {
+        use crate::artifacts::Artifact;
+
+        let active = vctx.active_holders(adopted);
+        if !active.is_empty() {
+            return active.into_iter().any(|s| winners.contains_key(&s));
+        }
+
+        match adopted.id() {
+            "tanner" => (0..vctx.roster.len()).any(|s| {
+                vctx.board.artifact(s) == Some(Artifact::CudgelOfTheTanner)
+                    && vctx.dead_seats.contains(s)
+            }),
+            "blob" | "family_man" | "mortician" => {
+                let card_seats: SeatSet = (0..vctx.roster.len())
+                    .filter(|&i| vctx.board.player_card(i).effective_role().id() == adopted.id())
+                    .collect();
+                if !card_seats.is_empty() {
+                    card_seats
+                        .into_iter()
+                        .any(|s| adopted.special_victory(s, vctx).is_some())
+                } else {
+                    adopted.special_victory(holder, vctx).is_some()
+                }
+            }
+            _ => adopted.special_victory(holder, vctx).is_some(),
+        }
+    }
+
     fn format_adopted_banner(role: &'static dyn Role, board: &BoardCards) -> Text {
         let team = role
             .adjust_alignment(

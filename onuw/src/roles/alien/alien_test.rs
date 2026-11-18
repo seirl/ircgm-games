@@ -5,8 +5,8 @@ use crate::roles::{
         alien::{AlienEvent, ForcedAlienEvent, ALIEN, SYNTHETIC_ALIEN},
         groob_zerb::{GROOB, ZERB},
     },
-    base::{seer::SEER, tanner::TANNER, villager::VILLAGER},
-    daybreak::aura_seer::AURA_SEER,
+    base::{seer::SEER, villager::VILLAGER},
+    daybreak::{aura_seer::AURA_SEER, sentinel::SENTINEL},
 };
 use crate::testing::OnuwTestHarness;
 
@@ -61,53 +61,88 @@ async fn alien_bioscan_silent_point_aura_seer_tracking_and_synthetic_alien_solo_
 }
 
 #[tokio::test(start_paused = true)]
-async fn alien_tractor_beam_plurality_matches_reversed_seat_pair_order() {
-    let mut h = OnuwTestHarness::new(
+async fn alien_pass_left_pass_right_and_solo_standard_recon_match_official_directives() {
+    // 1. PassRight rotates unshielded waking Aliens one step RIGHT (Alice -> Bob -> Carol -> Alice),
+    //    skips Sentinel-shielded Alien Dave, and records ONLY the unshielded rotating Aliens for Aura Seer:
+    let mut h_right = OnuwTestHarness::new(
         &[
             ("Alice", &ALIEN),
-            ("Bob", &GROOB),
-            ("Carol", &ZERB),
-            ("Dave", &TANNER),
-            ("Eve", &VILLAGER),
+            ("Bob", &SYNTHETIC_ALIEN),
+            ("Carol", &GROOB),
+            ("Dave", &ZERB),
+            ("Eve", &SENTINEL),
+            ("Frank", &AURA_SEER),
         ],
         [&VILLAGER, &VILLAGER, &VILLAGER],
     )
     .await;
-    h.set_key(ForcedAlienEvent(Some(AlienEvent::TractorBeam)));
+    h_right.set_key(ForcedAlienEvent(Some(AlienEvent::PassRight)));
+    let n_right = h_right.spawn_night();
+    h_right.reply_dm("Eve", "Dave").await; // Shield Dave's Zerb card!
+    let rep_right = h_right.finish_night(n_right).await;
 
-    let night = h.spawn_night();
-    h.wait_for_prompt_dm("Alice").await;
-    h.wait_for_prompt_dm("Bob").await;
-    h.wait_for_prompt_dm("Carol").await;
-    h.send_dm("Bob", "Eve Dave").await;
-    h.send_dm("Alice", "Dave Eve").await;
-    h.send_dm("Carol", "pass").await;
+    assert_eq!(rep_right.effective_role_at(&h_right.roster, "Alice"), "Groob");
+    assert_eq!(rep_right.effective_role_at(&h_right.roster, "Bob"), "Alien");
+    assert_eq!(
+        rep_right.effective_role_at(&h_right.roster, "Carol"),
+        "Synthetic Alien"
+    );
+    assert_eq!(rep_right.effective_role_at(&h_right.roster, "Dave"), "Zerb");
 
-    let report = h.finish_night(night).await;
-    assert_eq!(report.effective_role_at(&h.roster, "Dave"), "Villager");
-    assert_eq!(report.effective_role_at(&h.roster, "Eve"), "Tanner");
-    // Confirmation DM also reaches actor Bob:
-    assert!(report.dms_to("Bob").contains("Tractor Beam swapped"));
+    let frank_plain = Text::parse(&rep_right.dms_to("Frank")).plain();
+    assert!(
+        frank_plain.contains("Players who viewed or moved a card tonight: Alice, Bob, Carol"),
+        "got: {frank_plain}"
+    );
+    assert!(
+        !frank_plain.contains("Alice, Bob, Carol, Dave"),
+        "got: {frank_plain}"
+    );
 
-    // Passing Aliens in TractorBeam do NOT trigger Aura Seer — only the swapping Alien does!
-    let mut h_aura = OnuwTestHarness::new(
+    // 2. PassLeft rotates unshielded waking Aliens one step LEFT (Alice -> Carol -> Bob -> Alice):
+    let mut h_left = OnuwTestHarness::new(
         &[
             ("Alice", &ALIEN),
-            ("Bob", &ALIEN),
-            ("Carol", &AURA_SEER),
+            ("Bob", &SYNTHETIC_ALIEN),
+            ("Carol", &GROOB),
             ("Dave", &VILLAGER),
         ],
         [&VILLAGER, &VILLAGER, &VILLAGER],
     )
     .await;
-    h_aura.set_key(ForcedAlienEvent(Some(AlienEvent::TractorBeam)));
-    let n_aura = h_aura.spawn_night();
-    h_aura.wait_for_prompt_dm("Alice").await;
-    h_aura.wait_for_prompt_dm("Bob").await;
-    h_aura.send_dm("Bob", "pass").await;
-    h_aura.send_dm("Alice", "Carol Dave").await;
-    let rep_aura = h_aura.finish_night(n_aura).await;
-    let carol_plain = Text::parse(&rep_aura.dms_to("Carol")).plain();
-    assert!(carol_plain.contains("Alice"));
-    assert!(!carol_plain.contains("Bob"));
+    h_left.set_key(ForcedAlienEvent(Some(AlienEvent::PassLeft)));
+    let n_left = h_left.spawn_night();
+    let rep_left = h_left.finish_night(n_left).await;
+
+    assert_eq!(
+        rep_left.effective_role_at(&h_left.roster, "Alice"),
+        "Synthetic Alien"
+    );
+    assert_eq!(rep_left.effective_role_at(&h_left.roster, "Bob"), "Groob");
+    assert_eq!(rep_left.effective_role_at(&h_left.roster, "Carol"), "Alien");
+
+    // 3. Fewer than 2 unshielded waking Aliens on PassLeft/PassRight AND solo StandardRecon are no-ops
+    //    (no center peek prompt and zero Aura Seer views):
+    for ev in [
+        AlienEvent::StandardRecon,
+        AlienEvent::PassLeft,
+        AlienEvent::PassRight,
+    ] {
+        let mut h_solo = OnuwTestHarness::new(
+            &[
+                ("Alice", &ALIEN),
+                ("Bob", &AURA_SEER),
+                ("Carol", &VILLAGER),
+            ],
+            [&SEER, &VILLAGER, &VILLAGER],
+        )
+        .await;
+        h_solo.set_key(ForcedAlienEvent(Some(ev)));
+        let ns = h_solo.spawn_night();
+        let reps = h_solo.finish_night(ns).await;
+        assert!(!reps.dms_to("Alice").contains("Center #"));
+        assert!(reps
+            .dms_to("Bob")
+            .contains("Nobody else viewed or moved any cards"));
+    }
 }

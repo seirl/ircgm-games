@@ -19,7 +19,6 @@ async fn cow_feels_hoof_tap_when_adjacent_to_waking_alien_and_aliens_spot_cow() 
     h.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
 
     let night = h.spawn_night();
-    h.reply_dm("Alice", "1").await;
     let report = h.finish_night(night).await;
 
     assert!(report.dms_to("Bob").contains("*TAP!*"));

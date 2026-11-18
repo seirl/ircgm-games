@@ -608,7 +608,10 @@ async fn bow_cloak_and_sword_artifacts_override_roles_and_marks_and_interact_cle
 async fn mist_of_the_vampire_alien_artifact_and_dagger_of_the_traitor_work_across_expansions() {
     use crate::marks::Mark;
     use crate::roles::{
-        alien::{alien::ALIEN, leader::LEADER},
+        alien::{
+            alien::{AlienEvent, ForcedAlienEvent, ALIEN},
+            leader::LEADER,
+        },
         daybreak::cursed::CURSED,
         vampire::{renfield::RENFIELD, the_master::THE_MASTER},
     };
@@ -663,8 +666,8 @@ async fn mist_of_the_vampire_alien_artifact_and_dagger_of_the_traitor_work_acros
         [&VILLAGER, &VILLAGER, &VILLAGER],
     )
     .await;
+    h_alien.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
     let n_alien = h_alien.spawn_night();
-    h_alien.reply_dm("Alice", "pass").await;
     let mut rep_alien = h_alien.finish_night(n_alien).await;
     rep_alien
         .board

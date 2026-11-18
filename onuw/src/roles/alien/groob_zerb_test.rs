@@ -37,13 +37,13 @@ async fn groob_and_zerb_rival_win_solo_fallback_and_doppelganger_pointing_rules(
         .await;
     assert_eq!(dawn.winner_nicks(&h.roster), vec!["Bob", "Dave"]);
 
-    // 2. Solo Groob (Zerb in center) gets Lone Alien center peek and plays on Team::Alien:
+    // 2. Solo Groob (Zerb in center) gets CenterProbe when rolled and plays on Team::Alien:
     let mut h1 = OnuwTestHarness::new(
         &[("Alice", &GROOB), ("Bob", &VILLAGER), ("Carol", &VILLAGER)],
         [&ZERB, &SEER, &VILLAGER],
     )
     .await;
-    h1.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
+    h1.set_key(ForcedAlienEvent(Some(AlienEvent::CenterProbe)));
     let night1 = h1.spawn_night();
     h1.reply_dm("Alice", "2").await;
     let report1 = h1.finish_night(night1).await;
@@ -85,13 +85,14 @@ async fn groob_and_zerb_rival_win_solo_fallback_and_doppelganger_pointing_rules(
         "Dave DMs: {dave2}"
     );
 
-    // 4. Copycat + Mirror Man both copying center Groob with no Zerb in deck learn they are Alien allies:
+    // 4. Copycat + Mirror Man both copying center Groob with no Zerb in deck learn they are Alien allies,
+    //    and raise thumbs to Leader rather than faking Groob/Zerb rivalry pointing:
     use crate::roles::{super_villains::mirror_man::MIRROR_MAN, vampire::copycat::COPYCAT};
     let mut h3 = OnuwTestHarness::new(
         &[
             ("Alice", &COPYCAT),
             ("Bob", &MIRROR_MAN),
-            ("Carol", &VILLAGER),
+            ("Carol", &LEADER),
         ],
         [&GROOB, &VILLAGER, &VILLAGER],
     )
@@ -105,4 +106,10 @@ async fn groob_and_zerb_rival_win_solo_fallback_and_doppelganger_pointing_rules(
         .dms_to("Alice")
         .contains("you are all on the regular Alien team"));
     assert!(!rep3.dms_to("Alice").contains("mortal nemesis"));
+    let carol3 = Text::parse(&rep3.dms_to("Carol")).plain();
+    assert!(
+        carol3.contains("The Aliens are Alice, Bob"),
+        "Carol DMs: {carol3}"
+    );
+    assert!(!carol3.contains("pointing"), "Carol DMs: {carol3}");
 }

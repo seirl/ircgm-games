@@ -60,7 +60,9 @@ async fn curator_can_place_artifact_on_face_up_card_flipped_by_revealer() {
 async fn curator_gates_drawn_artifacts_by_deck_monster_factions() {
     use crate::artifacts::Artifact;
     use crate::roles::{
-        alien::alien::ALIEN, super_villains::temptress::TEMPTRESS, vampire::vampire::VAMPIRE,
+        alien::alien::{AlienEvent, ForcedAlienEvent, ALIEN},
+        super_villains::temptress::TEMPTRESS,
+        vampire::vampire::VAMPIRE,
     };
 
     // 1. Super Villains + Curator (`Temptress`, 0 Werewolves/Vampires/Aliens):
@@ -96,9 +98,9 @@ async fn curator_gates_drawn_artifacts_by_deck_monster_factions() {
             [&VILLAGER, &VILLAGER, &VILLAGER],
         )
         .await;
+        h_va.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
         let n_va = h_va.spawn_night();
         h_va.reply_dm("Bob", "Alice").await;
-        h_va.reply_dm("Carol", "pass").await;
         h_va.reply_dm("Alice", "Bob").await;
         let rep_va = h_va.finish_night(n_va).await;
         let placed = rep_va.artifact_at(&h_va.roster, "Bob").unwrap();

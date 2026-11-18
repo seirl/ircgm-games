@@ -26,12 +26,20 @@ pub(super) fn both_groob_and_zerb_in_play(board: &BoardCards) -> bool {
 }
 
 /// Computes who each waking `#1D` participant points at during `#3C Leader`:
-/// each participant points at every *other* `#1D` open-eyed player except a player they
-/// personally copied via `Doppelgänger` (whom they already know shares their own role).
+/// only when BOTH at least one `Groob` and at least one `Zerb` woke at `#1D`, each participant
+/// points at every *other* `#1D` open-eyed player except a player they personally copied via
+/// `Doppelgänger` (whom they already know shares their own role). If only `Groob`(s) or only
+/// `Zerb`(s) woke (e.g., `Copycat` + `Mirror Man` copying center `Groob` without `Zerb`), nobody
+/// points so they raise thumbs as regular Aliens instead of faking rivalry to `Leader`.
 pub(super) fn groob_zerb_pointers(
-    gz_awake: SeatSet,
+    groob_awake: SeatSet,
+    zerb_awake: SeatSet,
     copied_from: impl Fn(usize) -> Option<usize>,
 ) -> Vec<(usize, SeatSet)> {
+    if groob_awake.is_empty() || zerb_awake.is_empty() {
+        return Vec::new();
+    }
+    let gz_awake = groob_awake | zerb_awake;
     gz_awake
         .into_iter()
         .filter_map(|s| {

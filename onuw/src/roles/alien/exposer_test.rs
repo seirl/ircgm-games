@@ -22,7 +22,6 @@ async fn exposer_all_or_nothing_flips_center_cards_visible_to_later_wakers() {
     h.set_key(ForcedExposerCount(Some(2)));
 
     let night = h.spawn_night();
-    h.reply_dm("Carol", "3").await;
     h.wait_for_prompt_dm("Alice").await;
     h.send_dm("Alice", "1").await;
     let rej = h.wait_for_new_dm("Alice").await;

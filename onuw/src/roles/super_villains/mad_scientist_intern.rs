@@ -58,7 +58,7 @@ impl Role for Intern {
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        let scientists = ctx.role_card_holders(&MAD_SCIENTIST);
+        let scientists = ctx.active_holders(&MAD_SCIENTIST).without(seat);
         let won = if scientists.is_empty() {
             ctx.is_dead(seat)
         } else {

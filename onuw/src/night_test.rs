@@ -8,8 +8,12 @@ use crate::night::{build_deck_schedule, format_role_order, NightTimings, TierPha
 use crate::role::{Role, Team};
 use crate::roles::{
     alien::{
-        alien::ALIEN, blob::BLOB, cow::COW, groob_zerb::{GROOB, ZERB}, leader::LEADER,
-        mortician::MORTICIAN,
+        alien::{AlienEvent, ForcedAlienEvent, ALIEN},
+        blob::BLOB,
+        cow::COW,
+        groob_zerb::{GROOB, ZERB},
+        leader::LEADER,
+        mortician::{ForcedMorticianMode, MorticianMode, MORTICIAN},
     },
     base::{
         doppelganger::DOPPELGANGER, hunter::HUNTER, insomniac::INSOMNIAC, robber::ROBBER,
@@ -489,8 +493,8 @@ async fn epic_battle_eliminates_runner_up_and_tanner_blocks_forced_team_victory(
         [&VILLAGER, &VILLAGER, &VILLAGER],
     )
     .await;
+    h_lead.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
     let n_lead = h_lead.spawn_night();
-    h_lead.reply_dm("Alice", "pass").await;
     let rep_lead = h_lead.finish_night(n_lead).await;
 
     // Alien Alice points at Leader Bob, while Bob & Dave execute Tanner Carol (2 votes):
@@ -795,6 +799,8 @@ async fn tabletop_visibility_omits_empty_dms_shows_markers_to_eyes_open_and_hide
         [&VILLAGER, &VILLAGER, &VILLAGER],
     )
     .await;
+    h.set_key(ForcedAlienEvent(Some(AlienEvent::CenterProbe)));
+    h.set_key(ForcedMorticianMode(Some(MorticianMode::ChooseNeighbor)));
 
     let night = h.spawn_night();
     // Tier 1 (#0): Sentinel Alice shields Bob:
@@ -949,10 +955,10 @@ async fn epic_battle_requires_third_faction_and_traitor_applies_after_artifact_a
         [&VILLAGER, &VILLAGER, &VILLAGER],
     )
     .await;
+    h2.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
     let n2 = h2.spawn_night();
     h2.reply_dm("Alice", "Dave").await; // Vampire Coven marks Dave
     h2.reply_dm("Alice", "Bob").await; // Count places Mark::Fear on Cow Bob!
-    h2.reply_dm("Carol", "pass").await; // Alien Carol does NOT see feared Cow Bob!
     h2.reply_dm("Eve", "pass").await;
     let mut rep2 = h2.finish_night(n2).await;
     assert!(!rep2.dms_to("Carol").contains("holds the Cow card"));

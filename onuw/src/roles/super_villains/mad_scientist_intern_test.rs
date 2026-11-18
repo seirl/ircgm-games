@@ -37,9 +37,12 @@ async fn mad_scientist_and_intern_co_win_blocking_all_teams_even_when_villain_al
 }
 
 #[tokio::test(start_paused = true)]
-async fn intern_wins_when_vampire_bitten_mad_scientist_is_killed() {
+async fn vampire_bitten_mad_scientist_leaves_intern_responsible_for_the_lab() {
     use crate::roles::vampire::vampire::VAMPIRE;
 
+    // 1. Bob (Mad Scientist) receives Mark::Vampire in Dusk, becoming a Vampire threat (no active
+    //    Mad Scientist remains). Executing Bob kills a Vampire: Village (Dave) wins, while surviving
+    //    Intern (Carol) neither wins nor blocks Village.
     let mut h = OnuwTestHarness::new(
         &[
             ("Alice", &VAMPIRE),
@@ -67,5 +70,35 @@ async fn intern_wins_when_vampire_bitten_mad_scientist_is_killed() {
             ],
         )
         .await;
-    assert_eq!(dawn.winner_nicks(&h.roster), vec!["Carol"]);
+    assert_eq!(dawn.winner_nicks(&h.roster), vec!["Dave"]);
+
+    // 2. Same setup, but Carol (Intern) gets executed instead: because no player is an active
+    //    Mad Scientist, Intern wins solo just like Mad Scientist and blocks all teams.
+    let mut h2 = OnuwTestHarness::new(
+        &[
+            ("Alice", &VAMPIRE),
+            ("Bob", &MAD_SCIENTIST),
+            ("Carol", &INTERN),
+            ("Dave", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+
+    let night2 = h2.spawn_night();
+    h2.reply_dm("Alice", "Bob").await;
+    let report2 = h2.finish_night(night2).await;
+
+    let dawn2 = h2
+        .resolve_voting(
+            report2,
+            &[
+                ("Alice", Some("Carol")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Bob")),
+                ("Dave", Some("Carol")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn2.winner_nicks(&h2.roster), vec!["Carol"]);
 }

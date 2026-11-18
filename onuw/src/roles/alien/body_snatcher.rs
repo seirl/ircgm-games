@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::alien::ALIEN_PACK_STEP;
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
+use crate::board::{BoardAccess, BoardKey, BoardMut, Roster};
 use crate::role::{
     GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
@@ -156,17 +156,7 @@ impl BodySnatcher {
                     );
                     SnatchAction::Blocked("self shielded")
                 } else {
-                    let snap = ctx.board_for_peek();
-                    let current_alien_cards: SeatSet = ctx
-                        .roster
-                        .all_seats()
-                        .into_iter()
-                        .filter(|&i| {
-                            snap.player_card(i).effective_role().night_faction()
-                                == Some(NightFaction::Alien)
-                        })
-                        .collect();
-                    let aliens = ctx.known_pack_mates(NightFaction::Alien) | current_alien_cards;
+                    let aliens = ctx.known_pack_mates(NightFaction::Alien);
                     let eligible =
                         (ctx.roster.all_seats() - aliens - ctx.shielded_seats()).without(seat);
                     if eligible.is_empty() {

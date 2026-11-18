@@ -2,9 +2,7 @@ use ircgm::prelude::*;
 
 use super::oracle::OracleAlienExchange;
 use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
-use crate::pointing::{
-    parse_single_player_point, parse_two_player_point, silent_point, SeatPair,
-};
+use crate::pointing::{parse_single_player_point, silent_point};
 use crate::role::{
     GameSet, GroupEffect, GroupPromptCtx, NightFaction, ResolveCtx, Role, RoleInfo, SpecialVictory,
     Team, VictoryCtx, WakeStep,
@@ -24,13 +22,15 @@ pub(crate) const ALIEN_PACK_STEP: WakeStep = WakeStep::pack(
 /// Per-game randomized Mother Ship event rolled for `#1A Aliens`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AlienEvent {
-    /// Standard ONUA Alien wake: recognize fellow Aliens, or Lone Alien 1-center peek.
+    /// Standard ONUA Alien wake (`Stare`): recognize fellow Aliens (no solo center peek).
     StandardRecon,
-    /// Mother Ship Bio-Scan: view 1 unshielded non-Alien player's card together.
+    /// Mother Ship Bio-Scan (`View Player`): view 1 unshielded non-Alien player's card together.
     BioScan,
-    /// Mother Ship Tractor Beam: swap 2 unshielded non-Alien players' cards.
-    TractorBeam,
-    /// Mother Ship Center Probe: view 1 center card together.
+    /// Mother Ship Left Rotation (`Left`): each unshielded waking Alien passes their card to the waking Alien on their left.
+    PassLeft,
+    /// Mother Ship Right Rotation (`Right`): each unshielded waking Alien passes their card to the waking Alien on their right.
+    PassRight,
+    /// Mother Ship Center Probe (`View Center`): view 1 center card together.
     CenterProbe,
 }
 
@@ -49,16 +49,15 @@ impl BoardKey for ForcedAlienEvent {
 enum AlienPointChoice {
     Pass,
     Scan(usize),
-    Beam(SeatPair),
     Probe(usize),
 }
 
 enum AlienDirective {
     None,
     ForcedOracleExchange,
+    RotateCards { pass_right: bool },
     Scan { actor: usize, target: usize },
-    TractorBeam { actor: usize, a: usize, b: usize },
-    CenterProbe { actor: usize, slot: usize, lone: bool },
+    CenterProbe { actor: usize, slot: usize },
 }
 
 impl Role for Alien {
@@ -68,7 +67,7 @@ impl Role for Alien {
             "Alien",
             GameSet::Alien,
             Team::Alien,
-            "Wake with the Aliens to recognize each other and carry out the rolled Mother Ship event (recon, bio-scan, tractor beam, or center probe)!",
+            "Wake with the Aliens to recognize each other and carry out the rolled Mother Ship event (recon, bio-scan, pass Alien cards left/right, or center probe)!",
         )
         .night_faction(NightFaction::Alien)
     }
@@ -87,7 +86,7 @@ impl Alien {
                 Team::Alien.style_text("Aliens"),
             ),
             Some(AlienEvent::StandardRecon) => irc_format!(
-                "🛸 {} {} woke to look for fellow Aliens (Lone Alien may view 1 center card)!",
+                "🛸 {} {} woke to look for fellow Aliens!",
                 "Mother Ship (Aliens):".bold().green(),
                 Team::Alien.style_text("Aliens"),
             ),
@@ -96,8 +95,13 @@ impl Alien {
                 "Mother Ship (Aliens):".bold().green(),
                 Team::Alien.style_text("Aliens"),
             ),
-            Some(AlienEvent::TractorBeam) => irc_format!(
-                "🛸 {} {} were instructed to exchange 2 non-Alien players' cards (Tractor Beam)!",
+            Some(AlienEvent::PassLeft) => irc_format!(
+                "🛸 {} {} were instructed to pass their Alien cards to the Alien on their LEFT!",
+                "Mother Ship (Aliens):".bold().green(),
+                Team::Alien.style_text("Aliens"),
+            ),
+            Some(AlienEvent::PassRight) => irc_format!(
+                "🛸 {} {} were instructed to pass their Alien cards to the Alien on their RIGHT!",
                 "Mother Ship (Aliens):".bold().green(),
                 Team::Alien.style_text("Aliens"),
             ),
@@ -113,7 +117,8 @@ impl Alien {
         match fastrand::u8(..100) {
             0..=39 => AlienEvent::StandardRecon,
             40..=64 => AlienEvent::BioScan,
-            65..=84 => AlienEvent::TractorBeam,
+            65..=74 => AlienEvent::PassLeft,
+            75..=84 => AlienEvent::PassRight,
             _ => AlienEvent::CenterProbe,
         }
     }
@@ -205,43 +210,43 @@ impl Alien {
             }));
         }
 
-        let directive = match (rolled_event, active_seats.only()) {
-            (AlienEvent::StandardRecon, None) => AlienDirective::None,
-            (AlienEvent::StandardRecon, Some(solo)) => {
-                let prompt = irc_format!(
-                    "👽 Lone Alien: Reply {}, {}, {}, or {} to peek at ONE center card!",
-                    "1".bold(),
-                    "2".bold(),
-                    "3".bold(),
-                    "pass".bold(),
-                );
-                let ans = ctx
-                    .ask(solo, prompt, |m| {
-                        if Roster::is_pass(&m.text) {
-                            return AskMatch::accept_say(
-                                AlienDirective::None,
-                                "👽 Passed on peeking the center.",
-                            );
-                        }
-                        match Roster::parse_center_slot(&m.text) {
-                            Some(slot) => AskMatch::accept_say(
-                                AlienDirective::CenterProbe {
-                                    actor: solo,
-                                    slot,
-                                    lone: true,
-                                },
-                                format!(
-                                    "👽 Locked in Center #{} — reveals when the phase ends!",
-                                    slot + 1
-                                ),
+        let directive = match rolled_event {
+            AlienEvent::StandardRecon => AlienDirective::None,
+            AlienEvent::PassLeft | AlienEvent::PassRight => {
+                let pass_right = rolled_event == AlienEvent::PassRight;
+                let dir_word = if pass_right { "RIGHT" } else { "LEFT" };
+                let unshielded_active = active_seats - shielded;
+                if unshielded_active.len() >= 2 {
+                    for s in unshielded_active {
+                        ctx.dm(
+                            s,
+                            format!(
+                                "🛸 Mother Ship Rotation ({dir_word}): Your Alien card will pass to the unshielded waking Alien on your {dir_word} at the end of this phase!"
                             ),
-                            None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
-                        }
-                    })
-                    .await?;
-                ans.ok().unwrap_or(AlienDirective::None)
+                        );
+                    }
+                    for s in active_seats - unshielded_active {
+                        ctx.dm(
+                            s,
+                            format!(
+                                "🛡️🛸 Mother Ship Rotation ({dir_word}): Your Shield blocks your Alien card from rotating!"
+                            ),
+                        );
+                    }
+                    AlienDirective::RotateCards { pass_right }
+                } else {
+                    for s in active_seats {
+                        ctx.dm(
+                            s,
+                            format!(
+                                "🛸 Mother Ship Rotation ({dir_word}): Fewer than 2 unshielded Aliens woke — no Alien cards move tonight!"
+                            ),
+                        );
+                    }
+                    AlienDirective::None
+                }
             }
-            (AlienEvent::BioScan, _) if non_aliens.is_empty() => {
+            AlienEvent::BioScan if non_aliens.is_empty() => {
                 for s in active_seats {
                     ctx.dm(
                         s,
@@ -251,19 +256,16 @@ impl Alien {
                 }
                 AlienDirective::None
             }
-            (AlienEvent::TractorBeam, _) if non_aliens.len() < 2 => {
-                for s in active_seats {
-                    ctx.dm(
-                        s,
-                        "🛸 Mother Ship Tractor Beam: Fewer than 2 unshielded non-Alien players available to swap!"
-                            .yellow(),
-                    );
-                }
-                AlienDirective::None
-            }
-            (ev, _) => {
-                Self::ask_pack_directive(&ctx, active_seats, ev, non_alien_seats, non_aliens, shielded)
-                    .await?
+            ev => {
+                Self::ask_pack_directive(
+                    &ctx,
+                    active_seats,
+                    ev,
+                    non_alien_seats,
+                    non_aliens,
+                    shielded,
+                )
+                .await?
             }
         };
 
@@ -292,12 +294,10 @@ impl Alien {
                     "<nick>".bold(),
                     "pass".bold(),
                 ),
-                AlienEvent::TractorBeam => irc_format!(
-                    "🛸 Mother Ship Tractor Beam — Reply {} (or {}) to point silently at two non-Aliens to swap! Non-Aliens: {non_aliens_str}",
-                    "<nick1> <nick2>".bold(),
-                    "pass".bold(),
-                ),
-                AlienEvent::CenterProbe | AlienEvent::StandardRecon => irc_format!(
+                AlienEvent::CenterProbe
+                | AlienEvent::StandardRecon
+                | AlienEvent::PassLeft
+                | AlienEvent::PassRight => irc_format!(
                     "🛸 Mother Ship Center Probe — Reply {} (or {}) to point silently at 1 center card!",
                     "1 / 2 / 3".bold(),
                     "pass".bold(),
@@ -319,17 +319,10 @@ impl Alien {
                         "🤫 Silent night (no talking)! Reply <nick> or pass.",
                     )
                     .map(|(desc, opt)| (desc, opt.map(AlienPointChoice::Scan))),
-                    AlienEvent::TractorBeam => parse_two_player_point(
-                        roster,
-                        raw,
-                        non_aliens,
-                        shielded,
-                        true,
-                        "Pick two non-Alien players!",
-                        "🤫 Silent night (no talking)! Reply <nick1> <nick2> or pass.",
-                    )
-                    .map(|(desc, opt)| (desc, opt.map(AlienPointChoice::Beam))),
-                    AlienEvent::CenterProbe | AlienEvent::StandardRecon => {
+                    AlienEvent::CenterProbe
+                    | AlienEvent::StandardRecon
+                    | AlienEvent::PassLeft
+                    | AlienEvent::PassRight => {
                         let stripped = raw.strip_prefix('!').unwrap_or(raw).trim();
                         let parts: Vec<&str> = stripped.split_whitespace().collect();
                         let arg = match parts.as_slice() {
@@ -363,15 +356,9 @@ impl Alien {
             Some((actor, AlienPointChoice::Scan(target))) => {
                 AlienDirective::Scan { actor, target }
             }
-            Some((actor, AlienPointChoice::Beam(pair))) => {
-                let (a, b) = pair.seats();
-                AlienDirective::TractorBeam { actor, a, b }
+            Some((actor, AlienPointChoice::Probe(slot))) => {
+                AlienDirective::CenterProbe { actor, slot }
             }
-            Some((actor, AlienPointChoice::Probe(slot))) => AlienDirective::CenterProbe {
-                actor,
-                slot,
-                lone: false,
-            },
         })
     }
 
@@ -416,6 +403,50 @@ impl Alien {
                     return;
                 }
             }
+            AlienDirective::RotateCards { pass_right } => {
+                let unshielded: Vec<usize> = active_seats
+                    .into_iter()
+                    .filter(|&s| !board.is_shielded(s))
+                    .collect();
+                if unshielded.len() >= 2 {
+                    let k = unshielded.len();
+                    if pass_right {
+                        for i in (1..k).rev() {
+                            let _ =
+                                board.swap_players(unshielded[0], unshielded[i], unshielded[i - 1]);
+                        }
+                    } else {
+                        for i in 0..k - 1 {
+                            let _ =
+                                board.swap_players(unshielded[0], unshielded[i], unshielded[i + 1]);
+                        }
+                    }
+                    let moved_set: SeatSet = unshielded.iter().copied().collect();
+                    board.record_card_viewers(moved_set);
+                    let dir_word = if pass_right { "RIGHT" } else { "LEFT" };
+                    for (pos, &s) in unshielded.iter().enumerate() {
+                        let (to_seat, from_seat) = if pass_right {
+                            (unshielded[(pos + 1) % k], unshielded[(pos + k - 1) % k])
+                        } else {
+                            (unshielded[(pos + k - 1) % k], unshielded[(pos + 1) % k])
+                        };
+                        ctx.dm(
+                            s,
+                            irc_format!(
+                                "🛸 Mother Ship Rotation ({dir_word}): You passed your Alien card to {} and received {}'s Alien card!",
+                                ctx.nick(to_seat).bold().green(),
+                                ctx.nick(from_seat).bold().green(),
+                            ),
+                        );
+                    }
+                    let names = ctx.roster.format_seats(moved_set);
+                    ctx.record(irc_format!(
+                        "🛸 Aliens ({}) passed their Alien cards to the {dir_word}.",
+                        names.bold(),
+                    ));
+                    return;
+                }
+            }
             AlienDirective::Scan { actor, target } => {
                 if let Some(seen) = board.peek_player(actor, target) {
                     board.record_card_viewers(active_seats);
@@ -440,31 +471,7 @@ impl Alien {
                     return;
                 }
             }
-            AlienDirective::TractorBeam { actor, a, b } => {
-                if let Some((card_a, card_b)) = board.swap_players(actor, a, b) {
-                    for s in active_seats {
-                        ctx.dm(
-                            s,
-                            irc_format!(
-                                "🛸 Mother Ship Tractor Beam swapped {} and {}!",
-                                ctx.nick(a).bold(),
-                                ctx.nick(b).bold(),
-                            ),
-                        );
-                    }
-                    ctx.record(irc_format!(
-                        "🛸 {} ({}) tractor-beamed a swap between {} ({}) and {} ({}).",
-                        "Alien".bold().red(),
-                        ctx.nick(actor).bold(),
-                        ctx.nick(a).bold(),
-                        card_a.display_for_peek(),
-                        ctx.nick(b).bold(),
-                        card_b.display_for_peek(),
-                    ));
-                    return;
-                }
-            }
-            AlienDirective::CenterProbe { actor, slot, lone } => {
+            AlienDirective::CenterProbe { actor, slot } => {
                 let seen = board.peek_center(actor, slot);
                 board.record_card_viewers(active_seats);
                 for s in active_seats {
@@ -477,21 +484,12 @@ impl Alien {
                         ),
                     );
                 }
-                if lone {
-                    ctx.record(irc_format!(
-                        "👽 Lone Alien {} peeked Center #{} ({}).",
-                        ctx.nick(actor).bold().green(),
-                        slot + 1,
-                        seen.display_for_peek(),
-                    ));
-                } else {
-                    ctx.record(irc_format!(
-                        "🛸 Aliens ({}) probed Center #{} ({}).",
-                        ctx.roster.format_seats(active_seats).bold(),
-                        slot + 1,
-                        seen.display_for_peek(),
-                    ));
-                }
+                ctx.record(irc_format!(
+                    "🛸 Aliens ({}) probed Center #{} ({}).",
+                    ctx.roster.format_seats(active_seats).bold(),
+                    slot + 1,
+                    seen.display_for_peek(),
+                ));
                 return;
             }
             AlienDirective::None => {}

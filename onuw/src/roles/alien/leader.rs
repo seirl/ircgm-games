@@ -84,8 +84,11 @@ impl Leader {
         ctx: &mut ResolveCtx<'_>,
     ) {
         let aliens = ctx.seats_with_faction(NightFaction::Alien);
-        let gz_awake = ctx.waking_seats_with_role(&GROOB) | ctx.waking_seats_with_role(&ZERB);
-        let pointers = groob_zerb_pointers(gz_awake, |s| ctx.copied_from(s));
+        let pointers = groob_zerb_pointers(
+            ctx.waking_seats_with_role(&GROOB),
+            ctx.waking_seats_with_role(&ZERB),
+            |s| ctx.copied_from(s),
+        );
         let pointing_seats: SeatSet = pointers.iter().map(|&(s, _)| s).collect();
         let thumb_aliens = aliens - pointing_seats;
 

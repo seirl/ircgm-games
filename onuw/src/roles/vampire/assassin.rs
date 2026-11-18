@@ -3,8 +3,8 @@ use ircgm::prelude::*;
 use crate::board::{BoardAccess, BoardCards, BoardKey, BoardMut, Roster, SeatSet};
 use crate::marks::Mark;
 use crate::role::{
-    EffectiveAlignment, GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role,
-    RoleInfo, SeatEffect, SpecialVictory, Team, VictoryCtx, WakeStep,
+    EffectiveAlignment, GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, SpecialVictory,
+    Team, VictoryCtx, WakeStep,
 };
 
 pub struct Assassin;
@@ -14,13 +14,19 @@ pub struct ApprenticeAssassin;
 pub static APPRENTICE_ASSASSIN: ApprenticeAssassin = ApprenticeAssassin;
 
 #[derive(Clone, Copy, Debug)]
-struct ApprenticeSoloMark(bool);
+struct AssassinDuskState {
+    mentor_assassins: SeatSet,
+    apprentice_placed_mark: bool,
+}
 
-impl BoardKey for ApprenticeSoloMark {
+impl BoardKey for AssassinDuskState {
     const ACCESS: u16 = BoardAccess::CUSTOM_1;
 
     fn init() -> Self {
-        Self(false)
+        Self {
+            mentor_assassins: SeatSet::EMPTY,
+            apprentice_placed_mark: false,
+        }
     }
 }
 
@@ -41,7 +47,7 @@ impl Role for Assassin {
             &[WakeStep::solo(&ASSASSIN, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                 .dusk()
                 .copy_on_turn()
-                .writes(BoardAccess::MARKS)]
+                .writes(BoardAccess::MARKS | AssassinDuskState::ACCESS)]
         }
     }
 
@@ -106,6 +112,11 @@ impl Assassin {
             }
         };
         board.set_mark(target, Mark::Assassin);
+        if ctx.copied_from(seat).is_none() {
+            let mut state = board.get_key::<AssassinDuskState>();
+            state.mentor_assassins.insert(seat);
+            board.set_key(state);
+        }
         ctx.record(irc_format!(
             "🗡️ {actor_label} ({}) placed {} on {}.",
             ctx.nick(seat).bold(),
@@ -139,11 +150,11 @@ impl Role for ApprenticeAssassin {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::group(&APPRENTICE_ASSASSIN, |seats, ctx| {
-                    Box::pin(Self::wake_group(seats, ctx))
-                })
-                .dusk()
-                .writes(BoardAccess::MARKS | ApprenticeSoloMark::ACCESS),
+                WakeStep::solo(&APPRENTICE_ASSASSIN, |s, ctx| Box::pin(Self::prompt(s, ctx)))
+                    .dusk()
+                    .copy_on_turn()
+                    .reads(BoardAccess::MARKS | AssassinDuskState::ACCESS)
+                    .writes(BoardAccess::MARKS | AssassinDuskState::ACCESS),
             ]
         }
     }
@@ -161,8 +172,11 @@ impl Role for ApprenticeAssassin {
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        let solo_marked = ctx.board.get_key::<ApprenticeSoloMark>().0;
-        let won = if solo_marked {
+        if !ctx.board.marks().contains(&Mark::Assassin) {
+            return None;
+        }
+        let state = ctx.board.get_key::<AssassinDuskState>();
+        let won = if state.apprentice_placed_mark {
             ctx.dead_seats
                 .into_iter()
                 .any(|s| ctx.board.mark(s) == Mark::Assassin)
@@ -174,88 +188,70 @@ impl Role for ApprenticeAssassin {
 }
 
 impl ApprenticeAssassin {
-    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let assassins = ctx.seats_with_role(&ASSASSIN);
-        if !assassins.is_empty() {
-            let list = ctx.roster.format_seats(assassins);
-            let app_list = ctx.roster.format_seats(active_seats);
-            for s in active_seats {
-                ctx.dm(
-                    s,
+    async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let mentors = ctx.get_key::<AssassinDuskState>().mentor_assassins;
+        if !mentors.is_empty() {
+            return Ok(SeatEffect::new(move |label, _board, rctx| {
+                let list = rctx.roster.format_seats(mentors);
+                let app_nick = rctx.nick(seat);
+                rctx.dm(
+                    seat,
                     irc_format!(
-                        "🗡️ Apprentice Assassin: Your mentor Assassin is {} — get them killed to take over the guild and win!",
+                        "🗡️ {label}: Your mentor Assassin is {} — get them killed to take over the guild and win!",
                         list.as_str().bold().orange(),
                     ),
                 );
-            }
-            for a_seat in ctx.waking_seats_with_role(&ASSASSIN) {
-                ctx.dm(
-                    a_seat,
-                    irc_format!(
-                        "🗡️ Assassin: Your Apprentice Assassin is {} — watch your back!",
-                        app_list.as_str().bold().orange(),
-                    ),
-                );
-            }
-            return Ok(GroupEffect::new(move |_board, rctx| {
-                let names = rctx.roster.format_seats(active_seats);
+                for a_seat in mentors {
+                    rctx.dm(
+                        a_seat,
+                        irc_format!(
+                            "🗡️ Assassin: Your {label} is {} — watch your back!",
+                            app_nick.as_str().bold().orange(),
+                        ),
+                    );
+                }
                 rctx.record(irc_format!(
-                    "🗡️ Apprentice Assassin ({}) and Assassin ({}) recognized each other.",
-                    names.bold(),
+                    "🗡️ {label} ({}) and Assassin ({}) recognized each other.",
+                    app_nick.bold(),
                     list.as_str().bold(),
                 ));
             }));
         }
 
-        let actor = active_seats.first().expect("active_seats non-empty");
-        let others = active_seats.without(actor);
-        for s in others {
-            ctx.dm(
-                s,
-                irc_format!(
-                    "🗡️ Apprentice Assassin: No Assassin is in play! Fellow Apprentice {} is placing the {}!",
-                    ctx.nick(actor).bold(),
-                    Mark::Assassin.styled(),
-                ),
-            );
-        }
-        let roster = ctx.roster;
+        let players_str = ctx.roster.format_players();
+        let view = ctx.view();
         let prompt = irc_format!(
-            "🗡️ Apprentice Assassin: No Assassin is in play! Reply {} to place the Mark of the Assassin (any player, including yourself)! Players: {}",
+            "🗡️ Apprentice Assassin: No Assassin is in play! Reply {} to place the Mark of the Assassin (any player, including yourself)! Players: {players_str}",
             "<nick>".bold(),
-            roster.format_players(),
         );
         let ans = ctx
-            .ask(actor, prompt, move |m| match roster.resolve_nick(&m.text) {
+            .ask(prompt, move |m| match view.resolve_nick(&m.text) {
                 Some(idx) => AskMatch::accept_say(
                     idx,
                     irc_format!(
                         "🗡️ Placed {} on {}!",
                         Mark::Assassin.styled(),
-                        roster.seats[idx].user.nick().bold(),
+                        view.roster.seats[idx].user.nick().bold(),
                     ),
                 ),
                 None => AskMatch::reject("Unknown player nickname.".yellow()),
             })
             .await?;
-        let target = ans.ok().unwrap_or_else(|| ctx.roster.neighbors(actor).1);
 
-        Ok(GroupEffect::new(move |board, rctx| {
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            let target = match ans {
+                Answer::Ok(idx) => idx,
+                Answer::TimedOut | Answer::Left { .. } | Answer::Unreachable { .. } => {
+                    rctx.roster.neighbors(seat).1
+                }
+            };
             board.set_mark(target, Mark::Assassin);
-            board.set_key(ApprenticeSoloMark(true));
-            for s in others {
-                rctx.dm(
-                    s,
-                    irc_format!(
-                        "🗡️ Fellow Apprentice Assassin placed {} on {}!",
-                        Mark::Assassin.styled(),
-                        rctx.nick(target).bold(),
-                    ),
-                );
-            }
+            let mut state = board.get_key::<AssassinDuskState>();
+            state.apprentice_placed_mark = true;
+            board.set_key(state);
             rctx.record(irc_format!(
-                "🗡️ Apprentice Assassin ({}) placed {} on {}.",
-                rctx.nick(actor).bold(),
+                "🗡️ {label} ({}) placed {} on {}.",
+                rctx.nick(seat).bold(),
                 Mark::Assassin.styled(),
                 rctx.nick(target).bold(),
             ));

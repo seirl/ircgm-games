@@ -17,8 +17,8 @@ pub(crate) enum MorticianMode {
     RightOnly,
     /// May peek at BOTH `left` and `right` neighbors' cards.
     BothNeighbors,
-    /// May peek at own card (`self`).
-    OwnCard,
+    /// Mother Ship forbids peeking at any neighbor's card tonight ("none of his neighbors").
+    None,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -53,7 +53,7 @@ impl Role for Mortician {
             "Mortician",
             GameSet::Alien,
             Team::Independent,
-            "Wake at the end of Night to peek at neighbor or own card(s) as instructed by the Mother Ship! Win ONLY if you survive AND at least one neighbor dies!",
+            "Wake at the end of Night to peek at one, both, or none of your neighbors' cards as instructed by the Mother Ship! Win ONLY if at least one adjacent neighbor dies!",
         )
     }
 
@@ -69,9 +69,6 @@ impl Role for Mortician {
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
-        if ctx.is_dead(seat) {
-            return None;
-        }
         let (left, right) = ctx.roster.neighbors(seat);
         (ctx.is_dead(left) || ctx.is_dead(right)).then_some(SpecialVictory::independent())
     }
@@ -84,14 +81,14 @@ impl Mortician {
             35..=49 => MorticianMode::LeftOnly,
             50..=64 => MorticianMode::RightOnly,
             65..=79 => MorticianMode::BothNeighbors,
-            _ => MorticianMode::OwnCard,
+            _ => MorticianMode::None,
         }
     }
 
     fn is_affirmative(raw: &str) -> bool {
         matches!(
             raw.trim().to_ascii_lowercase().as_str(),
-            "yes" | "y" | "peek" | "view" | "both" | "self" | "me" | "own"
+            "yes" | "y" | "peek" | "view" | "both"
         )
     }
 
@@ -110,10 +107,10 @@ impl Mortician {
             MorticianMode::LeftOnly => "peek at their LEFT neighbor's card",
             MorticianMode::RightOnly => "peek at their RIGHT neighbor's card",
             MorticianMode::BothNeighbors => "peek at BOTH adjacent neighbors' cards",
-            MorticianMode::OwnCard => "peek at their OWN card",
+            MorticianMode::None => "peek at NONE of their neighbors' cards",
         };
         rctx.announce(irc_format!(
-            "⚰️ {} {} was authorized to {desc}!",
+            "⚰️ {} {} was instructed to {desc}!",
             "Mother Ship (Mortician):".bold().orange(),
             MORTICIAN.info().styled_name(),
         ));
@@ -261,38 +258,11 @@ impl Mortician {
                     }
                 }
             }
-            MorticianMode::OwnCard => {
-                if view.is_shielded(seat) {
-                    ctx.say("⚰️ Mortician: Your own card is shielded — you cannot peek tonight!");
-                    SeatSet::EMPTY
-                } else {
-                    let prompt = irc_format!(
-                        "⚰️ Mortician: You may inspect your OWN card! Reply {} (or {}) to peek, or {}!",
-                        "self".bold(),
-                        "yes".bold(),
-                        "pass".bold(),
-                    );
-                    let ans = ctx
-                        .ask(prompt, |m| {
-                            let raw = m.text.trim();
-                            if Roster::is_pass(raw) {
-                                AskMatch::accept_say(false, "⚰️ Passed — not peeking at your card.")
-                            } else if Self::is_affirmative(raw) {
-                                AskMatch::accept_say(
-                                    true,
-                                    "⚰️ Locked in peeking at your own card — reveals when the phase ends!",
-                                )
-                            } else {
-                                AskMatch::reject("Reply self, yes, or pass.".yellow())
-                            }
-                        })
-                        .await?;
-                    if ans.ok() == Some(true) {
-                        SeatSet::single(seat)
-                    } else {
-                        SeatSet::EMPTY
-                    }
-                }
+            MorticianMode::None => {
+                ctx.say(
+                    "⚰️ Mortician: Mother Ship clearance DENIED — you may view NONE of your neighbors' cards tonight!",
+                );
+                SeatSet::EMPTY
             }
         };
 
@@ -312,31 +282,20 @@ impl Mortician {
         let mut seen_parts = Vec::new();
         for target in targets {
             if let Some(seen) = board.peek_player(seat, target) {
-                if target == seat {
-                    rctx.dm(
-                        seat,
-                        irc_format!(
-                            "⚰️ Mortician Peek: Your own card is {}!",
-                            seen.display_for_peek(),
-                        ),
-                    );
-                    seen_parts.push(irc_format!("own card ({})", seen.display_for_peek()));
-                } else {
-                    let target_nick = rctx.nick(target);
-                    rctx.dm(
-                        seat,
-                        irc_format!(
-                            "⚰️ Mortician Peek: {} holds {}!",
-                            target_nick.as_str().bold(),
-                            seen.display_for_peek(),
-                        ),
-                    );
-                    seen_parts.push(irc_format!(
-                        "{} ({})",
-                        target_nick.bold(),
+                let target_nick = rctx.nick(target);
+                rctx.dm(
+                    seat,
+                    irc_format!(
+                        "⚰️ Mortician Peek: {} holds {}!",
+                        target_nick.as_str().bold(),
                         seen.display_for_peek(),
-                    ));
-                }
+                    ),
+                );
+                seen_parts.push(irc_format!(
+                    "{} ({})",
+                    target_nick.bold(),
+                    seen.display_for_peek(),
+                ));
             }
         }
         if seen_parts.is_empty() {

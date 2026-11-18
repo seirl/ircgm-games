@@ -21,7 +21,7 @@ impl Role for Marksman {
             "Marksman",
             GameSet::Vampire,
             Team::Village,
-            "Wake in Night to view one other player's card and/or a different other player's Mark!",
+            "Wake in Night to view one player's card and/or another player's Mark (not the same player if viewing both)!",
         )
     }
 
@@ -29,7 +29,7 @@ impl Role for Marksman {
         if roster.deck_has_marks() {
             self.info().summary.to_owned()
         } else {
-            "Wake in Night to view 1 other player's card!".to_owned()
+            "Wake in Night to view 1 player's card!".to_owned()
         }
     }
 
@@ -49,7 +49,7 @@ impl Marksman {
         let players_str = ctx.roster.format_players();
         let prompt = if has_marks {
             irc_format!(
-                "🎯 Marksman: Reply {} (two DIFFERENT other players), {}, {}, or {}. Players: {players_str}",
+                "🎯 Marksman: Reply {} (two DIFFERENT players), {}, {}, or {}. Players: {players_str}",
                 "<card_nick> <mark_nick>".bold(),
                 "card <nick>".bold(),
                 "mark <nick>".bold(),
@@ -57,7 +57,7 @@ impl Marksman {
             )
         } else {
             irc_format!(
-                "🎯 Marksman: Reply {} to view another player's card, or {}. Players: {players_str}",
+                "🎯 Marksman: Reply {} to view a player's card, or {}. Players: {players_str}",
                 "<nick>".bold(),
                 "pass".bold(),
             )
@@ -87,7 +87,7 @@ impl Marksman {
                     }
                     _ => {
                         return AskMatch::reject(
-                            "There are no Marks in this game — reply <nick> to view another player's card, or pass."
+                            "There are no Marks in this game — reply <nick> to view a player's card, or pass."
                                 .yellow(),
                         );
                     }
@@ -96,9 +96,6 @@ impl Marksman {
                     let Some(idx) = roster.resolve_nick(ct) else {
                         return AskMatch::reject("Unknown player nickname.".yellow());
                     };
-                    if idx == seat {
-                        return AskMatch::reject("You cannot inspect your own card!".yellow());
-                    }
                     if view.is_shielded(idx) {
                         return AskMatch::reject(
                             "🛡️ That card is shielded by the Sentinel!".yellow(),
@@ -112,9 +109,6 @@ impl Marksman {
                     let Some(idx) = roster.resolve_nick(mt) else {
                         return AskMatch::reject("Unknown player nickname.".yellow());
                     };
-                    if idx == seat {
-                        return AskMatch::reject("You cannot inspect your own Mark!".yellow());
-                    }
                     Some(idx)
                 } else {
                     None

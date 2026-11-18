@@ -115,7 +115,6 @@ async fn leader_unanimous_alien_point_steals_victory_and_groob_zerb_survival_win
     h4.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
     let n4 = h4.spawn_night();
     h4.reply_dm("Alice", "no").await;
-    h4.reply_dm("Bob", "pass").await;
     let rep4 = h4.finish_night(n4).await;
     let dawn4 = h4
         .resolve_voting(
@@ -130,4 +129,26 @@ async fn leader_unanimous_alien_point_steals_victory_and_groob_zerb_survival_win
         .await;
     // Bob (Alien) died and Oracle [Alien Team] didn't point at Leader -> Village (Carol, Dave) wins!
     assert_eq!(dawn4.winner_nicks(&h4.roster), vec!["Carol", "Dave"]);
+
+    // 5. Doppelgänger copying Groob when Zerb is in the center: neither Zerb woke, so both Groob
+    //    holders raise thumbs to Leader instead of faking rivalry pointing!
+    use crate::roles::base::doppelganger::DOPPELGANGER;
+    let mut h5 = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &GROOB),
+            ("Carol", &LEADER),
+            ("Dave", &VILLAGER),
+        ],
+        [&ZERB, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h5.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
+    let n5 = h5.spawn_night();
+    h5.reply_dm("Alice", "Bob").await;
+    let rep5 = h5.finish_night(n5).await;
+    assert!(rep5
+        .dms_to("Carol")
+        .contains("The Aliens are Alice, Bob"));
+    assert!(!rep5.dms_to("Carol").contains("pointing"));
 }

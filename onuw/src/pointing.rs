@@ -9,21 +9,6 @@ use ircgm::prelude::*;
 use crate::board::{Roster, SeatSet};
 use crate::role::GroupPromptCtx;
 
-/// Order-independent pair of distinct player seats (`(a, b) == (b, a)`) so two packmates
-/// pointing at `"Carol Dave"` and `"Dave Carol"` tally toward the exact same swap!
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct SeatPair(usize, usize);
-
-impl SeatPair {
-    pub fn new(a: usize, b: usize) -> Option<Self> {
-        (a != b).then(|| Self(a.min(b), a.max(b)))
-    }
-
-    pub fn seats(self) -> (usize, usize) {
-        (self.0, self.1)
-    }
-}
-
 /// Runs silent tabletop pointing across `seats` (rejecting free-text night chatter):
 /// - If `seats` has 1 player, prompts them once and locks in their choice immediately.
 /// - If `seats` has 2+ players, opens an exclusive DM prompt to each player until `ctx.deadline`,
@@ -136,47 +121,6 @@ pub(crate) fn parse_single_player_point(
     Ok((
         format!("points at {}!", roster.seats[idx].user.nick()),
         valid_targets.contains(idx).then_some(idx),
-    ))
-}
-
-/// Parses a simultaneous two-player point (`<nick1> <nick2>`, order-independent via [`SeatPair`]).
-pub(crate) fn parse_two_player_point(
-    roster: &Roster,
-    raw: &str,
-    valid_targets: SeatSet,
-    shielded: SeatSet,
-    enforce_valid_in_prompt: bool,
-    invalid_target_msg: &'static str,
-    usage_msg: &'static str,
-) -> std::result::Result<(String, Option<SeatPair>), Text> {
-    let stripped = raw.strip_prefix('!').unwrap_or(raw).trim();
-    let parts: Vec<&str> = stripped.split_whitespace().collect();
-    let (t1, t2) = match parts.as_slice() {
-        [w, a, b] if w.eq_ignore_ascii_case("beam") || w.eq_ignore_ascii_case("swap") => (*a, *b),
-        [a, b] => (*a, *b),
-        _ => return Err(usage_msg.yellow().into()),
-    };
-    let (Some(a), Some(b)) = (roster.resolve_nick(t1), roster.resolve_nick(t2)) else {
-        return Err(usage_msg.yellow().into());
-    };
-    let Some(pair) = SeatPair::new(a, b) else {
-        return Err("Pick two DIFFERENT players!".yellow().into());
-    };
-    if shielded.contains(a) || shielded.contains(b) {
-        return Err("🛡️ Shielded players cannot be targeted!".yellow().into());
-    }
-    let both_valid = valid_targets.contains(a) && valid_targets.contains(b);
-    if enforce_valid_in_prompt && !both_valid {
-        return Err(invalid_target_msg.yellow().into());
-    }
-    let (lo, hi) = pair.seats();
-    Ok((
-        format!(
-            "points at {} and {}!",
-            roster.seats[lo].user.nick(),
-            roster.seats[hi].user.nick()
-        ),
-        both_valid.then_some(pair),
     ))
 }
 

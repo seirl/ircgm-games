@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::henchman::VILLAIN_PACK_STEP;
-use crate::board::{BoardMut, Roster};
+use crate::board::{BoardAccess, BoardMut, Roster, SeatSet};
 use crate::role::{
     GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
@@ -27,7 +27,8 @@ impl Role for DrPeeker {
             &[
                 VILLAIN_PACK_STEP,
                 WakeStep::solo(&DR_PEEKER, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                    .copy_on_turn(),
+                    .copy_on_turn()
+                    .reads(BoardAccess::PLAYER_FACES),
             ]
         }
     }
@@ -78,8 +79,11 @@ impl DrPeeker {
             })
             .await?;
 
+        let fellow_villains = ctx
+            .waking_seats_with_faction(NightFaction::SuperVillain)
+            .without(seat);
         Ok(SeatEffect::new(move |label, board, rctx| {
-            Self::resolve(seat, label, ans, board, rctx);
+            Self::resolve(seat, label, ans, fellow_villains, board, rctx);
         }))
     }
 
@@ -87,6 +91,7 @@ impl DrPeeker {
         seat: usize,
         actor_label: &str,
         ans: Answer<Option<usize>>,
+        fellow_villains: SeatSet,
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
@@ -103,6 +108,17 @@ impl DrPeeker {
                     seen.display_for_peek(),
                 ),
             );
+            for v in fellow_villains {
+                ctx.dm(
+                    v,
+                    irc_format!(
+                        "🔬 Syndicate Update: {} ({}) X-rayed {}'s card!",
+                        actor_label.bold().red(),
+                        ctx.nick(seat).bold(),
+                        target_nick.as_str().bold(),
+                    ),
+                );
+            }
             ctx.record(irc_format!(
                 "🔬 {actor_label} ({}) X-rayed {} and saw {}.",
                 ctx.nick(seat).bold(),
