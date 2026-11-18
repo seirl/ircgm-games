@@ -262,7 +262,7 @@ impl EndgameModifier for Mark {
     ) {
         if *self == Mark::Disease {
             for voter in 0..ctx.roster.len() {
-                if ctx.votes[voter] == Some(holder) {
+                if ctx.votes[voter] == holder {
                     winners.remove(&voter);
                 }
             }

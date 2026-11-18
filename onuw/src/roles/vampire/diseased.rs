@@ -37,7 +37,7 @@ impl Role for Diseased {
         winners: &mut WinnerMap,
     ) {
         for voter in 0..ctx.roster.len() {
-            if ctx.votes[voter] == Some(holder) {
+            if ctx.votes[voter] == holder {
                 winners.remove(&voter);
             }
         }

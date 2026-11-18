@@ -38,10 +38,10 @@ impl Role for WindyWendy {
         seat: usize,
         roster: &Roster,
         board: &BoardCards,
-        votes: &[Option<usize>],
+        votes: &[usize],
     ) -> Option<(&'static dyn Role, Text)> {
-        let villain_voted = votes.iter().enumerate().any(|(v, &opt)| {
-            opt == Some(seat) && board.is_monster_threat_for(v, Team::SuperVillain)
+        let villain_voted = votes.iter().enumerate().any(|(v, &target)| {
+            v != seat && target == seat && board.is_monster_threat_for(v, Team::SuperVillain)
         });
         if villain_voted {
             Some((

@@ -418,7 +418,7 @@ impl EndgameModifier for Artifact {
                 ),
             )),
             Artifact::SwordOfTheBodyguard => {
-                let target = ctx.votes[seat]?;
+                let target = ctx.votes[seat];
                 Some(VoteDefense::immune(
                     target,
                     true,
@@ -436,24 +436,22 @@ impl EndgameModifier for Artifact {
 
     fn on_death(&self, dead_seat: usize, ctx: &DeathCtx<'_>) -> Vec<DeathEffect> {
         match self {
-            Artifact::BowOfTheHunter => match ctx.votes[dead_seat] {
-                Some(target_seat) => {
-                    let hunter_nick = ctx.roster.seats[dead_seat].user.nick();
-                    let target_nick = ctx.roster.seats[target_seat].user.nick();
-                    vec![DeathEffect::Kill {
-                        seat: target_seat,
-                        respects_protection: true,
-                        announcement: irc_format!(
-                            "{} {} died with the {} and took down {}!",
-                            "🏹 HUNTER SHOT!".bold().orange(),
-                            hunter_nick.bold(),
-                            self.styled(),
-                            target_nick.bold().red(),
-                        ),
-                    }]
-                }
-                None => Vec::new(),
-            },
+            Artifact::BowOfTheHunter => {
+                let target_seat = ctx.votes[dead_seat];
+                let hunter_nick = ctx.roster.seats[dead_seat].user.nick();
+                let target_nick = ctx.roster.seats[target_seat].user.nick();
+                vec![DeathEffect::Kill {
+                    seat: target_seat,
+                    respects_protection: true,
+                    announcement: irc_format!(
+                        "{} {} died with the {} and took down {}!",
+                        "🏹 HUNTER SHOT!".bold().orange(),
+                        hunter_nick.bold(),
+                        self.styled(),
+                        target_nick.bold().red(),
+                    ),
+                }]
+            }
             _ => Vec::new(),
         }
     }

@@ -18,7 +18,7 @@ impl Role for RicochetRhino {
     }
 
     fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
-        let target = ctx.votes[seat]?;
+        let target = ctx.votes[seat];
         if target == seat {
             return None;
         }

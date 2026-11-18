@@ -321,7 +321,7 @@ async fn public_channel_voting_works_and_exempts_shroud_of_shame_and_token_of_mu
     h.srv.settle().await;
 
     let (votes, full_log) = vote_handle.await.unwrap();
-    assert_eq!(votes, vec![Some(2), Some(2), Some(0)]);
+    assert_eq!(votes, vec![2, 2, 0]);
 
     let _ = h.srv.take_messages_to("#onuw");
     let outcome = crate::voting::resolve_and_announce_winners(

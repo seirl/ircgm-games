@@ -138,7 +138,7 @@ pub async fn run_voting_phase(
     roster: &Roster,
     vote_timeout: Duration,
     warn_remaining: Option<Duration>,
-) -> Result<Vec<Option<usize>>> {
+) -> Result<Vec<usize>> {
     let enrolled: Vec<User> = roster.seats.iter().map(|s| s.user.clone()).collect();
     let players_str = roster.format_players();
 
@@ -213,9 +213,25 @@ pub async fn run_voting_phase(
     let Outcome::Completed(res) = vote_fut.until(dm_reminder).await;
     let answers = res?;
 
-    Ok(roster
-        .seats
-        .iter()
-        .map(|seat| answers.get(&seat.user).copied())
-        .collect())
+    let mut votes = Vec::with_capacity(roster.len());
+    for (voter_idx, seat) in roster.seats.iter().enumerate() {
+        let target_idx = match answers.get(&seat.user).copied() {
+            Some(idx) => idx,
+            None => {
+                let rnd = roster
+                    .all_seats()
+                    .without(voter_idx)
+                    .choose_random()
+                    .expect("ONUW requires at least 2 players");
+                room.say(irc_format!(
+                    "🎲👉 {} did not vote in time and randomly points at {}!",
+                    seat.user.nick().bold(),
+                    roster.seats[rnd].user.nick().bold(),
+                ))?;
+                rnd
+            }
+        };
+        votes.push(target_idx);
+    }
+    Ok(votes)
 }

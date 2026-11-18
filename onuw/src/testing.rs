@@ -275,18 +275,31 @@ impl OnuwTestHarness {
         night_report: NightReport,
         ballots: &[(&str, Option<&str>)],
     ) -> VotingReport {
-        let mut votes = vec![None; self.roster.len()];
+        let mut opt_votes = vec![None; self.roster.len()];
         for &(voter, target_opt) in ballots {
             let v_idx = self
                 .roster
                 .resolve_nick(voter)
                 .unwrap_or_else(|| panic!("unknown voter `{voter}`"));
-            votes[v_idx] = target_opt.map(|t| {
+            opt_votes[v_idx] = target_opt.map(|t| {
                 self.roster
                     .resolve_nick(t)
                     .unwrap_or_else(|| panic!("unknown target `{t}`"))
             });
         }
+        let votes: Vec<usize> = opt_votes
+            .into_iter()
+            .enumerate()
+            .map(|(v_idx, opt)| {
+                opt.unwrap_or_else(|| {
+                    self.roster
+                        .all_seats()
+                        .without(v_idx)
+                        .choose_random()
+                        .expect("at least 2 players")
+                })
+            })
+            .collect();
 
         let summary = resolve_and_announce_winners(
             &self.room,

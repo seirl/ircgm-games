@@ -18,7 +18,7 @@ impl Role for DefenderEr {
     }
 
     fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
-        let target = ctx.votes[seat]?;
+        let target = ctx.votes[seat];
         Some(VoteDefense::immune(
             target,
             true,

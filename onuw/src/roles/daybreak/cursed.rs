@@ -52,12 +52,12 @@ impl Role for Cursed {
         seat: usize,
         roster: &Roster,
         board: &BoardCards,
-        votes: &[Option<usize>],
+        votes: &[usize],
     ) -> Option<(&'static dyn Role, Text)> {
         let mut ww_votes = 0usize;
         let mut vamp_votes = 0usize;
-        for (v, &opt) in votes.iter().enumerate() {
-            if v != seat && opt == Some(seat) {
+        for (v, &target) in votes.iter().enumerate() {
+            if v != seat && target == seat {
                 if board.is_monster_threat_for(v, Team::Werewolf) {
                     ww_votes += 1;
                 }

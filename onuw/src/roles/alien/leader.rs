@@ -57,7 +57,7 @@ impl Role for Leader {
             })
             .collect();
 
-        if !alien_voters.is_empty() && alien_voters.into_iter().all(|a| ctx.votes[a] == Some(seat))
+        if !alien_voters.is_empty() && alien_voters.into_iter().all(|a| ctx.votes[a] == seat)
         {
             claims.push(SpecialVictory::force_team(
                 Team::Alien,

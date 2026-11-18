@@ -17,7 +17,7 @@ impl Role for Hunter {
     }
 
     fn on_death(&self, dead_seat: usize, ctx: &DeathCtx<'_>) -> Option<DeathEffect> {
-        let target_seat = ctx.votes[dead_seat]?;
+        let target_seat = ctx.votes[dead_seat];
         let hunter_nick = ctx.roster.seats[dead_seat].user.nick();
         let target_nick = ctx.roster.seats[target_seat].user.nick();
         Some(DeathEffect::Kill {

@@ -86,7 +86,7 @@ pub enum PlayOutcome {
 pub struct GameSummary {
     pub final_board: BoardCards,
     pub chronicle: Vec<Text>,
-    pub votes: Vec<Option<usize>>,
+    pub votes: Vec<usize>,
     pub dead_seats: SeatSet,
     pub winners: Vec<(usize, &'static str)>,
     pub reveal: GameReveal,

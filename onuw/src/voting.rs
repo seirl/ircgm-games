@@ -44,15 +44,13 @@ pub fn resolve_and_announce_winners(
     roster: &Roster,
     mut board: BoardCards,
     mut chronicle: Vec<Text>,
-    votes: Vec<Option<usize>>,
+    votes: Vec<usize>,
     day_channel_log: &[ChatMessage],
 ) -> Result<GameSummary> {
     let n = roster.len();
     let mut tally = vec![0usize; n];
-    for &opt in &votes {
-        if let Some(t) = opt {
-            tally[t] += 1;
-        }
+    for &t in &votes {
+        tally[t] += 1;
     }
 
     // Apply vote-triggered role conversions (`Cursed`, `Windy Wendy`) before evaluating alignments & protections:

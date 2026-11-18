@@ -29,7 +29,7 @@ impl Role for TheMaster {
     fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
         let supported = (0..ctx.roster.len()).any(|voter| {
             voter != seat
-                && ctx.votes[voter] == Some(seat)
+                && ctx.votes[voter] == seat
                 && ctx.board.is_monster_threat_for(voter, Team::Vampire)
         });
         supported.then(|| {

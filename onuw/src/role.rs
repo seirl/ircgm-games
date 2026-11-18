@@ -1197,7 +1197,7 @@ impl<'a> ResolveCtx<'a> {
 pub struct DeathCtx<'a> {
     pub roster: &'a Roster,
     pub board: &'a BoardCards,
-    pub votes: &'a [Option<usize>],
+    pub votes: &'a [usize],
     pub tally: &'a [usize],
     pub max_votes: usize,
 }
@@ -1251,7 +1251,7 @@ pub enum DeathEffect {
 pub struct VictoryCtx<'a> {
     pub roster: &'a Roster,
     pub board: &'a BoardCards,
-    pub votes: &'a [Option<usize>],
+    pub votes: &'a [usize],
     pub dead_seats: SeatSet,
 }
 
@@ -1341,7 +1341,7 @@ pub type WinnerMap = HashMap<usize, &'static str>;
 pub struct WinnerFilterCtx<'a> {
     pub roster: &'a Roster,
     pub board: &'a BoardCards,
-    pub votes: &'a [Option<usize>],
+    pub votes: &'a [usize],
     pub dead_seats: SeatSet,
     pub team_block: TeamBlock,
     pub winning_teams: &'a std::collections::HashSet<Team>,
@@ -1415,7 +1415,7 @@ pub trait Role: Send + Sync + 'static {
         _seat: usize,
         _roster: &Roster,
         _board: &BoardCards,
-        _votes: &[Option<usize>],
+        _votes: &[usize],
     ) -> Option<(&'static dyn Role, Text)> {
         None
     }

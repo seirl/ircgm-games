@@ -362,3 +362,48 @@ async fn marks_and_artifacts_catalog_and_lookup_work_in_lobby_and_active_game() 
     bot.request_shutdown();
     bot_task.await.unwrap().unwrap();
 }
+
+#[tokio::test(start_paused = true)]
+async fn voting_timeout_assigns_random_other_player_to_anyone_who_did_not_vote() {
+    use crate::board::Roster;
+    use crate::day::run_voting_phase;
+    use crate::deck::DeckSpec;
+
+    let (bot, mut srv) = test_harness("GM");
+    srv.complete_join("#onuw", &["Alice", "Bob", "Carol"]);
+    srv.settle().await;
+
+    let room = bot.room("#onuw").unwrap();
+    let players = vec![
+        bot.user("Alice").unwrap(),
+        bot.user("Bob").unwrap(),
+        bot.user("Carol").unwrap(),
+    ];
+    let (roster, _) = DeckSpec::default().deal(&players).unwrap();
+
+    let vote_task = tokio::spawn({
+        let bot = bot.clone();
+        let room = room.clone();
+        let r = Roster {
+            seats: roster.seats.clone(),
+            deck: roster.deck.clone(),
+        };
+        async move { run_voting_phase(&bot, &room, &r, Duration::from_secs(10), None).await }
+    });
+    srv.settle().await;
+    let _ = srv.take_messages_to("#onuw");
+
+    // Only Alice casts a vote; Bob and Carol let the 10s voting clock expire:
+    srv.chat("Alice", "#onuw", "!vote Carol");
+    srv.advance(Duration::from_secs(10)).await;
+    let votes = vote_task.await.unwrap().unwrap();
+
+    assert_eq!(votes.len(), 3);
+    assert_eq!(votes[0], 2);
+    assert_ne!(votes[1], 1);
+    assert_ne!(votes[2], 2);
+
+    let chan = Text::parse(&srv.take_messages_to("#onuw").join("\n")).plain();
+    assert!(chan.contains("Bob did not vote in time and randomly points at"));
+    assert!(chan.contains("Carol did not vote in time and randomly points at"));
+}
