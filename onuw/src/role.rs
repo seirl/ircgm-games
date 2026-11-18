@@ -759,7 +759,7 @@ impl NightWakers {
     }
 
     pub fn copy_center(&mut self, actor: usize, copied: &'static dyn Role) {
-        if !copied.is_player_copier() && !copied.is_center_copier() {
+        if !copied.is_center_copier() {
             self.waking_roles[actor] = copied;
         }
     }

@@ -979,10 +979,20 @@ impl<'a> BoardMut<'a> {
         }
         let target_card = self.inner.players[target];
         self.inner.viewed_or_moved_actors.insert(actor);
-        if target_card.face_role().is_player_copier() {
-            // Copying another player-copier (`doppelganger*2`) stays a sleeping Village Doppelgänger
-            // regardless of seat resolution order, preventing copy chains.
-            return Some(Card::new(target_card.face_role()));
+        let target_was_player_copier = target_card.face_role().is_player_copier()
+            || target_card.effective_role().is_player_copier()
+            || rctx.wakers.copied_from(target).is_some();
+        if target_was_player_copier {
+            // Copying another player-copier (`doppelganger*2`, or a `Copycat` / `Mirror Man` who
+            // viewed center `Doppelgänger`) leaves `actor`'s card as a sleeping Village player-copier
+            // regardless of seat resolution order, preventing copy chains and hiding center-copier choices.
+            let player_copier = self.inner.players[actor].effective_role();
+            rctx.wakers.set_role(actor, target_card.visible_role());
+            let mut snap = Card::new(target_card.face_role());
+            if !target_card.face_role().is_player_copier() {
+                snap.transform(player_copier);
+            }
+            return Some(snap);
         }
         if target_card.face_role().has_after_player_copier_step() {
             // Pre-Doppelgänger roles with a dedicated Doppelgänger follow-up (`Oracle`):
@@ -997,8 +1007,8 @@ impl<'a> BoardMut<'a> {
         Some(target_card)
     }
 
-    /// Copies `center[slot]`'s printed face onto `actor` (`Copycat`), keeping `Copycat-Oracle` a
-    /// plain Villager per official ONUA rules and keeping center `Doppelgänger` asleep per ONUV rules.
+    /// Copies `center[slot]`'s printed face onto `actor` (`Copycat`, `Mirror Man`), keeping
+    /// `Copycat-Oracle` a plain Villager per ONUA rules and waking center `Doppelgänger` on schedule.
     pub fn copy_from_center(
         &mut self,
         actor: usize,

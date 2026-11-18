@@ -32,10 +32,10 @@ impl Doppelganger {
         let candidates = ctx.roster.all_seats().without(seat) - ctx.shielded_seats();
         if candidates.is_empty() {
             ctx.say("🛡️ Doppelgänger: Every other player's card is shielded — you cannot copy anyone tonight!".yellow());
-            return Ok(SeatEffect::new(move |_label, _board, rctx| {
+            return Ok(SeatEffect::new(move |label, _board, rctx| {
                 rctx.record(irc_format!(
                     "🎭 {} ({}) could not copy anyone because all other cards were shielded.",
-                    DOPPELGANGER.info().styled_name(),
+                    label.bold().cyan(),
                     rctx.nick(seat).bold(),
                 ));
             }));
@@ -68,13 +68,14 @@ impl Doppelganger {
             )
             .await?;
 
-        Ok(SeatEffect::new(move |_label, board, rctx| {
-            Self::resolve(seat, ans.ok(), board, rctx);
+        Ok(SeatEffect::new(move |label, board, rctx| {
+            Self::resolve(seat, label, ans.ok(), board, rctx);
         }))
     }
 
     fn resolve(
         seat: usize,
+        actor_label: &str,
         chosen: Option<usize>,
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
@@ -100,7 +101,7 @@ impl Doppelganger {
         let endgame_role = copied_card.effective_role();
         let actor_nick = ctx.nick(seat);
         let target_nick = ctx.nick(target_idx);
-        let self_styled = DOPPELGANGER.info().styled_name();
+        let self_styled = actor_label.bold().cyan();
         let roster_has_dusk = ctx
             .roster
             .deck
