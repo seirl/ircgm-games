@@ -1,10 +1,10 @@
 use ircgm::prelude::*;
 
 use super::groob_zerb::{both_groob_and_zerb_in_play, groob_zerb_pointers, GROOB, ZERB};
-use crate::board::{BoardCards, SeatSet};
+use crate::board::{BoardCards, BoardMut, SeatSet};
 use crate::role::{
-    EffectiveAlignment, GameSet, GroupEffect, GroupPromptCtx, NightFaction, Role, RoleInfo,
-    SpecialVictory, Team, VictoryCtx, WakeStep,
+    EffectiveAlignment, GameSet, NightFaction, ResolveCtx, Role, RoleInfo, SpecialVictory, Team,
+    VictoryCtx, WakeStep,
 };
 
 pub struct Leader;
@@ -22,11 +22,7 @@ impl Role for Leader {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const {
-            &[WakeStep::group(&LEADER, |seats, ctx| {
-                Box::pin(Self::wake_group(seats, ctx))
-            })]
-        }
+        const { &[WakeStep::passive(&LEADER, Self::inspect)] }
     }
 
     fn adjust_alignment(
@@ -81,7 +77,12 @@ impl Role for Leader {
 }
 
 impl Leader {
-    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    fn inspect(
+        seat: usize,
+        actor_label: &str,
+        _board: &mut BoardMut<'_>,
+        ctx: &mut ResolveCtx<'_>,
+    ) {
         let aliens = ctx.seats_with_faction(NightFaction::Alien);
         let gz_awake = ctx.waking_seats_with_role(&GROOB) | ctx.waking_seats_with_role(&ZERB);
         let pointers = groob_zerb_pointers(gz_awake, |s| ctx.copied_from(s));
@@ -105,29 +106,34 @@ impl Leader {
             .collect::<Vec<_>>()
             .join("; ");
 
-        for s in active_seats {
-            if aliens.is_empty() {
-                ctx.dm(s, "🫡 Leader: No Aliens are held by players tonight!");
-            } else if pointers.is_empty() {
+        let actor_nick = ctx.nick(seat);
+        if aliens.is_empty() {
+            ctx.dm(seat, format!("🫡 {actor_label}: No Aliens are held by players tonight!"));
+            ctx.record(irc_format!(
+                "🫡 {actor_label} ({}) saw no Aliens in play.",
+                actor_nick.bold(),
+            ));
+        } else {
+            if pointers.is_empty() {
                 ctx.dm(
-                    s,
+                    seat,
                     irc_format!(
-                        "🫡 Leader: The Aliens are {} — stay hidden so they don't all vote for you!",
+                        "🫡 {actor_label}: The Aliens are {} — stay hidden so they don't all vote for you!",
                         ctx.roster.format_seats(aliens).bold().red(),
                     ),
                 );
             } else if is_clean_pair {
                 if !thumb_aliens.is_empty() {
                     ctx.dm(
-                        s,
+                        seat,
                         irc_format!(
-                            "🫡 Leader: Other Aliens in play: {}.",
+                            "🫡 {actor_label}: Other Aliens in play: {}.",
                             ctx.roster.format_seats(thumb_aliens).bold().red(),
                         ),
                     );
                 }
                 ctx.dm(
-                    s,
+                    seat,
                     irc_format!(
                         "👾 Leader Intel: Groob & Zerb are pointing at each other ({}) — you ONLY win if NEITHER Groob nor Zerb dies!",
                         ctx.roster.format_seats(pointing_seats).bold().orange(),
@@ -136,40 +142,28 @@ impl Leader {
             } else {
                 if !thumb_aliens.is_empty() {
                     ctx.dm(
-                        s,
+                        seat,
                         irc_format!(
-                            "🫡 Leader: Thumb-up Aliens: {}.",
+                            "🫡 {actor_label}: Thumb-up Aliens: {}.",
                             ctx.roster.format_seats(thumb_aliens).bold().red(),
                         ),
                     );
                 }
                 ctx.dm(
-                    s,
+                    seat,
                     irc_format!(
                         "👾 Leader Intel: Groob/Zerb pointing: {} (if both Groob & Zerb are in play, you ONLY win if ALL Groob & Zerb holders survive)!",
                         vectors_str.as_str().bold().orange(),
                     ),
                 );
             }
+            let alien_nicks = ctx.roster.format_seats(aliens);
+            ctx.record(irc_format!(
+                "🫡 {actor_label} ({}) identified Aliens: {}.",
+                actor_nick.bold(),
+                alien_nicks.bold().red(),
+            ));
         }
-
-        Ok(GroupEffect::new(move |_board, rctx| {
-            let leaders = rctx.roster.format_seats(active_seats);
-            let styled = LEADER.info().styled_name();
-            if aliens.is_empty() {
-                rctx.record(irc_format!(
-                    "🫡 {styled} ({}) saw no Aliens in play.",
-                    leaders.bold(),
-                ));
-            } else {
-                let alien_nicks = rctx.roster.format_seats(aliens);
-                rctx.record(irc_format!(
-                    "🫡 {styled} ({}) identified Aliens: {}.",
-                    leaders.bold(),
-                    alien_nicks.bold().red(),
-                ));
-            }
-        }))
     }
 }
 

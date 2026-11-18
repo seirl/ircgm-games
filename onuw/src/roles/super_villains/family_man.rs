@@ -1,10 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardKey, SeatSet};
-use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx,
-    WakeStep,
-};
+use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
+use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx, WakeStep};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FamilyShape {
@@ -84,14 +81,10 @@ impl Role for FamilyMan {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[
-                WakeStep::group(&FAMILY_MAN, |seats, ctx| {
-                    Box::pin(Self::wake(seats, ctx))
-                })
+            &[WakeStep::passive(&FAMILY_MAN, Self::notify_holder)
                 .eyes_closed()
-                .run_when_unheld()
-                .writes(ActiveFamilyShape::ACCESS | BoardAccess::PUBLIC_ANNOUNCE),
-            ]
+                .with_tier_hooks(Self::init_tier, Self::finish_tier)
+                .writes(ActiveFamilyShape::ACCESS | BoardAccess::PUBLIC_ANNOUNCE)]
         }
     }
 
@@ -109,43 +102,49 @@ impl Role for FamilyMan {
 }
 
 impl FamilyMan {
-    async fn wake(active_seats: SeatSet, _ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        Ok(GroupEffect::new(move |board, rctx| {
-            let n = rctx.roster.len();
-            let shape = match board.get_key::<ActiveFamilyShape>().0 {
-                Some(s) => s,
-                None => {
-                    let rolled = FamilyShape::roll(n);
-                    board.set_key(ActiveFamilyShape(Some(rolled)));
-                    rolled
-                }
-            };
+    fn init_tier(board: &mut BoardMut<'_>, roster: &Roster) {
+        if board.get_key::<ActiveFamilyShape>().0.is_none() {
+            board.set_key(ActiveFamilyShape(Some(FamilyShape::roll(roster.len()))));
+        }
+    }
 
-            rctx.announce(irc_format!(
-                "👨‍👩‍👧 {} Whoever holds {} has {} in their family ({}) — keep the whole family alive!",
-                "Family Man:".bold().orange(),
-                FAMILY_MAN.info().styled_name(),
-                shape.description().bold().yellow(),
-                rctx.roster.format_table_circle(),
-            ));
+    fn notify_holder(
+        seat: usize,
+        actor_label: &str,
+        board: &mut BoardMut<'_>,
+        rctx: &mut ResolveCtx<'_>,
+    ) {
+        let shape = board
+            .get_key::<ActiveFamilyShape>()
+            .0
+            .unwrap_or(FamilyShape::BothNeighbors);
+        let fam = shape.family_seats(rctx.roster.len(), seat);
+        let names = rctx.roster.format_seats(fam);
+        rctx.dm(
+            seat,
+            irc_format!(
+                "👨‍👩‍👧 {actor_label}: If you still hold Family Man, your family is {} — keep ALL of them alive to win!",
+                names.as_str().bold().orange(),
+            ),
+        );
+    }
 
-            for s in active_seats {
-                let fam = shape.family_seats(n, s);
-                let names = rctx.roster.format_seats(fam);
-                rctx.dm(
-                    s,
-                    irc_format!(
-                        "👨‍👩‍👧 Family Man: If you still hold Family Man, your family is {} — keep ALL of them alive to win!",
-                        names.as_str().bold().orange(),
-                    ),
-                );
-            }
-
-            rctx.record(irc_format!(
-                "👨‍👩‍👧 Family Man shape rolled: {}.",
-                shape.description().bold().orange(),
-            ));
-        }))
+    fn finish_tier(board: &mut BoardMut<'_>, rctx: &mut ResolveCtx<'_>) {
+        let shape = board
+            .get_key::<ActiveFamilyShape>()
+            .0
+            .unwrap_or(FamilyShape::BothNeighbors);
+        rctx.announce(irc_format!(
+            "👨‍👩‍👧 {} Whoever holds {} has {} in their family ({}) — keep the whole family alive!",
+            "Family Man:".bold().orange(),
+            FAMILY_MAN.info().styled_name(),
+            shape.description().bold().yellow(),
+            rctx.roster.format_table_circle(),
+        ));
+        rctx.record(irc_format!(
+            "👨‍👩‍👧 Family Man shape rolled: {}.",
+            shape.description().bold().orange(),
+        ));
     }
 }
 

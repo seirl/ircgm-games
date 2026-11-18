@@ -392,7 +392,7 @@ pub fn build_deck_schedule(
         };
         let has_data_hazard = (cur_writes & step.effective_prompt_reads()) != 0;
         let must_split = !cur.is_empty()
-            && step.needs_dm_prompt()
+            && step.has_tier_start()
             && (shares_pack_with_tier || has_data_hazard);
 
         if must_split {
@@ -811,6 +811,12 @@ pub async fn run_night_phase(
                                             wake_fn,
                                             mark_acted_immediately: false,
                                         })
+                                    }));
+                                }
+                                if let Some(hooks) = step.tier_hooks {
+                                    let after_fn = hooks.after_last_slot;
+                                    futs.push(Box::pin(async move {
+                                        Ok(StepTierResolution::TierEpilogue { step, after_fn })
                                     }));
                                 }
                             }

@@ -2,8 +2,8 @@ use ircgm::prelude::*;
 
 use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect,
-    SpecialVictory, Team, VictoryCtx, WakeStep,
+    GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, SpecialVictory, Team, VictoryCtx,
+    WakeStep,
 };
 
 /// Per-game randomized Mother Ship peek clearance for `Mortician` (`#13A`).
@@ -32,6 +32,17 @@ impl BoardKey for ForcedMorticianMode {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ActiveMorticianMode(MorticianMode);
+
+impl BoardKey for ActiveMorticianMode {
+    const ACCESS: u16 = BoardAccess::NONE;
+
+    fn init() -> Self {
+        Self(MorticianMode::ChooseNeighbor)
+    }
+}
+
 pub struct Mortician;
 pub static MORTICIAN: Mortician = Mortician;
 
@@ -49,8 +60,9 @@ impl Role for Mortician {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
-                WakeStep::group(&MORTICIAN, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
-                    .run_when_unheld()
+                WakeStep::solo(&MORTICIAN, |seat, ctx| Box::pin(Self::prompt_seat(seat, ctx)))
+                    .copy_on_turn()
+                    .with_tier_hooks(Self::init_tier, Self::finish_tier)
                     .writes(BoardAccess::PUBLIC_ANNOUNCE),
             ]
         }
@@ -83,39 +95,32 @@ impl Mortician {
         )
     }
 
-    async fn wake(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let mode = ctx
+    fn init_tier(board: &mut BoardMut<'_>, _roster: &Roster) {
+        let mode = board
             .get_key::<ForcedMorticianMode>()
             .0
             .unwrap_or_else(Self::roll_mode);
-        let effects = ctx
-            .prompt_seats(&MORTICIAN, active_seats, |seat, pctx| {
-                Box::pin(Self::prompt_seat(seat, mode, pctx))
-            })
-            .await?;
-
-        Ok(GroupEffect::new(move |board, rctx| {
-            rctx.apply_seat_effects(effects, board);
-            let desc = match mode {
-                MorticianMode::ChooseNeighbor => "peek at either adjacent neighbor's card",
-                MorticianMode::LeftOnly => "peek at their LEFT neighbor's card",
-                MorticianMode::RightOnly => "peek at their RIGHT neighbor's card",
-                MorticianMode::BothNeighbors => "peek at BOTH adjacent neighbors' cards",
-                MorticianMode::OwnCard => "peek at their OWN card",
-            };
-            rctx.announce(irc_format!(
-                "⚰️ {} {} was authorized to {desc}!",
-                "Mother Ship (Mortician):".bold().orange(),
-                MORTICIAN.info().styled_name(),
-            ));
-        }))
+        board.set_key(ActiveMorticianMode(mode));
     }
 
-    async fn prompt_seat(
-        seat: usize,
-        mode: MorticianMode,
-        mut ctx: PromptCtx<'_>,
-    ) -> Result<SeatEffect> {
+    fn finish_tier(board: &mut BoardMut<'_>, rctx: &mut ResolveCtx<'_>) {
+        let mode = board.get_key::<ActiveMorticianMode>().0;
+        let desc = match mode {
+            MorticianMode::ChooseNeighbor => "peek at either adjacent neighbor's card",
+            MorticianMode::LeftOnly => "peek at their LEFT neighbor's card",
+            MorticianMode::RightOnly => "peek at their RIGHT neighbor's card",
+            MorticianMode::BothNeighbors => "peek at BOTH adjacent neighbors' cards",
+            MorticianMode::OwnCard => "peek at their OWN card",
+        };
+        rctx.announce(irc_format!(
+            "⚰️ {} {} was authorized to {desc}!",
+            "Mother Ship (Mortician):".bold().orange(),
+            MORTICIAN.info().styled_name(),
+        ));
+    }
+
+    async fn prompt_seat(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let mode = ctx.get_key::<ActiveMorticianMode>().0;
         let roster = ctx.roster;
         let view = ctx.view();
         let (left, right) = roster.neighbors(seat);

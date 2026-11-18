@@ -69,6 +69,7 @@ impl Role for Empath {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[WakeStep::group(&EMPATH, |seats, ctx| Box::pin(Self::wake_group(seats, ctx)))
+                .copy_on_turn()
                 .run_when_unheld()
                 .writes(BoardAccess::PUBLIC_ANNOUNCE)]
         }

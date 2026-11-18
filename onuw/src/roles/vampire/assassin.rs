@@ -143,7 +143,6 @@ impl Role for ApprenticeAssassin {
                     Box::pin(Self::wake_group(seats, ctx))
                 })
                 .dusk()
-                .copy_with_group()
                 .writes(BoardAccess::MARKS | ApprenticeSoloMark::ACCESS),
             ]
         }

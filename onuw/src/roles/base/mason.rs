@@ -22,8 +22,7 @@ impl Role for Mason {
         const {
             &[WakeStep::group(&MASON, |seats, ctx| {
                 Box::pin(Self::wake_group(seats, ctx))
-            })
-            .copy_with_group()]
+            })]
         }
     }
 }

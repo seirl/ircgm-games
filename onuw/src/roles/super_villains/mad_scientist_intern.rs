@@ -53,8 +53,7 @@ impl Role for Intern {
         const {
             &[WakeStep::group(&INTERN, |seats, ctx| {
                 Box::pin(Self::wake_group(seats, ctx))
-            })
-            .copy_with_group()]
+            })]
         }
     }
 

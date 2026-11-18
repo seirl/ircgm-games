@@ -69,6 +69,7 @@ impl Role for Nostradamus {
         const {
             &[
                 WakeStep::group(&NOSTRADAMUS, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+                    .copy_on_turn()
                     .run_when_unheld()
                     .reads(BoardAccess::PLAYER_FACES)
                     .writes(ActiveNostradamusRoles::ACCESS | BoardAccess::PUBLIC_ANNOUNCE),

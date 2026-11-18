@@ -6,7 +6,6 @@ use std::fmt;
 use std::future::Future;
 use std::pin::Pin;
 
-use futures::future::try_join_all;
 use ircgm::prelude::*;
 use ircgm::{CaseMap, IntoAskMatch};
 use tokio::time::Instant;
@@ -299,9 +298,9 @@ pub enum CopyTiming {
     WithGroup,
 }
 
-/// Optional once-per-role setup and epilogue hooks for [`WakeStep::solo`] roles whose
-/// Mother Ship / announcer directive rolls once and announces publicly even when unheld
-/// (`Body Snatcher`, `Rascal`, `Exposer`).
+/// Optional once-per-role setup and epilogue hooks for [`WakeStep::solo`] and [`WakeStep::passive`]
+/// roles whose Mother Ship / announcer directive rolls once and announces publicly even when unheld
+/// (`Body Snatcher`, `Psychic`, `Rascal`, `Exposer`, `Family Man`, `Blob`, `Mortician`).
 #[derive(Clone, Copy)]
 pub struct TierHooks {
     pub before_first_slot: fn(&mut BoardMut<'_>, &Roster),
@@ -452,7 +451,10 @@ impl WakeStep {
         s
     }
 
-    /// Role-owned group wake (`Mason`, `Leader`, `Intern`, `Apprentice Assassin`, `Empath`, etc.).
+    /// Role-owned group wake (`Mason`, `Intern`, `Apprentice Assassin`, `Oracle`, `Nostradamus`, `Empath`).
+    ///
+    /// Defaults to `CopyTiming::WithGroup` (override with `.copy_on_turn()` or `.copy_after_player_copier()`
+    /// when `Doppelgänger` wakes separately from the base role).
     pub const fn group(owner: &'static dyn Role, f: GroupPromptFn) -> Self {
         Self {
             target: StepTarget::Role(owner),
@@ -461,7 +463,7 @@ impl WakeStep {
             short_budget: false,
             copier: None,
             run_when_unheld: false,
-            copy_timing: Some(CopyTiming::OnRoleTurn),
+            copy_timing: Some(CopyTiming::WithGroup),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
             tier_hooks: None,
@@ -506,7 +508,7 @@ impl WakeStep {
             short_budget: false,
             copier: None,
             run_when_unheld: false,
-            copy_timing: Some(CopyTiming::OnRoleTurn),
+            copy_timing: Some(CopyTiming::WithGroup),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
             tier_hooks: None,
@@ -534,7 +536,7 @@ impl WakeStep {
     pub const fn run_when_unheld(mut self) -> Self {
         assert!(
             matches!(self.kind, StepKind::Group(_)),
-            "only Group steps support .run_when_unheld() (use .with_tier_hooks(...) on Solo steps)"
+            "only Group steps support .run_when_unheld() (use .with_tier_hooks(...) on Solo/Passive steps)"
         );
         self.run_when_unheld = true;
         self
@@ -546,8 +548,8 @@ impl WakeStep {
         after_last_slot: fn(&mut BoardMut<'_>, &mut ResolveCtx<'_>),
     ) -> Self {
         assert!(
-            matches!(self.kind, StepKind::Solo(_)),
-            "only Solo steps support .with_tier_hooks(...)"
+            matches!(self.kind, StepKind::Solo(_) | StepKind::Passive(_)),
+            "only Solo and Passive steps support .with_tier_hooks(...)"
         );
         self.run_when_unheld = true;
         self.tier_hooks = Some(TierHooks {
@@ -563,15 +565,6 @@ impl WakeStep {
             "only Group steps support .copy_after_player_copier()"
         );
         self.copy_timing = Some(CopyTiming::AfterPlayerCopier);
-        self
-    }
-
-    pub const fn copy_with_group(mut self) -> Self {
-        assert!(
-            matches!(self.kind, StepKind::Group(_)),
-            "only Group/Pair steps support .copy_with_group()"
-        );
-        self.copy_timing = Some(CopyTiming::WithGroup);
         self
     }
 
@@ -596,8 +589,8 @@ impl WakeStep {
 
     pub const fn copy_on_turn(mut self) -> Self {
         assert!(
-            matches!(self.kind, StepKind::Solo(_)),
-            "only Solo steps support .copy_on_turn() (group and passive steps already wake on turn)"
+            matches!(self.kind, StepKind::Solo(_) | StepKind::Group(_)),
+            "only Solo and Group steps support .copy_on_turn() (Passive steps already default to OnRoleTurn)"
         );
         self.copy_timing = Some(CopyTiming::OnRoleTurn);
         self
@@ -619,8 +612,9 @@ impl WakeStep {
         self
     }
 
-    pub const fn needs_dm_prompt(&self) -> bool {
-        !matches!(self.kind, StepKind::Passive(_))
+    /// True if this step runs code at tier start (an interactive DM prompt or `TierHooks::before_first_slot`).
+    pub const fn has_tier_start(&self) -> bool {
+        !matches!(self.kind, StepKind::Passive(_)) || self.tier_hooks.is_some()
     }
 
     pub fn id(&self) -> &'static str {
@@ -663,10 +657,10 @@ impl WakeStep {
     }
 
     /// Effective read mask for scheduler conflict detection & runtime `PromptCtx` checks:
-    /// every interactive step implicitly depends on `WAKING_ROLES | PUBLIC_ANNOUNCE` (even with eyes closed),
-    /// plus `VISIBLE_TABLE` when `eyes_open`.
+    /// every step with a tier-start phase implicitly depends on `WAKING_ROLES | PUBLIC_ANNOUNCE`
+    /// (even with eyes closed), plus `VISIBLE_TABLE` when `eyes_open`.
     pub fn effective_prompt_reads(&self) -> u16 {
-        if !self.needs_dm_prompt() {
+        if !self.has_tier_start() {
             return BoardAccess::NONE;
         }
         let vis = if self.eyes_open {
@@ -1144,7 +1138,7 @@ impl<'a> GroupPromptCtx<'a> {
         self.board.raw().get_key::<K>()
     }
 
-    /// Acquires a per-seat [`PromptCtx`] inside a group step (`Nostradamus`, `Rascal`, etc.).
+    /// Acquires a per-seat [`PromptCtx`] inside a group step (`Nostradamus`).
     pub async fn for_seat(&self, seat: usize) -> Result<PromptCtx<'a>> {
         let dm = self.roster.seats[seat].user.exclusive_available().await?;
         Ok(PromptCtx {
@@ -1159,38 +1153,6 @@ impl<'a> GroupPromptCtx<'a> {
             wakers: self.wakers,
             board: self.board,
         })
-    }
-
-    /// Runs a per-seat [`PromptCtx`] closure concurrently across `seats`, returning `(seat, effect)`
-    /// ordered with initial holders of `owner` before copiers (`Copycat` / `Doppelgänger`).
-    pub async fn prompt_seats<'b, F>(
-        &'b self,
-        owner: &'static dyn Role,
-        seats: SeatSet,
-        f: F,
-    ) -> Result<Vec<(usize, SeatEffect)>>
-    where
-        F: Fn(usize, PromptCtx<'a>) -> BoxFuture<'b, Result<SeatEffect>> + Sync,
-        'a: 'b,
-    {
-        let mut ordered: Vec<usize> = Vec::with_capacity(seats.len());
-        for s in seats {
-            if self.roster.seats[s].initial_role.id() == owner.id() {
-                ordered.push(s);
-            }
-        }
-        for s in seats {
-            if self.roster.seats[s].initial_role.id() != owner.id() {
-                ordered.push(s);
-            }
-        }
-        let f_ref = &f;
-        try_join_all(ordered.into_iter().map(|seat| async move {
-            let pctx = self.for_seat(seat).await?;
-            let effect = f_ref(seat, pctx).await?;
-            Ok((seat, effect))
-        }))
-        .await
     }
 }
 
@@ -1239,20 +1201,18 @@ impl<'a> ResolveCtx<'a> {
         self.wakers.seats_with_role(role)
     }
 
-    pub fn grant_wake_log(&mut self, seat: usize) {
-        self.wakers.wake_log_recipients.insert(seat);
+    /// Waking seats holding `role` (excluding seats suppressed by `Mark::Fear`).
+    pub fn waking_seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
+        self.wakers.waking_seats_with_role(role)
     }
 
-    /// Applies per-seat [`SeatEffect`]s gathered via [`GroupPromptCtx::prompt_seats`].
-    pub fn apply_seat_effects(
-        &mut self,
-        effects: Vec<(usize, SeatEffect)>,
-        board: &mut BoardMut<'_>,
-    ) {
-        for (seat, effect) in effects {
-            let label = self.wakers.actor_label(self.roster, seat);
-            effect.apply(&label, board, self);
-        }
+    /// Seat that `seat` copied via `Doppelgänger` (`None` for non-Doppelgänger seats).
+    pub fn copied_from(&self, seat: usize) -> Option<usize> {
+        self.wakers.copied_from(seat)
+    }
+
+    pub fn grant_wake_log(&mut self, seat: usize) {
+        self.wakers.wake_log_recipients.insert(seat);
     }
 }
 

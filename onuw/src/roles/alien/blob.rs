@@ -1,10 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardKey, SeatSet};
-use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx,
-    WakeStep,
-};
+use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
+use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx, WakeStep};
 
 /// Per-game randomized absorption shape announced publicly at `#13 Blob`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -94,9 +91,9 @@ impl Role for Blob {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::group(&BLOB, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
+            &[WakeStep::passive(&BLOB, Self::notify_holder)
                 .eyes_closed()
-                .run_when_unheld()
+                .with_tier_hooks(Self::init_tier, Self::finish_tier)
                 .writes(ActiveBlobShape::ACCESS | BoardAccess::PUBLIC_ANNOUNCE)]
         }
     }
@@ -115,43 +112,49 @@ impl Role for Blob {
 }
 
 impl Blob {
-    async fn wake(active_seats: SeatSet, _ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        Ok(GroupEffect::new(move |board, rctx| {
-            let n = rctx.roster.len();
-            let shape = match board.get_key::<ActiveBlobShape>().0 {
-                Some(s) => s,
-                None => {
-                    let rolled = BlobShape::roll(n);
-                    board.set_key(ActiveBlobShape(Some(rolled)));
-                    rolled
-                }
-            };
+    fn init_tier(board: &mut BoardMut<'_>, roster: &Roster) {
+        if board.get_key::<ActiveBlobShape>().0.is_none() {
+            board.set_key(ActiveBlobShape(Some(BlobShape::roll(roster.len()))));
+        }
+    }
 
-            rctx.announce(irc_format!(
-                "🟢 {} Whoever holds the {} is merged with {} ({}) — keep ALL absorbed players alive!",
-                "Blob Absorption:".bold().green(),
-                BLOB.info().styled_name(),
-                shape.description().bold().yellow(),
-                rctx.roster.format_table_circle(),
-            ));
+    fn notify_holder(
+        seat: usize,
+        actor_label: &str,
+        board: &mut BoardMut<'_>,
+        rctx: &mut ResolveCtx<'_>,
+    ) {
+        let shape = board
+            .get_key::<ActiveBlobShape>()
+            .0
+            .unwrap_or(BlobShape::Left1);
+        let absorbed = shape.absorbed_seats(rctx.roster.len(), seat);
+        let names = rctx.roster.format_seats(absorbed);
+        rctx.dm(
+            seat,
+            irc_format!(
+                "🟢 {actor_label}: If you still hold the Blob, your absorbed cluster is {} — keep ALL of them alive to win!",
+                names.as_str().bold().green(),
+            ),
+        );
+    }
 
-            for s in active_seats {
-                let absorbed = shape.absorbed_seats(n, s);
-                let names = rctx.roster.format_seats(absorbed);
-                rctx.dm(
-                    s,
-                    irc_format!(
-                        "🟢 Blob: If you still hold the Blob, your absorbed cluster is {} — keep ALL of them alive to win!",
-                        names.as_str().bold().green(),
-                    ),
-                );
-            }
-
-            rctx.record(irc_format!(
-                "🟢 Blob absorption rolled: {}.",
-                shape.description().bold().green(),
-            ));
-        }))
+    fn finish_tier(board: &mut BoardMut<'_>, rctx: &mut ResolveCtx<'_>) {
+        let shape = board
+            .get_key::<ActiveBlobShape>()
+            .0
+            .unwrap_or(BlobShape::Left1);
+        rctx.announce(irc_format!(
+            "🟢 {} Whoever holds the {} is merged with {} ({}) — keep ALL absorbed players alive!",
+            "Blob Absorption:".bold().green(),
+            BLOB.info().styled_name(),
+            shape.description().bold().yellow(),
+            rctx.roster.format_table_circle(),
+        ));
+        rctx.record(irc_format!(
+            "🟢 Blob absorption rolled: {}.",
+            shape.description().bold().green(),
+        ));
     }
 }
 
