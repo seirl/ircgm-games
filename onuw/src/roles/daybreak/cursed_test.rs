@@ -129,3 +129,43 @@ async fn cursed_converts_to_vampire_when_voted_by_vampire() {
         .await;
     assert_eq!(dawn.winner_nicks(&h.roster), vec!["Alice", "Bob", "Carol"]);
 }
+
+#[tokio::test(start_paused = true)]
+async fn cursed_converts_to_faction_casting_more_monster_votes_when_wolves_and_vampires_both_point() {
+    // 2 Vampires (Bob + bitten Carol) AND 1 Werewolf (Dave) point at Alice (Cursed):
+    // 2 Vampire votes > 1 Werewolf vote -> Alice turns into a Vampire (not a Werewolf) and dies,
+    // while Dave (Werewolf) also dies (3 votes) -> Village Eve wins because both a Vampire (Alice) and Werewolf (Dave) died!
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &CURSED),
+            ("Bob", &VAMPIRE),
+            ("Carol", &VILLAGER),
+            ("Dave", &WEREWOLF),
+            ("Eve", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let night = h.spawn_night();
+    h.reply_dm("Bob", "Carol").await;
+    h.reply_dm("Dave", "1").await;
+    let report = h.finish_night(night).await;
+
+    let dawn = h
+        .resolve_voting(
+            report,
+            &[
+                ("Alice", Some("Dave")),
+                ("Bob", Some("Alice")),
+                ("Carol", Some("Alice")),
+                ("Dave", Some("Alice")),
+                ("Eve", Some("Dave")),
+            ],
+        )
+        .await;
+    assert_eq!(
+        dawn.summary.final_board.player_card(0).effective_role().name(),
+        "Vampire"
+    );
+    assert_eq!(dawn.winner_nicks(&h.roster), vec!["Eve"]);
+}

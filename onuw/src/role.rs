@@ -700,7 +700,7 @@ impl NightWakers {
     }
 
     pub fn copy_center(&mut self, actor: usize, copied: &'static dyn Role) {
-        if !copied.is_player_copier() {
+        if !copied.is_player_copier() && !copied.is_center_copier() {
             self.waking_roles[actor] = copied;
         }
     }
@@ -1560,16 +1560,10 @@ impl dyn Role {
         self.threat_team().is_some()
     }
 
-    /// True for roles that cause `Paranormal Investigator` to stop & transform (monster threats
-    /// and `Independent` roles, excluding minions and `Innocent Bystander`).
-    pub fn triggers_pi_and_revealer(&self) -> bool {
-        self.team() != Team::Village && !self.is_minion()
-    }
-
-    /// True for roles that `Revealer` and `Flipper` must flip back face-down (all `triggers_pi_and_revealer`
-    /// roles PLUS `Innocent Bystander`, who wins with Heroes/Village without being on the Hero team).
+    /// True for roles that `Revealer` / `Flipper` must flip back face-down despite having `Team::Village`
+    /// (`Innocent Bystander`, who wins with Heroes/Village without being on the Hero team).
     pub fn flips_back_on_reveal(&self) -> bool {
-        self.triggers_pi_and_revealer() || self.info().flips_back_on_reveal
+        self.info().flips_back_on_reveal
     }
 
     pub fn has_step(&self, step: &WakeStep) -> bool {

@@ -11,7 +11,6 @@ use crate::roles::{
     base::troublemaker::TROUBLEMAKER,
     base::villager::VILLAGER,
     base::werewolf::WEREWOLF,
-    daybreak::apprentice_seer::APPRENTICE_SEER,
 };
 use crate::scenarios::{Difficulty, Scenario, ScenarioPack, ScenarioRule};
 
@@ -25,7 +24,7 @@ pub static SCENARIOS: &[Scenario] = &[
         name: "The First Night",
         aliases: &["the_first_night"],
         difficulty: Difficulty::Introduction,
-        player_range: (3, 6),
+        player_range: (3, 5),
         rule: ScenarioRule::DeltaTable {
             base: &[
                 &WEREWOLF,
@@ -35,12 +34,7 @@ pub static SCENARIOS: &[Scenario] = &[
                 &TROUBLEMAKER,
                 &VILLAGER,
             ],
-            deltas: &[
-                &[],
-                &[&VILLAGER],
-                &[&VILLAGER, &APPRENTICE_SEER],
-                &[&VILLAGER, &VILLAGER, &APPRENTICE_SEER],
-            ],
+            deltas: &[&[], &[&VILLAGER], &[&VILLAGER, &VILLAGER]],
         },
     },
     Scenario {

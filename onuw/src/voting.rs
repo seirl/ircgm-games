@@ -179,13 +179,17 @@ pub fn resolve_and_announce_winners(
             if ricochets.iter().any(|&(src, _, _)| src == s) {
                 dead.remove(s);
                 let mut cur = s;
+                let mut visited = SeatSet::single(s);
                 for _ in 0..n {
-                    if let Some(&(_, dst, ref msg)) = ricochets.iter().find(|&&(src, _, _)| src == cur) {
+                    if let Some(&(_, dst, ref msg)) =
+                        ricochets.iter().find(|&&(src, _, _)| src == cur)
+                    {
                         ricochet_announcements.push(msg.clone());
-                        cur = dst;
-                        if cur == s {
+                        if !visited.insert(dst) {
+                            cur = s;
                             break;
                         }
+                        cur = dst;
                     } else {
                         break;
                     }
@@ -419,11 +423,7 @@ pub fn resolve_and_announce_winners(
     };
     let minions_for = |team: Team| -> SeatSet {
         (0..n)
-            .filter(|&i| {
-                !board.has_role_override_artifact(i)
-                    && board.effective_team(i) == team
-                    && board.player_card(i).effective_role().is_minion()
-            })
+            .filter(|&i| board.effective_team(i) == team && !board.is_monster_threat_for(i, team))
             .collect()
     };
 
@@ -463,10 +463,10 @@ pub fn resolve_and_announce_winners(
                     winning_teams.insert(team);
                 }
             } else {
-                // Minion with 0 primary threats in play wins individually if they survive
-                // AND another player dies (and the team is not blocked by Tanner/etc.):
+                // Non-threat followers (`Minion`, `Squire`, `Oracle [Alien Team]`, monster-aligned `Nostradamus`)
+                // with 0 primary threats in play win individually if they survive AND a non-follower dies:
                 for m in minions - dead {
-                    if !dead.without(m).is_empty() {
+                    if !(dead - minions).is_empty() {
                         winners.insert(m, team.win_label());
                     }
                 }

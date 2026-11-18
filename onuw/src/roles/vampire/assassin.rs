@@ -1,10 +1,10 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
+use crate::board::{BoardAccess, BoardCards, BoardKey, BoardMut, Roster, SeatSet};
 use crate::marks::Mark;
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect,
-    SpecialVictory, Team, VictoryCtx, WakeStep,
+    EffectiveAlignment, GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role,
+    RoleInfo, SeatEffect, SpecialVictory, Team, VictoryCtx, WakeStep,
 };
 
 pub struct Assassin;
@@ -43,6 +43,18 @@ impl Role for Assassin {
                 .copy_on_turn()
                 .writes(BoardAccess::MARKS)]
         }
+    }
+
+    fn adjust_alignment(
+        &self,
+        _seat: usize,
+        board: &BoardCards,
+        mut cur: EffectiveAlignment,
+    ) -> EffectiveAlignment {
+        if !board.marks().contains(&Mark::Assassin) {
+            cur.team = Team::Village;
+        }
+        cur
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
@@ -134,6 +146,18 @@ impl Role for ApprenticeAssassin {
                 .writes(BoardAccess::MARKS | ApprenticeSoloMark::ACCESS),
             ]
         }
+    }
+
+    fn adjust_alignment(
+        &self,
+        _seat: usize,
+        board: &BoardCards,
+        mut cur: EffectiveAlignment,
+    ) -> EffectiveAlignment {
+        if !board.marks().contains(&Mark::Assassin) {
+            cur.team = Team::Village;
+        }
+        cur
     }
 
     fn special_victory(&self, _seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {

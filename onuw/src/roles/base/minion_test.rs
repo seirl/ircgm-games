@@ -93,4 +93,25 @@ async fn solo_minion_with_zero_wolves_follows_official_onuw_victory_rules() {
         )
         .await;
     assert_eq!(dawn3.winner_nicks(&h3.roster), vec!["Bob"]);
+
+    // Case 4: Both Minion and Squire in play with 0 Werewolves; ONLY Squire dies -> surviving Minion does NOT win!
+    use crate::roles::vampire::squire::SQUIRE;
+    let mut h4 = OnuwTestHarness::new(
+        &[("Alice", &MINION), ("Bob", &SQUIRE), ("Carol", &VILLAGER)],
+        [&WEREWOLF, &WEREWOLF, &VILLAGER],
+    )
+    .await;
+    let n4 = h4.spawn_night();
+    let report4 = h4.finish_night(n4).await;
+    let dawn4 = h4
+        .resolve_voting(
+            report4,
+            &[
+                ("Alice", Some("Bob")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Bob")),
+            ],
+        )
+        .await;
+    assert!(dawn4.winner_nicks(&h4.roster).is_empty());
 }

@@ -423,6 +423,11 @@ impl Nostradamus {
             let dg_label = Team::Independent.style_text("Doppelgänger-Nostradamus");
             if dg_adopted.is_empty() {
                 let decoy = Self::pick_random_deck_role(rctx.roster);
+                for &r in &rctx.roster.deck {
+                    if r.is_player_copier() {
+                        destinies.set(r.id(), decoy);
+                    }
+                }
                 let decoy_banner = Self::format_adopted_banner(decoy);
                 rctx.announce(irc_format!(
                     "🔭 {} {} has joined {}!",
@@ -431,7 +436,7 @@ impl Nostradamus {
                     decoy_banner.clone(),
                 ));
                 rctx.record(irc_format!(
-                    "🔭 Doppelgänger-Nostradamus bluffed {} (Doppelgänger did not copy Nostradamus).",
+                    "🔭 Doppelgänger-Nostradamus randomly joined {} (did not wake to gaze).",
                     decoy_banner,
                 ));
             } else {

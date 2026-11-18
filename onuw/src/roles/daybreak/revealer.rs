@@ -82,7 +82,11 @@ impl Revealer {
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            let Some((card, stayed_face_up)) = board.reveal_player_if_village(seat, target) else {
+            // Daybreak rulebook / FAQ: Revealer flips back monster threats and Independent roles
+            // (plus Innocent Bystander), while leaving evil minions (Minion, Squire, Renfield) face-up.
+            let Some((card, stayed_face_up)) = board.reveal_player_unless(seat, target, |r| {
+                (r.team() != Team::Village && !r.is_minion()) || r.flips_back_on_reveal()
+            }) else {
                 return;
             };
             let actor_nick = ctx.nick(seat);

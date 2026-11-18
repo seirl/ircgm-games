@@ -249,3 +249,73 @@ async fn doppelganger_nostradamus_emits_two_separate_prophecies_tracks_card_swap
         vec!["Alice", "Bob", "Dave"]
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn feared_doppelganger_nostradamus_adopts_announced_decoy_and_monster_follower_wins_with_zero_wolves()
+{
+    use crate::roles::base::minion::MINION;
+    use crate::roles::vampire::count::COUNT;
+
+    // 1. Doppelgänger copies Nostradamus at #-7, then Count paralyzes Doppelgänger with Mark::Fear at #-6B:
+    //    Doppelgänger-Nostradamus adopts the publicly announced random destiny instead of cloning Nostradamus's!
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &DOPPELGANGER),
+            ("Bob", &NOSTRADAMUS),
+            ("Carol", &COUNT),
+            ("Dave", &TANNER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n = h.spawn_night();
+    h.reply_dm("Alice", "Bob").await;
+    // Count wakes at #-6 (Vampire coven mark) and then at #-6B (Mark of Fear on Alice):
+    h.reply_dm("Carol", "Dave").await;
+    h.reply_dm("Carol", "Alice").await;
+    h.reply_dm("Bob", "Dave").await;
+    let rep = h.finish_night(n).await;
+
+    let dg_prophecy = rep
+        .channel_lines
+        .iter()
+        .map(|l| Text::parse(l).plain())
+        .find(|p| p.contains("Doppelgänger-Nostradamus has joined "))
+        .expect("Doppelgänger-Nostradamus prophecy announced");
+    let expected = if dg_prophecy.contains("Vampire Team") {
+        Team::Vampire
+    } else if dg_prophecy.contains("Tanner") {
+        Team::Independent
+    } else {
+        Team::Village
+    };
+    assert_eq!(rep.board.effective_team(0), expected);
+
+    // 2. Nostradamus sees Minion (joining Werewolf Team immediately) with 0 Werewolves in play:
+    //    when Villager Carol dies, BOTH surviving Minion AND surviving Nostradamus win!
+    let mut h2 = OnuwTestHarness::new(
+        &[
+            ("Alice", &NOSTRADAMUS),
+            ("Bob", &MINION),
+            ("Carol", &VILLAGER),
+            ("Dave", &VILLAGER),
+        ],
+        [&WEREWOLF, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n2 = h2.spawn_night();
+    h2.reply_dm("Alice", "Bob").await;
+    let rep2 = h2.finish_night(n2).await;
+    let dawn2 = h2
+        .resolve_voting(
+            rep2,
+            &[
+                ("Alice", Some("Carol")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Dave")),
+                ("Dave", Some("Carol")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn2.winner_nicks(&h2.roster), vec!["Alice", "Bob"]);
+}

@@ -75,7 +75,11 @@ impl Flipper {
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            let Some((card, stayed_face_up)) = board.reveal_player_if_village(seat, target) else {
+            // Super Villains rulebook: Flipper flips back any card NOT on the Hero (Village) team
+            // (including evil minions and Independent roles), plus teamless Innocent Bystander.
+            let Some((card, stayed_face_up)) = board.reveal_player_unless(seat, target, |r| {
+                r.team() != Team::Village || r.flips_back_on_reveal()
+            }) else {
                 return;
             };
             let actor_nick = ctx.nick(seat);

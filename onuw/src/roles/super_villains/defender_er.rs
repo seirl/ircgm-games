@@ -12,16 +12,13 @@ impl Role for DefenderEr {
             "Defender-er",
             GameSet::SuperVillains,
             Team::Village,
-            "Sleep at night. If the player you point at during the Vote receives the most votes (>= 2), they CANNOT be caught (the runner-up with 2+ votes is caught instead)!",
+            "Sleep at night. Whoever you point at during the Vote CANNOT be caught (if they would die, the next-highest vote-getter with 2+ votes is caught instead)!",
         )
         .aliases(&["defenderer", "defender"])
     }
 
     fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
         let target = ctx.votes[seat]?;
-        if ctx.max_votes < 2 || ctx.tally[target] != ctx.max_votes {
-            return None;
-        }
         Some(VoteDefense::immune(
             target,
             true,

@@ -87,4 +87,33 @@ async fn assassin_and_apprentice_assassin_mutual_dusk_sight_bitten_mentor_and_ce
         )
         .await;
     assert!(dawn_sw.winner_nicks(&h_sw.roster).is_empty());
+
+    // 4. When no Mark of the Assassin is in play (Assassin / Apprentice Assassin started in center
+    //    and Drunk swapped into them), they become simple Villagers and win with the Village!
+    use crate::roles::base::drunk::DRUNK;
+    let mut h_vil = OnuwTestHarness::new(
+        &[("Alice", &DRUNK), ("Bob", &DRUNK), ("Carol", &VILLAGER)],
+        [&ASSASSIN, &APPRENTICE_ASSASSIN, &VILLAGER],
+    )
+    .await;
+    let n_vil = h_vil.spawn_night();
+    h_vil.wait_for_prompt_dm("Alice").await;
+    h_vil.wait_for_prompt_dm("Bob").await;
+    h_vil.send_dm("Alice", "1").await;
+    h_vil.send_dm("Bob", "2").await;
+    let rep_vil = h_vil.finish_night(n_vil).await;
+    let dawn_vil = h_vil
+        .resolve_voting(
+            rep_vil,
+            &[
+                ("Alice", Some("Bob")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Alice")),
+            ],
+        )
+        .await;
+    assert_eq!(
+        dawn_vil.winner_nicks(&h_vil.roster),
+        vec!["Alice", "Bob", "Carol"]
+    );
 }

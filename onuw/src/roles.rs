@@ -381,7 +381,9 @@ pub(crate) fn wakes_after_center_copy(
         return false;
     };
     let copier_rank = raw_step_rank(copier_step);
-    !copied.is_player_copier() && copied.steps().iter().any(|st| raw_step_rank(st) > copier_rank)
+    !copied.is_player_copier()
+        && !copied.is_center_copier()
+        && copied.steps().iter().any(|st| raw_step_rank(st) > copier_rank)
 }
 
 pub(crate) fn wakes_after_player_copy(copied: &'static dyn Role, has_dusk: bool) -> bool {

@@ -82,3 +82,29 @@ async fn doppelganger_renfield_sees_thrall_even_when_vampires_marked_initial_ren
     let alice_dms = rep.dms_to("Alice");
     assert!(alice_dms.contains("Mark of the Vampire") && alice_dms.contains(": Bob"));
 }
+
+#[tokio::test(start_paused = true)]
+async fn renfield_does_not_sense_sleeping_doppelganger_who_copied_copycat_vampire() {
+    use crate::roles::base::doppelganger::DOPPELGANGER;
+    use crate::roles::vampire::copycat::COPYCAT;
+
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &COPYCAT),
+            ("Bob", &DOPPELGANGER),
+            ("Carol", &RENFIELD),
+        ],
+        [&VAMPIRE, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n = h.spawn_night();
+    // Copycat Alice views Vampire in Center #1; Doppelgänger Bob copies Copycat Alice (sees only "Copycat", sleeps through Vampires);
+    // Alice wakes as Vampire and marks Carol:
+    h.reply_dm("Alice", "1").await;
+    h.reply_dm("Bob", "Alice").await;
+    h.reply_dm("Alice", "Carol").await;
+    let rep = h.finish_night(n).await;
+    let carol_dms = rep.dms_to("Carol");
+    assert!(carol_dms.contains("Vampires: Alice"));
+    assert!(!carol_dms.contains("Bob"));
+}

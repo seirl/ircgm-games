@@ -40,3 +40,47 @@ async fn ricochet_rhino_redirects_lethal_vote_onto_pointed_target_even_with_one_
     assert!(dead.contains("Bob"));
     assert_eq!(dawn.winner_nicks(&h.roster), vec!["Alice", "Carol", "Dave"]);
 }
+
+#[tokio::test(start_paused = true)]
+async fn ricochet_rhino_three_seat_lasso_loop_spares_everyone_without_duplicate_spam() {
+    // Alice (Rhino, 3 votes) -> Bob (Rhino, 2 votes) <-> Carol (Rhino, 1 vote):
+    // closed cycle entered after Alice -> nobody dies, and the chain announces only 3 bounces!
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &RICOCHET_RHINO),
+            ("Bob", &RICOCHET_RHINO),
+            ("Carol", &RICOCHET_RHINO),
+            ("Dave", &INNOCENT_BYSTANDER),
+            ("Eve", &INNOCENT_BYSTANDER),
+            ("Frank", &HENCHMAN),
+        ],
+        [
+            &INNOCENT_BYSTANDER,
+            &INNOCENT_BYSTANDER,
+            &INNOCENT_BYSTANDER,
+        ],
+    )
+    .await;
+    let night = h.spawn_night();
+    let rep = h.finish_night(night).await;
+    let dawn = h
+        .resolve_voting(
+            rep,
+            &[
+                ("Alice", Some("Bob")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Bob")),
+                ("Dave", Some("Alice")),
+                ("Eve", Some("Alice")),
+                ("Frank", Some("Alice")),
+            ],
+        )
+        .await;
+    assert!(dawn.dead_nicks(&h.roster).is_empty());
+    let bounce_count = dawn
+        .channel_lines
+        .iter()
+        .filter(|l| l.contains("ricocheted"))
+        .count();
+    assert_eq!(bounce_count, 3);
+}

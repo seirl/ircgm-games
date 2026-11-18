@@ -84,7 +84,9 @@ impl ParanormalInvestigator {
             let visible_role = seen_card.visible_role();
             let target_nick = ctx.nick(target);
 
-            if visible_role.triggers_pi_and_revealer() {
+            // Daybreak rulebook: PI stops and transforms on monster threats and Independent roles,
+            // but keeps investigating past Village roles, evil minions, and Innocent Bystander.
+            if visible_role.team() != Team::Village && !visible_role.is_minion() {
                 ctx.say(irc_format!(
                     "😱 {} is {}! You STOP investigating and become {}!",
                     target_nick.bold(),

@@ -9,7 +9,7 @@ use ircgm::prelude::*;
 
 use crate::artifacts::Artifact;
 use crate::marks::Mark;
-use crate::role::{EffectiveAlignment, EndgameModifier, NightFaction, ResolveCtx, Role, Team};
+use crate::role::{EffectiveAlignment, EndgameModifier, ResolveCtx, Role, Team};
 pub use crate::seat_set::{SeatIter, SeatSet};
 
 /// Bitmask tracking which tabletop zones a [`crate::role::WakeStep`] reads during its prompt
@@ -536,7 +536,7 @@ impl BoardCards {
             s.push('🛡');
         }
         if self.players[seat].face_up {
-            s.push_str(&format!(" [🔦 {}]", self.players[seat].face.name()));
+            s.push_str(&format!(" [🔦 {}]", self.players[seat].visible_role().name()));
         }
         if self.artifacts[seat].is_some() {
             s.push('🏺');
@@ -756,10 +756,6 @@ impl<'a> BoardMut<'a> {
 
     pub fn mark_at(&self, seat: usize) -> Mark {
         self.inner.marks[seat]
-    }
-
-    pub fn card_has_night_faction(&self, seat: usize, faction: NightFaction) -> bool {
-        self.inner.players[seat].effective_role().night_faction() == Some(faction)
     }
 
     pub fn aura_actors_excluding(&self, seat: usize) -> SeatSet {
@@ -995,9 +991,14 @@ impl<'a> BoardMut<'a> {
         self.inner.shielded.insert(target);
     }
 
-    /// Peeks `target` (`Revealer`, `Flipper`) and flips `players[target]` face-up iff it does not trigger flip-back,
-    /// returning `Some((card, stayed_face_up))` when unshielded.
-    pub fn reveal_player_if_village(&mut self, actor: usize, target: usize) -> Option<(Card, bool)> {
+    /// Peeks `target` (`Revealer`, `Flipper`) and flips `players[target]` face-up unless
+    /// `flips_back(card.visible_role())` returns `true`, returning `Some((card, stayed_face_up))` when unshielded.
+    pub fn reveal_player_unless(
+        &mut self,
+        actor: usize,
+        target: usize,
+        flips_back: impl FnOnce(&dyn Role) -> bool,
+    ) -> Option<(Card, bool)> {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
         self.check_write(BoardAccess::FACE_UP, "FACE_UP");
         if self.inner.shielded.contains(target) {
@@ -1005,7 +1006,7 @@ impl<'a> BoardMut<'a> {
         }
         self.inner.viewed_or_moved_actors.insert(actor);
         let card = self.inner.players[target];
-        if card.visible_role().flips_back_on_reveal() {
+        if flips_back(card.visible_role()) {
             Some((card, false))
         } else {
             self.inner.players[target].face_up = true;

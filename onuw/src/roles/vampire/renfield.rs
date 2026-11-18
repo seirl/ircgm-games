@@ -60,10 +60,7 @@ impl Renfield {
             .roster
             .all_seats()
             .into_iter()
-            .filter(|&i| {
-                ctx.waking_role(i).night_faction() == Some(NightFaction::Vampire)
-                    || board.card_has_night_faction(i, NightFaction::Vampire)
-            })
+            .filter(|&i| ctx.waking_role(i).night_faction() == Some(NightFaction::Vampire))
             .collect();
         let marked_vamps: SeatSet = match board.get_key::<RenfieldThrallSnapshot>().0 {
             Some(snap) => snap,

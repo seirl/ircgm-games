@@ -195,6 +195,12 @@ fn fuzzy_lookup_resolves_short_slugs_bilingual_names_and_new_roles() {
     let eight_p = scenarios_for_player_count(8);
     assert!(eight_p.iter().any(|s| s.id == "rb_base_revenant"));
     assert!(!eight_p.iter().any(|s| s.id == "rb_base_lonely_night"));
+
+    // Base "The First Night" (3–5p) uses strictly Base-set cards (3 Villagers at 5p, no Daybreak Apprentice Seer):
+    let first_night = find_scenario("rb_base_first_night").unwrap();
+    let fn_5p = first_night.build_for_players(5).unwrap();
+    assert!(fn_5p.iter().all(|r| r.game() == crate::role::GameSet::Base));
+    assert_eq!(fn_5p.iter().filter(|r| r.id() == "villager").count(), 3);
 }
 
 #[tokio::test(start_paused = true)]

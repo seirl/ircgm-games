@@ -54,12 +54,28 @@ impl Role for Cursed {
         board: &BoardCards,
         votes: &[Option<usize>],
     ) -> Option<(&'static dyn Role, Text)> {
-        let werewolf_voted = votes
-            .iter()
-            .enumerate()
-            .any(|(v, &opt)| opt == Some(seat) && board.is_monster_threat_for(v, Team::Werewolf));
-        if werewolf_voted {
-            return Some((
+        let mut ww_votes = 0usize;
+        let mut vamp_votes = 0usize;
+        for (v, &opt) in votes.iter().enumerate() {
+            if v != seat && opt == Some(seat) {
+                if board.is_monster_threat_for(v, Team::Werewolf) {
+                    ww_votes += 1;
+                }
+                if board.is_monster_threat_for(v, Team::Vampire) {
+                    vamp_votes += 1;
+                }
+            }
+        }
+        if ww_votes == 0 && vamp_votes == 0 {
+            return None;
+        }
+        let turn_werewolf = if ww_votes != vamp_votes {
+            ww_votes > vamp_votes
+        } else {
+            fastrand::bool()
+        };
+        if turn_werewolf {
+            Some((
                 &CURSED_WEREWOLF,
                 irc_format!(
                     "🐺 {} ({}) was pointed at by a Werewolf and turned into a {}!",
@@ -67,15 +83,9 @@ impl Role for Cursed {
                     self.info().styled_name(),
                     CURSED_WEREWOLF.info().styled_name(),
                 ),
-            ));
-        }
-
-        let vampire_voted = votes
-            .iter()
-            .enumerate()
-            .any(|(v, &opt)| opt == Some(seat) && board.is_monster_threat_for(v, Team::Vampire));
-        if vampire_voted {
-            return Some((
+            ))
+        } else {
+            Some((
                 &CURSED_VAMPIRE,
                 irc_format!(
                     "🧛 {} ({}) was pointed at by a Vampire and turned into a {}!",
@@ -83,10 +93,8 @@ impl Role for Cursed {
                     self.info().styled_name(),
                     CURSED_VAMPIRE.info().styled_name(),
                 ),
-            ));
+            ))
         }
-
-        None
     }
 }
 
