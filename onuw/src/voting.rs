@@ -92,7 +92,7 @@ pub fn resolve_and_announce_winners(
         .filter(|(_, seats)| !seats.is_empty())
         .map(|(team, _)| *team)
         .collect();
-    let has_non_monster = (0..n).any(|i| !Team::MONSTER_TEAMS.contains(&board.effective_team(i)));
+    let has_non_monster = (0..n).any(|i| !board.effective_team(i).is_monster());
     let is_epic_battle = present_monster_factions.len() >= 3
         || (present_monster_factions.len() == 2 && has_non_monster);
 
@@ -506,13 +506,10 @@ pub fn resolve_and_announce_winners(
         }
     }
 
-    for &team in Team::COLLECTIVE_TEAMS {
+    for seat in 0..n {
+        let team = board.effective_team(seat);
         if winning_teams.contains(&team) {
-            for seat in 0..n {
-                if board.effective_team(seat) == team {
-                    winners.insert(seat, team.win_label());
-                }
-            }
+            winners.insert(seat, team.win_label());
         }
     }
     for (seat, team, label) in with_team_claims {

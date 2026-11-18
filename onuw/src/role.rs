@@ -91,15 +91,6 @@ pub enum Team {
 }
 
 impl Team {
-    /// Collective factions whose members all share a team-wide win (`Village` + the 4 monster factions).
-    pub const COLLECTIVE_TEAMS: &'static [Team] = &[
-        Team::Village,
-        Team::Werewolf,
-        Team::Vampire,
-        Team::Alien,
-        Team::SuperVillain,
-    ];
-
     /// All four hostile monster factions used for *Epic Battle* detection and Tanner-style team blocks.
     pub const MONSTER_TEAMS: &'static [Team] = &[
         Team::Werewolf,
@@ -108,11 +99,19 @@ impl Team {
         Team::SuperVillain,
     ];
 
+    pub const fn is_monster(self) -> bool {
+        let mut i = 0;
+        while i < Self::MONSTER_TEAMS.len() {
+            if self as u8 == Self::MONSTER_TEAMS[i] as u8 {
+                return true;
+            }
+            i += 1;
+        }
+        false
+    }
+
     pub const fn is_collective(self) -> bool {
-        matches!(
-            self,
-            Team::Village | Team::Werewolf | Team::Vampire | Team::Alien | Team::SuperVillain
-        )
+        matches!(self, Team::Village) || self.is_monster()
     }
 
     pub fn label(self) -> &'static str {
@@ -229,10 +228,7 @@ impl RoleInfo {
         team: Team,
         summary: &'static str,
     ) -> Self {
-        let threat_team = match team {
-            Team::Werewolf | Team::Vampire | Team::Alien | Team::SuperVillain => Some(team),
-            Team::Village | Team::Tanner | Team::Mad | Team::Independent => None,
-        };
+        let threat_team = if team.is_monster() { Some(team) } else { None };
         Self {
             id,
             name,
@@ -1330,7 +1326,7 @@ impl TeamBlock {
     pub fn blocks(self, team: Team) -> bool {
         match self {
             Self::None => false,
-            Self::MonsterTeams => Team::MONSTER_TEAMS.contains(&team),
+            Self::MonsterTeams => team.is_monster(),
             Self::AllTeams => team.is_collective(),
         }
     }
