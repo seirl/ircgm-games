@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::board::{BoardAccess, BoardMut, CenterSlot, Roster};
 use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Witch;
@@ -28,28 +28,29 @@ impl Role for Witch {
 
 impl Witch {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let roster = ctx.roster;
+        let choice_hint = roster.center_choice_hint();
+        let or_pass_hint = roster.center_or_pass_hint();
         let step1 = ctx
             .ask(
                 irc_format!(
-                    "🧙‍♀️ Witch: Reply {}, {}, or {} to view a center card (you MUST then give it to someone!), or {}:",
-                    "1".bold(),
-                    "2".bold(),
-                    "3".bold(),
+                    "🧙‍♀️ Witch: Reply {} to view a center card (you MUST then give it to someone!), or {}:",
+                    choice_hint.bold(),
                     "pass".bold(),
                 ),
-                |m| {
+                move |m| {
                     if Roster::is_pass(&m.text) {
                         return AskMatch::accept_say(None, "🧙‍♀️ Passed — brewed nothing tonight.");
                     }
-                    match Roster::parse_center_slot(&m.text) {
-                        Some(c_idx) => AskMatch::accept(Some(c_idx)),
-                        None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
+                    match roster.parse_center_slot(&m.text) {
+                        Some(slot) => AskMatch::accept(Some(slot)),
+                        None => AskMatch::reject(format!("Reply {or_pass_hint}.").yellow()),
                     }
                 },
             )
             .await?;
 
-        let Answer::Ok(Some(c_idx)) = step1 else {
+        let Answer::Ok(Some(slot)) = step1 else {
             return Ok(SeatEffect::new(move |label, _board, rctx| {
                 rctx.record(irc_format!(
                     "🧙‍♀️ {label} ({}) did not brew anything.",
@@ -58,10 +59,10 @@ impl Witch {
             }));
         };
 
-        let seen_center = ctx.peek_center_card(c_idx);
+        let slot_label = slot.label(roster);
+        let seen_center = ctx.peek_center_card(slot);
         ctx.say(irc_format!(
-            "🧙‍♀️ Center #{} is {}!",
-            c_idx + 1,
+            "🧙‍♀️ {slot_label} is {}!",
             seen_center.display_for_peek()
         ));
 
@@ -74,9 +75,9 @@ impl Witch {
             return Ok(SeatEffect::new(move |label, board, rctx| {
                 board.record_prompt_peek(seat);
                 rctx.record(irc_format!(
-                    "🧙‍♀️ {label} ({}) peeked Center #{} ({}), but all player cards were shielded.",
+                    "🧙‍♀️ {label} ({}) peeked {} ({}), but all player cards were shielded.",
                     rctx.nick(seat).bold(),
-                    c_idx + 1,
+                    slot.label(rctx.roster),
                     seen_center.display_for_peek(),
                 ));
             }));
@@ -87,8 +88,7 @@ impl Witch {
         let step2 = ctx
             .ask(
                 irc_format!(
-                    "🧙‍♀️ Give Center #{} to which player ({}, including yourself)? Players: {players_str}",
-                    c_idx + 1,
+                    "🧙‍♀️ Give {slot_label} to which player ({}, including yourself)? Players: {players_str}",
                     "<nick>".bold(),
                 ),
                 move |m| match view.resolve_nick(&m.text) {
@@ -98,8 +98,8 @@ impl Witch {
                     Some(idx) => AskMatch::accept_say(
                         idx,
                         irc_format!(
-                            "🧙‍♀️ Swapped Center #{} onto {}!",
-                            c_idx + 1,
+                            "🧙‍♀️ Swapped {} onto {}!",
+                            slot.label(view.roster),
                             view.roster.seats[idx].user.nick().bold(),
                         ),
                     ),
@@ -117,8 +117,7 @@ impl Witch {
                     unshielded.choose_random().expect("unshielded non-empty")
                 };
                 ctx.say(format!(
-                    "🧙‍♀️ Time expired—swapped Center #{} with {}!",
-                    c_idx + 1,
+                    "🧙‍♀️ Time expired—swapped {slot_label} with {}!",
                     ctx.nick(auto)
                 ));
                 auto
@@ -126,29 +125,28 @@ impl Witch {
         };
 
         Ok(SeatEffect::new(move |label, board, rctx| {
-            Self::resolve(seat, label, c_idx, target, board, rctx);
+            Self::resolve(seat, label, slot, target, board, rctx);
         }))
     }
 
     fn resolve(
         seat: usize,
         actor_label: &str,
-        c_idx: usize,
+        slot: CenterSlot,
         target: usize,
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Some((old_player_card, center_card)) =
-            board.swap_player_with_center(seat, target, c_idx)
+            board.swap_player_with_center(seat, target, slot)
         {
+            let slot_label = slot.label(ctx.roster);
             ctx.record(irc_format!(
-                "🧙‍♀️ {actor_label} ({}) peeked Center #{} ({}) and swapped it onto {} (moving {} into Center #{}).",
+                "🧙‍♀️ {actor_label} ({}) peeked {slot_label} ({}) and swapped it onto {} (moving {} into {slot_label}).",
                 ctx.nick(seat).bold(),
-                c_idx + 1,
                 center_card.display_for_peek(),
                 ctx.nick(target).bold(),
                 old_player_card.display_for_peek(),
-                c_idx + 1,
             ));
         }
     }

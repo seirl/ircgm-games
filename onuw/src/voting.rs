@@ -4,15 +4,12 @@ use std::collections::{HashMap, HashSet};
 
 use ircgm::prelude::*;
 
-use crate::board::{BoardCards, Card, Roster, SeatSet};
+use crate::board::{BoardCards, Card, CenterSlot, Roster, SeatSet};
 use crate::game::GameSummary;
 use crate::marks::Mark;
 use crate::role::{
     DeathCtx, DeathEffect, Role, SpecialVictory, Team, TeamBlock, VictoryCtx, VoteDefense,
     WinnerFilterCtx, WinnerMap,
-};
-use crate::roles::{
-    daybreak::alpha_wolf::CenterWolfCard, super_villains::temptress::ExtraVillainCard,
 };
 
 /// Deferred full game record (center cards, Dusk/Night chronicle, and per-seat `start → end`
@@ -254,17 +251,26 @@ pub fn resolve_and_announce_winners(
     // Build the deferred `!reveal` record (center cards, compact per-seat roles, and Dusk & Night chronicle):
     let sep = " · ".grey();
     let mut reveal_lines = Vec::new();
+    let mut center_parts: Vec<Text> = (0..3)
+        .map(|i| {
+            irc_format!(
+                "{} {}",
+                format!("#{}", i + 1).grey(),
+                board.center_card(CenterSlot::Main(i)).display_reveal(),
+            )
+        })
+        .collect();
+    for (label, card) in board.extra_cards() {
+        center_parts.push(irc_format!(
+            "{} {}",
+            format!("{label}:").grey(),
+            card.display_reveal(),
+        ));
+    }
     reveal_lines.push(irc_format!(
-        "{} {} {}{}{} {}{}{} {}",
+        "{} {}",
         "🗳️ VOTING REVEAL — Center:".bold(),
-        "#1".grey(),
-        board.center_card(0).display_reveal(),
-        sep.clone(),
-        "#2".grey(),
-        board.center_card(1).display_reveal(),
-        sep.clone(),
-        "#3".grey(),
-        board.center_card(2).display_reveal(),
+        Text::join(&center_parts, sep.clone()),
     ));
 
     let mut role_items: Vec<Text> = Vec::with_capacity(n);
@@ -405,9 +411,7 @@ pub fn resolve_and_announce_winners(
             Some(SpecialVictory::Hunted)
         )
     };
-    let center_hunted = (0..3).any(|c| is_hunted_card(board.center_card(c)))
-        || is_hunted_card(board.get_key::<CenterWolfCard>().0)
-        || is_hunted_card(board.get_key::<ExtraVillainCard>().0);
+    let center_hunted = board.all_non_player_cards().any(is_hunted_card);
     let hunted_active = !hunted_seats.is_empty() || center_hunted;
     if hunted_active {
         forced_team_candidate = None;

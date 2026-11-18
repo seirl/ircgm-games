@@ -10,7 +10,9 @@ use ircgm::prelude::*;
 use ircgm::{CaseMap, IntoAskMatch};
 use tokio::time::Instant;
 
-use crate::board::{BoardAccess, BoardCards, BoardKey, BoardMut, Card, PromptBoard, Roster, SeatSet};
+use crate::board::{
+    BoardAccess, BoardCards, BoardKey, BoardMut, Card, CenterSlot, PromptBoard, Roster, SeatSet,
+};
 use crate::marks::Mark;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -202,6 +204,16 @@ impl NightFaction {
     }
 }
 
+/// Declarative specification for an extra card placed perpendicular to the 3 center cards
+/// when its owner role is in the deck (`Alpha Wolf`'s Center Wolf, `Temptress`'s Extra Villain).
+#[derive(Clone, Copy, Debug)]
+pub struct ExtraCenterSpec {
+    pub label: &'static str,
+    pub token: &'static str,
+    pub aliases: &'static [&'static str],
+    pub candidates: &'static [&'static dyn Role],
+}
+
 /// Static card identity, team alignment, and deck metadata returned by [`Role::info`].
 #[derive(Clone, Copy, Debug)]
 pub struct RoleInfo {
@@ -218,6 +230,7 @@ pub struct RoleInfo {
     pub requires_pair_in_deck: bool,
     pub anarchy_bundle: Option<&'static str>,
     pub extra_non_village_labels: &'static [&'static str],
+    pub extra_center_card: Option<ExtraCenterSpec>,
 }
 
 impl RoleInfo {
@@ -243,6 +256,7 @@ impl RoleInfo {
             requires_pair_in_deck: false,
             anarchy_bundle: None,
             extra_non_village_labels: &[],
+            extra_center_card: None,
         }
     }
 
@@ -284,6 +298,22 @@ impl RoleInfo {
 
     pub const fn non_village_labels(mut self, labels: &'static [&'static str]) -> Self {
         self.extra_non_village_labels = labels;
+        self
+    }
+
+    pub const fn extra_center_card(
+        mut self,
+        label: &'static str,
+        token: &'static str,
+        aliases: &'static [&'static str],
+        candidates: &'static [&'static dyn Role],
+    ) -> Self {
+        self.extra_center_card = Some(ExtraCenterSpec {
+            label,
+            token,
+            aliases,
+            candidates,
+        });
         self
     }
 
@@ -847,7 +877,7 @@ impl<'a> PromptView<'a> {
         self.board.raw().is_player_face_up(seat)
     }
 
-    pub fn is_center_face_up(self, slot: usize) -> bool {
+    pub fn is_center_face_up(self, slot: CenterSlot) -> bool {
         self.check_read(BoardAccess::FACE_UP, "FACE_UP");
         self.board.raw().is_center_face_up(slot)
     }
@@ -957,7 +987,7 @@ impl<'a> PromptCtx<'a> {
         self.board.raw().artifact(seat).is_some()
     }
 
-    pub fn is_center_face_up(&self, slot: usize) -> bool {
+    pub fn is_center_face_up(&self, slot: CenterSlot) -> bool {
         self.check_read(BoardAccess::FACE_UP, "FACE_UP");
         self.board.raw().is_center_face_up(slot)
     }
@@ -977,8 +1007,8 @@ impl<'a> PromptCtx<'a> {
         self.board.raw()
     }
 
-    /// Reads `center[slot]` mid-prompt (`Witch`).
-    pub fn peek_center_card(&self, slot: usize) -> Card {
+    /// Reads `slot` in the center mid-prompt (`Witch`, `Voodoo Lou`, `Rascal`).
+    pub fn peek_center_card(&self, slot: CenterSlot) -> Card {
         self.check_read(BoardAccess::CENTER_FACES, "CENTER_FACES");
         self.board.raw().center_card(slot)
     }
@@ -1612,6 +1642,10 @@ impl dyn Role {
 
     pub fn extra_non_village_labels(&self) -> &'static [&'static str] {
         self.info().extra_non_village_labels
+    }
+
+    pub fn extra_center_card(&self) -> Option<ExtraCenterSpec> {
+        self.info().extra_center_card
     }
 
     pub fn styled_name(&self) -> Text {

@@ -57,7 +57,7 @@ impl FamilyShape {
 pub(crate) struct ActiveFamilyShape(pub Option<FamilyShape>);
 
 impl BoardKey for ActiveFamilyShape {
-    const ACCESS: u16 = BoardAccess::CUSTOM_1;
+    const ACCESS: u16 = BoardAccess::ROLE_STATE;
 
     fn init() -> Self {
         Self(None)

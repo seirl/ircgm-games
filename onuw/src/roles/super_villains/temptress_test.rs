@@ -56,7 +56,7 @@ async fn doppelganger_temptress_runs_sequentially_and_hunted_oracle_in_extra_slo
         .dms_to("Dave")
         .contains("swapped the perpendicular card onto Carol"));
 
-    // 2. Temptress swapping onto Oracle [Hunted] puts Oracle [Hunted] into ExtraVillainCard -> nobody wins!
+    // 2. Temptress swapping onto Oracle [Hunted] puts Oracle [Hunted] into the Extra Villain slot -> nobody wins!
     let mut h2 = OnuwTestHarness::new(
         &[
             ("Alice", &ORACLE),

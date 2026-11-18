@@ -5,27 +5,10 @@ use super::{
     henchman::{HENCHMAN, VILLAIN_PACK_STEP},
     rapscallion::RAPSCALLION,
 };
-use crate::board::{BoardAccess, BoardKey, BoardMut, Card, SeatSet};
+use crate::board::{BoardAccess, BoardMut, SeatSet};
 use crate::role::{
     GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct ExtraVillainCard(pub(crate) Card, bool);
-
-impl BoardKey for ExtraVillainCard {
-    const ACCESS: u16 = BoardAccess::CUSTOM_1;
-
-    fn init() -> Self {
-        Self(Card::new(&HENCHMAN), false)
-    }
-}
-
-impl AsMut<Card> for ExtraVillainCard {
-    fn as_mut(&mut self) -> &mut Card {
-        &mut self.0
-    }
-}
 
 pub struct Temptress;
 pub static TEMPTRESS: Temptress = Temptress;
@@ -40,6 +23,12 @@ impl Role for Temptress {
             "Wake with the Super Villains, then MUST swap the extra Villain card onto a non-Villain player!",
         )
         .night_faction(NightFaction::SuperVillain)
+        .extra_center_card(
+            "Extra Villain",
+            "villain",
+            &["extra_villain", "ev"],
+            const { &[&HENCHMAN, &DR_PEEKER, &RAPSCALLION] },
+        )
     }
 
     fn steps(&self) -> &'static [WakeStep] {
@@ -48,8 +37,7 @@ impl Role for Temptress {
                 VILLAIN_PACK_STEP,
                 WakeStep::solo(&TEMPTRESS, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .copy_on_turn()
-                    .reads(ExtraVillainCard::ACCESS)
-                    .writes(BoardAccess::PLAYER_FACES | ExtraVillainCard::ACCESS),
+                    .writes(BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES),
             ]
         }
     }
@@ -113,16 +101,8 @@ impl Temptress {
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        if !board.get_key::<ExtraVillainCard>().1 {
-            let fallback_villains: [&'static dyn Role; 3] = [&HENCHMAN, &DR_PEEKER, &RAPSCALLION];
-            let chosen_villain = fallback_villains
-                .into_iter()
-                .find(|&v| !ctx.roster.deck_has(v))
-                .unwrap_or(&HENCHMAN);
-            board.set_key(ExtraVillainCard(Card::new(chosen_villain), true));
-        }
         if let Some((old_card, planted)) =
-            board.swap_player_with_extra::<ExtraVillainCard>(seat, target)
+            board.swap_player_with_extra(TEMPTRESS.info().id, seat, target)
         {
             if timed_out {
                 ctx.dm(

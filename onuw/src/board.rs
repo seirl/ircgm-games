@@ -9,7 +9,7 @@ use ircgm::prelude::*;
 
 use crate::artifacts::Artifact;
 use crate::marks::Mark;
-use crate::role::{EffectiveAlignment, EndgameModifier, ResolveCtx, Role, Team};
+use crate::role::{EffectiveAlignment, EndgameModifier, ExtraCenterSpec, ResolveCtx, Role, Team};
 pub use crate::seat_set::{SeatIter, SeatSet};
 
 /// Bitmask tracking which tabletop zones a [`crate::role::WakeStep`] reads during its prompt
@@ -23,9 +23,9 @@ impl BoardAccess {
     pub const PLAYER_FACES: u16 = 1 << 0;
     /// In-place `Card::became` transformation (`Paranormal Investigator`, `Copycat`, `Doppelgänger`).
     pub const PLAYER_BECAME: u16 = 1 << 1;
-    /// Center slots `0..3` (read mid-prompt by `Witch`; written by `Oracle`, `Witch`, `Drunk`).
+    /// Center slots (`Main(0..3)` plus any perpendicular `Extra` center cards).
     pub const CENTER_FACES: u16 = 1 << 2;
-    /// `Card::face_up` state flipped by `Revealer`.
+    /// `Card::face_up` state flipped by `Revealer` and `Exposer`.
     pub const FACE_UP: u16 = 1 << 3;
     /// `Sentinel` shield tokens on player seats.
     pub const SHIELDS: u16 = 1 << 4;
@@ -35,12 +35,10 @@ impl BoardAccess {
     pub const ARTIFACTS: u16 = 1 << 6;
     /// Active waking role identities mutated by `Copycat` and `Doppelgänger`.
     pub const WAKING_ROLES: u16 = 1 << 7;
-    /// Role-defined blackboard slot #0 (`OracleAlienExchange`).
-    pub const CUSTOM_0: u16 = 1 << 8;
-    /// Role-defined blackboard slot #1 (`CenterWolfCard`, `ExtraVillainCard`, `ApprenticeSoloMark`, `ActiveBlobShape`, `ActiveFamilyShape`, `ActiveNostradamusRole`).
-    pub const CUSTOM_1: u16 = 1 << 9;
+    /// Typed per-role `BoardKey` blackboard state (`OracleAlienExchange`, `AssassinDuskState`, `ActiveBlobShape`, `ActiveFamilyShape`, `ActiveNostradamusRoles`).
+    pub const ROLE_STATE: u16 = 1 << 8;
     /// Dynamic public channel announcements (`ResolveCtx::announce`) heard by all players (eyes open or closed).
-    pub const PUBLIC_ANNOUNCE: u16 = 1 << 10;
+    pub const PUBLIC_ANNOUNCE: u16 = 1 << 9;
 
     /// Publicly visible tabletop markers (`🛡` Shield, `🔦` Face-up card, `🏺` Artifact token)
     /// seen by default by every role that opens its eyes (`eyes_open == true`).
@@ -59,16 +57,11 @@ pub trait BoardKey: Clone + fmt::Debug + Send + Sync + 'static {
 
 trait BlackboardValue: Any + Send + Sync {
     fn as_any(&self) -> &dyn Any;
-    fn as_any_mut(&mut self) -> &mut dyn Any;
     fn clone_box(&self) -> Box<dyn BlackboardValue>;
 }
 
 impl<T: Clone + fmt::Debug + Send + Sync + 'static> BlackboardValue for T {
     fn as_any(&self) -> &dyn Any {
-        self
-    }
-
-    fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
 
@@ -319,21 +312,93 @@ impl Roster {
         ((seat + n - 1) % n, (seat + 1) % n)
     }
 
-    /// Parses `"1"` / `"#1"` / `"c1"` / `"center 1"` into `Some(0..3)`.
-    pub fn parse_center_slot(raw: &str) -> Option<usize> {
+    fn extra_tokens(&self) -> Vec<&'static str> {
+        deck_extra_specs(&self.deck)
+            .into_iter()
+            .map(|(_, s)| s.token)
+            .collect()
+    }
+
+    /// All center slots (`Main(0..3)`, plus `Extra(0..k)` for any perpendicular center cards in `deck`).
+    pub fn center_slots(&self) -> Vec<CenterSlot> {
+        let k = deck_extra_specs(&self.deck).len();
+        (0..3)
+            .map(CenterSlot::Main)
+            .chain((0..k).map(CenterSlot::Extra))
+            .collect()
+    }
+
+    pub fn choose_random_center_slot(&self) -> CenterSlot {
+        let slots = self.center_slots();
+        slots[fastrand::usize(..slots.len())]
+    }
+
+    pub fn center_choice_hint(&self) -> String {
+        match self.extra_tokens().as_slice() {
+            [] => "1, 2, or 3".to_owned(),
+            [a] => format!("1, 2, 3, or {a}"),
+            [a, b, ..] => format!("1, 2, 3, {a}, or {b}"),
+        }
+    }
+
+    pub fn center_or_pass_hint(&self) -> String {
+        match self.extra_tokens().as_slice() {
+            [] => "1, 2, 3, or pass".to_owned(),
+            [a] => format!("1, 2, 3, {a}, or pass"),
+            [a, b, ..] => format!("1, 2, 3, {a}, {b}, or pass"),
+        }
+    }
+
+    pub fn center_slash_hint(&self) -> String {
+        let mut parts = vec!["1", "2", "3"];
+        parts.extend(self.extra_tokens());
+        parts.join(" / ")
+    }
+
+    pub fn center_pair_usage(&self) -> String {
+        let extras = self.extra_tokens();
+        if extras.is_empty() {
+            "center <1-3> <1-3>".to_owned()
+        } else {
+            let suffix = extras.join("/");
+            format!("center <1-3/{suffix}> <1-3/{suffix}>")
+        }
+    }
+
+    /// Parses `"1".."3"` (or `"#1"`, `"c1"`, `"center 1"`) into `CenterSlot::Main(0..3)`, plus any
+    /// perpendicular extra center slot by its token/label/aliases (or `"extra"` / `"perp"` /
+    /// `"perpendicular"` when unambiguous).
+    pub fn parse_center_slot(&self, raw: &str) -> Option<CenterSlot> {
         let norm = raw.trim().to_ascii_lowercase();
         let rest = norm
             .strip_prefix("center")
             .or_else(|| norm.strip_prefix('c'))
             .unwrap_or(&norm)
             .trim();
-        let rest = rest.strip_prefix('#').unwrap_or(rest);
+        let rest = rest.strip_prefix('#').unwrap_or(rest).trim();
         match rest {
-            "1" => Some(0),
-            "2" => Some(1),
-            "3" => Some(2),
-            _ => None,
+            "1" => return Some(CenterSlot::Main(0)),
+            "2" => return Some(CenterSlot::Main(1)),
+            "3" => return Some(CenterSlot::Main(2)),
+            _ => {}
         }
+        let specs = deck_extra_specs(&self.deck);
+        if specs.len() == 1
+            && (matches!(norm.as_str(), "extra" | "perp" | "perpendicular")
+                || matches!(rest, "extra" | "perp" | "perpendicular"))
+        {
+            return Some(CenterSlot::Extra(0));
+        }
+        for (idx, (_, spec)) in specs.into_iter().enumerate() {
+            if norm == spec.token
+                || rest == spec.token
+                || norm == spec.label.to_ascii_lowercase()
+                || spec.aliases.iter().any(|&a| norm == a || rest == a)
+            {
+                return Some(CenterSlot::Extra(idx));
+            }
+        }
+        None
     }
 
     pub fn is_pass(raw: &str) -> bool {
@@ -342,6 +407,74 @@ impl Roster {
             "pass" | "skip" | "none" | "!pass" | "!skip"
         )
     }
+}
+
+/// Identifies one of the 3 main center cards (`Main(0..3)`) or a perpendicular extra
+/// center card (`Extra(idx)`, such as `Alpha Wolf`'s Center Wolf or `Temptress`'s Extra Villain).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CenterSlot {
+    Main(usize),
+    Extra(usize),
+}
+
+impl CenterSlot {
+    pub fn label(self, roster: &Roster) -> &'static str {
+        match self {
+            Self::Main(0) => "Center #1",
+            Self::Main(1) => "Center #2",
+            Self::Main(2) => "Center #3",
+            Self::Main(_) => "Center",
+            Self::Extra(idx) => deck_extra_specs(&roster.deck)
+                .get(idx)
+                .map(|(_, s)| s.label)
+                .unwrap_or("Extra"),
+        }
+    }
+
+    pub fn short_label(self, roster: &Roster) -> &'static str {
+        match self {
+            Self::Main(0) => "#1",
+            Self::Main(1) => "#2",
+            Self::Main(2) => "#3",
+            Self::Main(_) => "#",
+            Self::Extra(idx) => deck_extra_specs(&roster.deck)
+                .get(idx)
+                .map(|(_, s)| s.label)
+                .unwrap_or("Extra"),
+        }
+    }
+
+    pub fn token(self, roster: &Roster) -> &'static str {
+        match self {
+            Self::Main(0) => "1",
+            Self::Main(1) => "2",
+            Self::Main(2) => "3",
+            Self::Main(_) => "1",
+            Self::Extra(idx) => deck_extra_specs(&roster.deck)
+                .get(idx)
+                .map(|(_, s)| s.token)
+                .unwrap_or("extra"),
+        }
+    }
+}
+
+fn deck_extra_specs(deck: &[&'static dyn Role]) -> Vec<(&'static str, ExtraCenterSpec)> {
+    let mut specs: Vec<(&'static str, ExtraCenterSpec)> = Vec::new();
+    for &role in deck {
+        if let Some(spec) = role.extra_center_card() {
+            if !specs.iter().any(|&(id, _)| id == role.id()) {
+                specs.push((role.id(), spec));
+            }
+        }
+    }
+    specs
+}
+
+#[derive(Clone, Copy, Debug)]
+struct ExtraSlot {
+    owner_id: &'static str,
+    label: &'static str,
+    card: Card,
 }
 
 pub fn deck_has_monster_faction(deck: &[&'static dyn Role], team: Team) -> bool {
@@ -403,6 +536,7 @@ pub fn format_role_slice_styled(roles: &[&'static dyn Role]) -> Text {
 pub struct BoardCards {
     players: Vec<Card>,
     center: [Card; 3],
+    extras: Vec<ExtraSlot>,
     shielded: SeatSet,
     marks: Vec<Mark>,
     artifacts: Vec<Option<Artifact>>,
@@ -420,6 +554,7 @@ impl Clone for BoardCards {
         Self {
             players: self.players.clone(),
             center: self.center,
+            extras: self.extras.clone(),
             shielded: self.shielded,
             marks: self.marks.clone(),
             artifacts: self.artifacts.clone(),
@@ -434,6 +569,7 @@ impl fmt::Debug for BoardCards {
         f.debug_struct("BoardCards")
             .field("players", &self.players)
             .field("center", &self.center)
+            .field("extras", &self.extras)
             .field("shielded", &self.shielded)
             .field("marks", &self.marks)
             .field("artifacts", &self.artifacts)
@@ -443,16 +579,37 @@ impl fmt::Debug for BoardCards {
 }
 
 impl BoardCards {
-    pub fn new(players: Vec<Card>, center: [Card; 3]) -> Self {
+    pub fn new(
+        deck: &[&'static dyn Role],
+        players: Vec<Card>,
+        center: [Card; 3],
+    ) -> Self {
         let n = players.len();
         assert!(
             n <= SeatSet::MAX_SEATS,
             "BoardCards supports at most {} players (got {n})",
             SeatSet::MAX_SEATS
         );
+        let extras = deck_extra_specs(deck)
+            .into_iter()
+            .map(|(owner_id, spec)| {
+                let chosen = spec
+                    .candidates
+                    .iter()
+                    .copied()
+                    .find(|&cand| !deck.iter().any(|r| r.id() == cand.id()))
+                    .unwrap_or(spec.candidates[0]);
+                ExtraSlot {
+                    owner_id,
+                    label: spec.label,
+                    card: Card::new(chosen),
+                }
+            })
+            .collect();
         Self {
             players,
             center,
+            extras,
             shielded: SeatSet::EMPTY,
             marks: vec![Mark::Clarity; n],
             artifacts: vec![None; n],
@@ -469,8 +626,36 @@ impl BoardCards {
         self.players[seat]
     }
 
-    pub fn center_card(&self, slot: usize) -> Card {
-        self.center[slot]
+    pub fn center_card(&self, slot: CenterSlot) -> Card {
+        match slot {
+            CenterSlot::Main(i) => self.center[i],
+            CenterSlot::Extra(i) => self.extras[i].card,
+        }
+    }
+
+    fn center_card_mut(&mut self, slot: CenterSlot) -> &mut Card {
+        match slot {
+            CenterSlot::Main(i) => &mut self.center[i],
+            CenterSlot::Extra(i) => &mut self.extras[i].card,
+        }
+    }
+
+    pub fn extra_card(&self, owner_id: &str) -> Option<Card> {
+        self.extras
+            .iter()
+            .find(|e| e.owner_id == owner_id)
+            .map(|e| e.card)
+    }
+
+    pub fn extra_cards(&self) -> impl Iterator<Item = (&'static str, Card)> + '_ {
+        self.extras.iter().map(|e| (e.label, e.card))
+    }
+
+    pub fn all_non_player_cards(&self) -> impl Iterator<Item = Card> + '_ {
+        self.center
+            .iter()
+            .copied()
+            .chain(self.extras.iter().map(|e| e.card))
     }
 
     pub fn mark(&self, seat: usize) -> Mark {
@@ -505,8 +690,8 @@ impl BoardCards {
         self.players[seat].face_up
     }
 
-    pub fn is_center_face_up(&self, c_idx: usize) -> bool {
-        self.center[c_idx].face_up
+    pub fn is_center_face_up(&self, slot: CenterSlot) -> bool {
+        self.center_card(slot).face_up
     }
 
     pub fn get_key<K: BoardKey>(&self) -> K {
@@ -519,15 +704,6 @@ impl BoardCards {
 
     fn set_key_raw<K: BoardKey>(&mut self, val: K) {
         self.blackboard.insert(TypeId::of::<K>(), Box::new(val));
-    }
-
-    fn entry_mut_raw<K: BoardKey>(&mut self) -> &mut K {
-        self.blackboard
-            .entry(TypeId::of::<K>())
-            .or_insert_with(|| Box::new(K::init()))
-            .as_any_mut()
-            .downcast_mut::<K>()
-            .expect("TypeId matches K")
     }
 
     fn format_seat_visible(&self, roster: &Roster, seat: usize) -> String {
@@ -556,12 +732,12 @@ impl BoardCards {
                 items.push(self.format_seat_visible(roster, i));
             }
         }
-        for c in 0..3 {
-            if self.center[c].face_up {
+        for slot in roster.center_slots() {
+            if self.is_center_face_up(slot) {
                 items.push(format!(
-                    "Center #{} [🔦 {}]",
-                    c + 1,
-                    self.center[c].visible_role().name()
+                    "{} [🔦 {}]",
+                    slot.label(roster),
+                    self.center_card(slot).visible_role().name()
                 ));
             }
         }
@@ -782,7 +958,7 @@ impl<'a> BoardMut<'a> {
         self.inner.set_key_raw(val);
     }
 
-    /// Records that `actor` viewed a card during an interactive prompt (`Paranormal Investigator`).
+    /// Records that `actor` viewed a card during an interactive prompt (`Paranormal Investigator`, `Witch`).
     pub fn record_prompt_peek(&mut self, actor: usize) {
         assert!(
             (self.reads & (BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES)) != 0,
@@ -807,10 +983,10 @@ impl<'a> BoardMut<'a> {
         Some(self.inner.players[target])
     }
 
-    /// Peeks `center[slot]`, automatically recording `actor` for `Aura Seer`.
-    pub fn peek_center(&mut self, actor: usize, slot: usize) -> Card {
+    /// Peeks `slot` in the center, automatically recording `actor` for `Aura Seer`.
+    pub fn peek_center(&mut self, actor: usize, slot: CenterSlot) -> Card {
         self.inner.viewed_or_moved_actors.insert(actor);
-        self.inner.center[slot]
+        self.inner.center_card(slot)
     }
 
     /// Swaps `players[a]` and `players[b]` if neither is shielded, returning `(old_a, old_b)`.
@@ -827,12 +1003,12 @@ impl<'a> BoardMut<'a> {
         Some((old_a, old_b))
     }
 
-    /// Swaps `players[seat]` with `center[slot]` if `seat` is unshielded, returning `(old_player, old_center)`.
+    /// Swaps `players[seat]` with `slot` in the center if `seat` is unshielded, returning `(old_player, old_center)`.
     pub fn swap_player_with_center(
         &mut self,
         actor: usize,
         seat: usize,
-        slot: usize,
+        slot: CenterSlot,
     ) -> Option<(Card, Card)> {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
         self.check_write(
@@ -844,40 +1020,38 @@ impl<'a> BoardMut<'a> {
         }
         self.inner.viewed_or_moved_actors.insert(actor);
         let old_player = self.inner.players[seat];
-        let old_center = self.inner.center[slot];
-        std::mem::swap(&mut self.inner.players[seat], &mut self.inner.center[slot]);
+        let slot_mut = self.inner.center_card_mut(slot);
+        let old_center = *slot_mut;
+        *slot_mut = old_player;
+        self.inner.players[seat] = old_center;
         Some((old_player, old_center))
     }
 
-    /// Swaps two center cards (`Oracle` `QuantumStatic`), recording `actor` for `Aura Seer`.
-    pub fn swap_centers(&mut self, actor: usize, slot_a: usize, slot_b: usize) {
-        self.check_write(BoardAccess::CENTER_FACES, "CENTER_FACES");
-        self.inner.viewed_or_moved_actors.insert(actor);
-        self.inner.center.swap(slot_a, slot_b);
-    }
-
-    /// Swaps `players[target]` with a role-owned extra card slot `K` (`Alpha Wolf`, `Temptress`)
-    /// if `target` is unshielded, returning `(old_player_card, planted_card)`.
-    pub fn swap_player_with_extra<K>(&mut self, actor: usize, target: usize) -> Option<(Card, Card)>
-    where
-        K: BoardKey + AsMut<Card>,
-    {
+    /// Swaps `players[target]` with the perpendicular extra center card owned by `owner_id`
+    /// (`Alpha Wolf`, `Temptress`) if `target` is unshielded, returning `(old_player_card, planted_card)`.
+    pub fn swap_player_with_extra(
+        &mut self,
+        owner_id: &'static str,
+        actor: usize,
+        target: usize,
+    ) -> Option<(Card, Card)> {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
         self.check_write(
-            BoardAccess::PLAYER_FACES | K::ACCESS,
-            "PLAYER_FACES | K::ACCESS",
+            BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES,
+            "PLAYER_FACES | CENTER_FACES",
         );
         if self.inner.shielded.contains(target) {
             return None;
         }
+        let extra_slot = self
+            .inner
+            .extras
+            .iter_mut()
+            .find(|e| e.owner_id == owner_id)?;
         self.inner.viewed_or_moved_actors.insert(actor);
         let old_player = self.inner.players[target];
-        let planted = {
-            let extra_slot = self.inner.entry_mut_raw::<K>().as_mut();
-            let p = *extra_slot;
-            *extra_slot = old_player;
-            p
-        };
+        let planted = extra_slot.card;
+        extra_slot.card = old_player;
         self.inner.players[target] = planted;
         Some((old_player, planted))
     }
@@ -946,9 +1120,16 @@ impl<'a> BoardMut<'a> {
             "PLAYER_BECAME | CENTER_FACES | WAKING_ROLES",
         );
         if active_seats.is_empty() {
-            if let Some(card) = self.inner.center.iter_mut().find(|c| {
-                c.face_role().id() == role_id && !matches!(c.transform, CardTransform::Public(_))
-            }) {
+            if let Some(card) = self
+                .inner
+                .center
+                .iter_mut()
+                .chain(self.inner.extras.iter_mut().map(|e| &mut e.card))
+                .find(|c| {
+                    c.face_role().id() == role_id
+                        && !matches!(c.transform, CardTransform::Public(_))
+                })
+            {
                 card.transform_public(new_role);
             }
         } else {
@@ -1007,19 +1188,19 @@ impl<'a> BoardMut<'a> {
         Some(target_card)
     }
 
-    /// Copies `center[slot]`'s printed face onto `actor` (`Copycat`, `Mirror Man`), keeping
+    /// Copies `slot`'s printed face onto `actor` (`Copycat`, `Mirror Man`), keeping
     /// `Copycat-Oracle` a plain Villager per ONUA rules and waking center `Doppelgänger` on schedule.
     pub fn copy_from_center(
         &mut self,
         actor: usize,
-        slot: usize,
+        slot: CenterSlot,
         rctx: &mut ResolveCtx<'_>,
     ) -> &'static dyn Role {
         self.check_write(
             BoardAccess::PLAYER_BECAME | BoardAccess::WAKING_ROLES,
             "PLAYER_BECAME | WAKING_ROLES",
         );
-        let copied = self.inner.center[slot].face_role();
+        let copied = self.inner.center_card(slot).face_role();
         self.inner.viewed_or_moved_actors.insert(actor);
         self.inner.players[actor].transform(copied);
         rctx.wakers.copy_center(actor, copied);
@@ -1055,12 +1236,13 @@ impl<'a> BoardMut<'a> {
         }
     }
 
-    /// Flips `center[slot]` face-up (`Exposer`), returning the exposed card.
-    pub fn expose_center(&mut self, actor: usize, slot: usize) -> Card {
+    /// Flips `slot` in the center face-up (`Exposer`), returning the exposed card.
+    pub fn expose_center(&mut self, actor: usize, slot: CenterSlot) -> Card {
         self.check_write(BoardAccess::FACE_UP, "FACE_UP");
         self.inner.viewed_or_moved_actors.insert(actor);
-        self.inner.center[slot].face_up = true;
-        self.inner.center[slot]
+        let card_mut = self.inner.center_card_mut(slot);
+        card_mut.face_up = true;
+        *card_mut
     }
 
     /// Draws and places a random unused `Artifact` valid for `deck` on `target` (`Curator`)

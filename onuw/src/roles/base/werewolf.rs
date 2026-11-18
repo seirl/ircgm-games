@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardMut, Roster, SeatSet};
+use crate::board::{BoardMut, CenterSlot, Roster, SeatSet};
 use crate::role::{
     GameSet, GroupEffect, GroupPromptCtx, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep,
 };
@@ -17,7 +17,7 @@ enum WolfIntent {
     Pack { dream_wolves: SeatSet },
     LonePeek {
         seat: usize,
-        choice: Answer<Option<usize>>,
+        choice: Answer<Option<CenterSlot>>,
     },
 }
 
@@ -54,33 +54,32 @@ impl Werewolf {
                 );
                 WolfIntent::Pack { dream_wolves }
             } else {
+                let roster = ctx.roster;
+                let hint = roster.center_or_pass_hint();
                 let choice = ctx
                     .ask(
                         solo,
                         irc_format!(
-                            "🐺 You are the {}! Pick ONE center card to peek ({}, {}, {}, or {}):",
+                            "🐺 You are the {}! Pick ONE center card to peek ({}):",
                             "LONE WOLF".bold().red(),
-                            "1".bold(),
-                            "2".bold(),
-                            "3".bold(),
-                            "pass".bold(),
+                            hint.as_str().bold(),
                         ),
-                        |m| {
+                        move |m| {
                             if Roster::is_pass(&m.text) {
                                 return AskMatch::accept_say(
                                     None,
                                     "🐺 Passed on peeking the center.",
                                 );
                             }
-                            match Roster::parse_center_slot(&m.text) {
-                                Some(c_idx) => AskMatch::accept_say(
-                                    Some(c_idx),
+                            match roster.parse_center_slot(&m.text) {
+                                Some(slot) => AskMatch::accept_say(
+                                    Some(slot),
                                     format!(
-                                        "🐺 Locked in Center #{} — card reveals when the phase ends!",
-                                        c_idx + 1
+                                        "🐺 Locked in {} — card reveals when the phase ends!",
+                                        slot.label(roster)
                                     ),
                                 ),
-                                None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
+                                None => AskMatch::reject(format!("Reply {hint}.").yellow()),
                             }
                         },
                     )
@@ -142,17 +141,17 @@ impl Werewolf {
             }
             WolfIntent::LonePeek {
                 seat,
-                choice: Answer::Ok(Some(c_idx)),
+                choice: Answer::Ok(Some(slot)),
             } => {
-                let seen = board.peek_center(seat, c_idx);
+                let seen = board.peek_center(seat, slot);
+                let label = slot.label(ctx.roster);
                 ctx.dm(
                     seat,
-                    irc_format!("🐺 Center #{} is: {}", c_idx + 1, seen.display_for_peek()),
+                    irc_format!("🐺 {label} is: {}", seen.display_for_peek()),
                 );
                 ctx.record(irc_format!(
-                    "🐺 Lone Wolf {} peeked Center #{} ({}).",
+                    "🐺 Lone Wolf {} peeked {label} ({}).",
                     ctx.nick(seat).bold().red(),
-                    c_idx + 1,
                     seen.display_for_peek(),
                 ));
             }

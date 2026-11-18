@@ -158,6 +158,18 @@ pub async fn run_dealt_game(
         "Table circle".bold(),
         roster.format_table_circle()
     ))?;
+    let extra_parts: Vec<Text> = initial_board
+        .extra_cards()
+        .map(|(label, card)| irc_format!("{} ({})", label.bold(), card.face_role().styled_name()))
+        .collect();
+    let extra_snapshot = (!extra_parts.is_empty()).then(|| Text::join(&extra_parts, ", ".grey()));
+    if let Some(extras) = &extra_snapshot {
+        room.say(irc_format!(
+            "🃏 {}: {}",
+            "Perpendicular to center".bold(),
+            extras.clone(),
+        ))?;
+    }
 
     for seat in &roster.seats {
         let summary = seat.initial_role.summary_for_deck(roster);
@@ -175,11 +187,21 @@ pub async fn run_dealt_game(
             return None::<Infallible>;
         }
         if msg.is_cmd("!deck") {
-            let _ = msg.reply(irc_format!(
-                "🃏 {} {}",
-                format!("Deck ({deck_len} cards):").bold(),
-                deck_snapshot.clone(),
-            ));
+            let reply = match &extra_snapshot {
+                Some(extras) => irc_format!(
+                    "🃏 {} {}{}{}",
+                    format!("Deck ({deck_len} cards):").bold(),
+                    deck_snapshot.clone(),
+                    " · Perpendicular: ".grey(),
+                    extras.clone(),
+                ),
+                None => irc_format!(
+                    "🃏 {} {}",
+                    format!("Deck ({deck_len} cards):").bold(),
+                    deck_snapshot.clone(),
+                ),
+            };
+            let _ = msg.reply(reply);
         } else if msg.is_cmd("!order") {
             let _ = msg.reply(order_snapshot.clone());
         } else if msg.is_cmd("!players") || msg.is_cmd("!who") {

@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::oracle::OracleAlienExchange;
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
+use crate::board::{BoardAccess, BoardKey, BoardMut, CenterSlot, Roster, SeatSet};
 use crate::pointing::{parse_single_player_point, silent_point};
 use crate::role::{
     GameSet, GroupEffect, GroupPromptCtx, NightFaction, ResolveCtx, Role, RoleInfo, SpecialVictory,
@@ -16,7 +16,7 @@ pub(crate) const ALIEN_PACK_STEP: WakeStep = WakeStep::pack(
     |seats, ctx| Box::pin(Alien::wake_group(seats, ctx)),
 )
 .run_when_unheld()
-.reads(BoardAccess::CUSTOM_0)
+.reads(BoardAccess::ROLE_STATE)
 .writes(BoardAccess::PLAYER_FACES | BoardAccess::PUBLIC_ANNOUNCE);
 
 /// Per-game randomized Mother Ship event rolled for `#1A Aliens`.
@@ -55,7 +55,7 @@ enum AlienPackPrompt {
 enum AlienPointChoice {
     Pass,
     Scan(usize),
-    Probe(usize),
+    Probe(CenterSlot),
 }
 
 enum AlienDirective {
@@ -63,7 +63,7 @@ enum AlienDirective {
     ForcedOracleExchange,
     RotateCards { pass_right: bool },
     Scan { actor: usize, target: usize },
-    CenterProbe { actor: usize, slot: usize },
+    CenterProbe { actor: usize, slot: CenterSlot },
 }
 
 impl Role for Alien {
@@ -313,7 +313,7 @@ impl Alien {
                 ),
                 AlienPackPrompt::CenterProbe => irc_format!(
                     "🛸 Mother Ship Center Probe — Reply {} (or {}) to point silently at 1 center card!",
-                    "1 / 2 / 3".bold(),
+                    roster.center_slash_hint().bold(),
                     "pass".bold(),
                 ),
             },
@@ -337,24 +337,26 @@ impl Alien {
                         let stripped = raw.strip_prefix('!').unwrap_or(raw).trim();
                         let parts: Vec<&str> = stripped.split_whitespace().collect();
                         let arg = match parts.as_slice() {
-                            [w, slot]
-                                if w.eq_ignore_ascii_case("probe")
-                                    || w.eq_ignore_ascii_case("center") =>
+                            [w, ..]
+                                if parts.len() >= 2
+                                    && (w.eq_ignore_ascii_case("probe")
+                                        || w.eq_ignore_ascii_case("center")) =>
                             {
-                                *slot
+                                stripped[w.len()..].trim_start()
                             }
                             _ => stripped,
                         };
-                        match Roster::parse_center_slot(arg) {
+                        match roster.parse_center_slot(arg) {
                             Some(slot) => Ok((
-                                format!("points at Center #{}!", slot + 1),
+                                format!("points at {}!", slot.label(roster)),
                                 Some(AlienPointChoice::Probe(slot)),
                             )),
-                            None => Err(
-                                "🤫 Silent night (no talking)! Reply 1, 2, 3, or pass."
-                                    .yellow()
-                                    .into(),
-                            ),
+                            None => Err(format!(
+                                "🤫 Silent night (no talking)! Reply {}.",
+                                roster.center_or_pass_hint()
+                            )
+                            .yellow()
+                            .into()),
                         }
                     }
                 }
@@ -461,21 +463,20 @@ impl Alien {
             }
             AlienDirective::CenterProbe { actor, slot } => {
                 let seen = board.peek_center(actor, slot);
+                let slot_label = slot.label(ctx.roster);
                 board.record_card_viewers(active_seats);
                 for s in active_seats {
                     ctx.dm(
                         s,
                         irc_format!(
-                            "🛸 Mother Ship Center #{}: {}",
-                            slot + 1,
+                            "🛸 Mother Ship {slot_label}: {}",
                             seen.display_for_peek(),
                         ),
                     );
                 }
                 ctx.record(irc_format!(
-                    "🛸 Aliens ({}) probed Center #{} ({}).",
+                    "🛸 Aliens ({}) probed {slot_label} ({}).",
                     ctx.roster.format_seats(active_seats).bold(),
-                    slot + 1,
                     seen.display_for_peek(),
                 ));
                 return;

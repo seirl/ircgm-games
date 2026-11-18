@@ -83,7 +83,7 @@ impl BlobShape {
 pub(crate) struct ActiveBlobShape(pub Option<BlobShape>);
 
 impl BoardKey for ActiveBlobShape {
-    const ACCESS: u16 = BoardAccess::CUSTOM_1;
+    const ACCESS: u16 = BoardAccess::ROLE_STATE;
 
     fn init() -> Self {
         Self(None)

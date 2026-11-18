@@ -92,12 +92,8 @@ fn deck_schedule_is_purely_deck_derived_and_invariant_to_card_order() {
                 120
             ),
             (TierPhase::Night, "Werewolves".into(), 120, 140),
-            (
-                TierPhase::Night,
-                "Alpha Wolf, Seer, Witch, Insomniac".into(),
-                140,
-                160,
-            ),
+            (TierPhase::Night, "Alpha Wolf, Seer".into(), 140, 160),
+            (TierPhase::Night, "Witch, Insomniac".into(), 160, 180),
         ]
     );
 
@@ -856,6 +852,7 @@ fn undeclared_board_write_panics_with_role_name() {
     use crate::board::{BoardAccess, BoardCards, BoardMut, Card};
 
     let mut board = BoardCards::new(
+        &[&SEER, &VILLAGER, &WEREWOLF, &VILLAGER, &VILLAGER, &VILLAGER],
         vec![Card::new(&SEER), Card::new(&VILLAGER), Card::new(&WEREWOLF)],
         [Card::new(&VILLAGER), Card::new(&VILLAGER), Card::new(&VILLAGER)],
     );

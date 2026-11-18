@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardMut, Roster};
+use crate::board::{BoardMut, CenterSlot, Roster};
 use crate::role::{
     GameSet, PromptCtx, PromptView, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
@@ -11,7 +11,7 @@ pub static SEER: Seer = Seer;
 #[derive(Clone, Copy)]
 enum SeerChoice {
     Player(usize),
-    Center(usize, usize),
+    Center(CenterSlot, CenterSlot),
     Pass,
 }
 
@@ -34,12 +34,13 @@ impl Role for Seer {
 impl Seer {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let players_str = ctx.roster.format_players();
+        let center_usage = ctx.roster.center_pair_usage();
         let view = ctx.view();
         let prompt = irc_format!(
             "🔮 Seer: Reply {} (or {}) OR {}, or {}. Players: {players_str}",
             "player <nick>".bold(),
             "<nick>".bold(),
-            "center <1-3> <1-3>".bold(),
+            center_usage.bold(),
             "pass".bold(),
         );
         let ans = ctx
@@ -82,22 +83,20 @@ impl Seer {
             Answer::Ok(SeerChoice::Center(a, b)) => {
                 let ca = board.peek_center(seat, a);
                 let cb = board.peek_center(seat, b);
+                let la = a.label(ctx.roster);
+                let lb = b.label(ctx.roster);
                 ctx.dm(
                     seat,
                     irc_format!(
-                        "🔮 Center #{} is {}, Center #{} is {}.",
-                        a + 1,
+                        "🔮 {la} is {}, {lb} is {}.",
                         ca.display_for_peek(),
-                        b + 1,
                         cb.display_for_peek(),
                     ),
                 );
                 ctx.record(irc_format!(
-                    "🔮 {actor_label} ({}) viewed Center #{} ({}) & Center #{} ({}).",
+                    "🔮 {actor_label} ({}) viewed {la} ({}) & {lb} ({}).",
                     actor_nick.bold(),
-                    a + 1,
                     ca.display_for_peek(),
-                    b + 1,
                     cb.display_for_peek(),
                 ));
             }
@@ -113,48 +112,51 @@ fn parse_seer_choice(view: PromptView<'_>, actor_seat: usize, raw: &str) -> AskM
     if Roster::is_pass(raw) {
         return AskMatch::accept_say(SeerChoice::Pass, "🔮 Passed — not viewing any cards.");
     }
+    let roster = view.roster;
     let parts: Vec<&str> = raw.split_whitespace().collect();
     if parts
         .first()
         .is_some_and(|w| w.eq_ignore_ascii_case("center") || w.eq_ignore_ascii_case("c"))
     {
         if parts.len() != 3 {
-            return AskMatch::reject("Usage: center <1-3> <1-3>.".yellow());
+            return AskMatch::reject(format!("Usage: {}.", roster.center_pair_usage()).yellow());
         }
         let (Some(a), Some(b)) = (
-            Roster::parse_center_slot(parts[1]),
-            Roster::parse_center_slot(parts[2]),
+            roster.parse_center_slot(parts[1]),
+            roster.parse_center_slot(parts[2]),
         ) else {
-            return AskMatch::reject("Center slots must be 1, 2, or 3.".yellow());
+            return AskMatch::reject(
+                format!("Center slots must be {}.", roster.center_choice_hint()).yellow(),
+            );
         };
         if a == b {
-            return AskMatch::reject("Pick two DIFFERENT center slots (1..=3).".yellow());
+            return AskMatch::reject("Pick two DIFFERENT center slots.".yellow());
         }
         return AskMatch::accept_say(
             SeerChoice::Center(a, b),
             format!(
-                "🔮 Locked in Center #{} & Center #{} — cards reveal when the phase ends!",
-                a + 1,
-                b + 1
+                "🔮 Locked in {} & {} — cards reveal when the phase ends!",
+                a.label(roster),
+                b.label(roster)
             ),
         );
     }
 
-    if parts.len() == 2
-        && parts[0].to_ascii_lowercase().starts_with('c')
-        && parts[1].to_ascii_lowercase().starts_with('c')
-    {
+    if parts.len() == 2 {
         if let (Some(a), Some(b)) = (
-            Roster::parse_center_slot(parts[0]),
-            Roster::parse_center_slot(parts[1]),
+            roster.parse_center_slot(parts[0]),
+            roster.parse_center_slot(parts[1]),
         ) {
-            if a != b {
+            if a != b
+                && view.resolve_nick(parts[0]).is_none()
+                && view.resolve_nick(parts[1]).is_none()
+            {
                 return AskMatch::accept_say(
                     SeerChoice::Center(a, b),
                     format!(
-                        "🔮 Locked in Center #{} & Center #{} — cards reveal when the phase ends!",
-                        a + 1,
-                        b + 1
+                        "🔮 Locked in {} & {} — cards reveal when the phase ends!",
+                        a.label(roster),
+                        b.label(roster)
                     ),
                 );
             }
@@ -173,7 +175,11 @@ fn parse_seer_choice(view: PromptView<'_>, actor_seat: usize, raw: &str) -> AskM
         parts[0]
     } else {
         return AskMatch::reject(
-            "Reply player <nick> (or <nick>), center <1-3> <1-3>, or pass.".yellow(),
+            format!(
+                "Reply player <nick> (or <nick>), {}, or pass.",
+                roster.center_pair_usage()
+            )
+            .yellow(),
         );
     };
 

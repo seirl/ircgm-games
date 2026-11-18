@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::alien::ALIEN_PACK_STEP;
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster};
+use crate::board::{BoardAccess, BoardKey, BoardMut, CenterSlot, Roster};
 use crate::role::{
     GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
@@ -69,7 +69,7 @@ enum SnatchAction {
     Pretend,
     Blocked(&'static str),
     Player { target: usize, was_random: bool },
-    Center { slot: usize, was_random: bool },
+    Center { slot: CenterSlot, was_random: bool },
 }
 
 pub struct BodySnatcher;
@@ -217,23 +217,23 @@ impl BodySnatcher {
                     );
                     SnatchAction::Blocked("self shielded")
                 } else {
+                    let roster = ctx.roster;
+                    let hint = roster.center_choice_hint();
                     let ans = ctx
                         .ask(
                             irc_format!(
-                                "🛸🧬 Body Snatcher: You MUST steal a center card ({}, {}, or {}), viewing it and turning it into an Alien!",
-                                "1".bold(),
-                                "2".bold(),
-                                "3".bold(),
+                                "🛸🧬 Body Snatcher: You MUST steal a center card ({}), viewing it and turning it into an Alien!",
+                                hint.as_str().bold(),
                             ),
-                            |m| match Roster::parse_center_slot(&m.text) {
+                            move |m| match roster.parse_center_slot(&m.text) {
                                 Some(slot) => AskMatch::accept_say(
                                     slot,
                                     format!(
-                                        "🛸🧬 Locked in snatching Center #{} — reveals when the phase ends!",
-                                        slot + 1
+                                        "🛸🧬 Locked in snatching {} — reveals when the phase ends!",
+                                        slot.label(roster)
                                     ),
                                 ),
-                                None => AskMatch::reject("Reply 1, 2, or 3.".yellow()),
+                                None => AskMatch::reject(format!("Reply {hint}.").yellow()),
                             },
                         )
                         .await?;
@@ -243,7 +243,7 @@ impl BodySnatcher {
                             was_random: false,
                         },
                         _ => SnatchAction::Center {
-                            slot: fastrand::usize(0..3),
+                            slot: roster.choose_random_center_slot(),
                             was_random: true,
                         },
                     }
@@ -308,8 +308,9 @@ impl BodySnatcher {
                 }
             }
             SnatchAction::Center { slot, was_random } => {
+                let slot_label = slot.label(ctx.roster);
                 if was_random {
-                    ctx.dm(seat, format!("🎲 Randomly snatched Center #{}.", slot + 1));
+                    ctx.dm(seat, format!("🎲 Randomly snatched {slot_label}."));
                 }
                 if let Some((given_card, stolen_center)) =
                     board.swap_player_with_center(seat, seat, slot)
@@ -318,17 +319,15 @@ impl BodySnatcher {
                     ctx.dm(
                         seat,
                         irc_format!(
-                            "🛸🧬 Center #{} was {} (swapped with your {}) — your new card is now an {}!",
-                            slot + 1,
+                            "🛸🧬 {slot_label} was {} (swapped with your {}) — your new card is now an {}!",
                             stolen_center.display_for_peek(),
                             given_card.display_for_peek(),
                             SNATCHED_ALIEN.info().styled_name(),
                         ),
                     );
                     ctx.record(irc_format!(
-                        "🛸🧬 {actor_label} ({}) snatched Center #{} ({}, leaving {}) and assimilated it into an {}!",
+                        "🛸🧬 {actor_label} ({}) snatched {slot_label} ({}, leaving {}) and assimilated it into an {}!",
                         actor_nick.bold(),
-                        slot + 1,
                         stolen_center.display_for_peek(),
                         given_card.display_for_peek(),
                         SNATCHED_ALIEN.info().styled_name(),

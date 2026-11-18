@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster};
+use crate::board::{BoardAccess, BoardKey, BoardMut, CenterSlot, Roster};
 use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 /// Per-wake randomized Mother Ship mischief mode rolled for `#7F Rascal`.
@@ -57,9 +57,9 @@ enum RascalAction {
     Pass(&'static str),
     Rotate { right: bool },
     SwapTwo(usize, usize),
-    DrunkCenter { slot: usize, was_random: bool },
-    WitchSwap { slot: usize, target: usize },
-    WitchBlocked { slot: usize },
+    DrunkCenter { slot: CenterSlot, was_random: bool },
+    WitchSwap { slot: CenterSlot, target: usize },
+    WitchBlocked { slot: CenterSlot },
     Rob(usize),
 }
 
@@ -228,20 +228,20 @@ impl Rascal {
                     );
                     RascalAction::Pass("Drunk mode, self shielded")
                 } else {
+                    let roster = ctx.roster;
+                    let hint = roster.center_choice_hint();
                     let ans = ctx
                         .ask(
                             irc_format!(
-                                "😜 Rascal (Drunk Mode): You MUST swap your card with a center card ({}, {}, or {}) without looking!",
-                                "1".bold(),
-                                "2".bold(),
-                                "3".bold(),
+                                "😜 Rascal (Drunk Mode): You MUST swap your card with a center card ({}) without looking!",
+                                hint.as_str().bold(),
                             ),
-                            |m| match Roster::parse_center_slot(&m.text) {
+                            move |m| match roster.parse_center_slot(&m.text) {
                                 Some(slot) => AskMatch::accept_say(
                                     slot,
-                                    format!("😜 Locked in blind swap with Center #{}!", slot + 1),
+                                    format!("😜 Locked in blind swap with {}!", slot.label(roster)),
                                 ),
-                                None => AskMatch::reject("Reply 1, 2, or 3.".yellow()),
+                                None => AskMatch::reject(format!("Reply {hint}.").yellow()),
                             },
                         )
                         .await?;
@@ -251,7 +251,7 @@ impl Rascal {
                             was_random: false,
                         },
                         _ => RascalAction::DrunkCenter {
-                            slot: fastrand::usize(0..3),
+                            slot: roster.choose_random_center_slot(),
                             was_random: true,
                         },
                     }
@@ -259,31 +259,32 @@ impl Rascal {
             }
 
             RascalMode::Witch => {
+                let roster = ctx.roster;
+                let choice_hint = roster.center_choice_hint();
+                let or_pass_hint = roster.center_or_pass_hint();
                 let step1 = ctx
                     .ask(
                         irc_format!(
-                            "😜 Rascal (Witch Mode): Reply {}, {}, or {} to view a center card (you MUST then give it to someone!), or {}:",
-                            "1".bold(),
-                            "2".bold(),
-                            "3".bold(),
+                            "😜 Rascal (Witch Mode): Reply {} to view a center card (you MUST then give it to someone!), or {}:",
+                            choice_hint.bold(),
                             "pass".bold(),
                         ),
-                        |m| {
+                        move |m| {
                             if Roster::is_pass(&m.text) {
                                 return AskMatch::accept_say(None, "😜 Passed — left center untouched.");
                             }
-                            match Roster::parse_center_slot(&m.text) {
+                            match roster.parse_center_slot(&m.text) {
                                 Some(slot) => AskMatch::accept(Some(slot)),
-                                None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
+                                None => AskMatch::reject(format!("Reply {or_pass_hint}.").yellow()),
                             }
                         },
                     )
                     .await?;
                 if let Answer::Ok(Some(slot)) = step1 {
+                    let slot_label = slot.label(roster);
                     let seen = ctx.peek_center_card(slot);
                     ctx.say(irc_format!(
-                        "😜 Center #{} is {}!",
-                        slot + 1,
+                        "😜 {slot_label} is {}!",
                         seen.display_for_peek(),
                     ));
                     let unshielded = ctx.roster.all_seats() - ctx.shielded_seats();
@@ -296,8 +297,7 @@ impl Rascal {
                         let step2 = ctx
                             .ask(
                                 irc_format!(
-                                    "😜 Give Center #{} to which player ({}, including yourself)? Players: {players_str}",
-                                    slot + 1,
+                                    "😜 Give {slot_label} to which player ({}, including yourself)? Players: {players_str}",
                                     "<nick>".bold(),
                                 ),
                                 move |m| match view.resolve_nick(&m.text) {
@@ -307,8 +307,8 @@ impl Rascal {
                                     Some(idx) => AskMatch::accept_say(
                                         idx,
                                         irc_format!(
-                                            "😜 Swapped Center #{} onto {}!",
-                                            slot + 1,
+                                            "😜 Swapped {} onto {}!",
+                                            slot.label(view.roster),
                                             view.roster.seats[idx].user.nick().bold(),
                                         ),
                                     ),
@@ -325,8 +325,7 @@ impl Rascal {
                                     unshielded.choose_random().expect("unshielded non-empty")
                                 };
                                 ctx.say(format!(
-                                    "😜 Time expired — swapped Center #{} with {}!",
-                                    slot + 1,
+                                    "😜 Time expired — swapped {slot_label} with {}!",
                                     ctx.nick(auto)
                                 ));
                                 auto
@@ -443,18 +442,18 @@ impl Rascal {
                 }
             }
             RascalAction::DrunkCenter { slot, was_random } => {
+                let slot_label = slot.label(ctx.roster);
                 if was_random {
                     ctx.dm(
                         seat,
-                        format!("🎲 Randomly swapped your card with Center #{}.", slot + 1),
+                        format!("🎲 Randomly swapped your card with {slot_label}."),
                     );
                 }
                 if let Some((old_p, new_p)) = board.swap_player_with_center(seat, seat, slot) {
                     ctx.record(irc_format!(
-                        "😜 {actor_label} ({}) blindly swapped {} with Center #{} ({}).",
+                        "😜 {actor_label} ({}) blindly swapped {} with {slot_label} ({}).",
                         actor_nick.bold(),
                         old_p.display_for_peek(),
-                        slot + 1,
                         new_p.display_for_peek(),
                     ));
                 }
@@ -462,21 +461,20 @@ impl Rascal {
             RascalAction::WitchBlocked { slot } => {
                 board.record_prompt_peek(seat);
                 ctx.record(irc_format!(
-                    "😜 {actor_label} ({}) peeked Center #{}, but all players were shielded.",
+                    "😜 {actor_label} ({}) peeked {}, but all players were shielded.",
                     actor_nick.bold(),
-                    slot + 1,
+                    slot.label(ctx.roster),
                 ));
             }
             RascalAction::WitchSwap { slot, target } => {
                 if let Some((old_p, center_c)) = board.swap_player_with_center(seat, target, slot) {
+                    let slot_label = slot.label(ctx.roster);
                     ctx.record(irc_format!(
-                        "😜 {actor_label} ({}) peeked Center #{} ({}) and swapped it onto {} (moving {} to Center #{}).",
+                        "😜 {actor_label} ({}) peeked {slot_label} ({}) and swapped it onto {} (moving {} to {slot_label}).",
                         actor_nick.bold(),
-                        slot + 1,
                         center_c.display_for_peek(),
                         ctx.nick(target).bold(),
                         old_p.display_for_peek(),
-                        slot + 1,
                     ));
                 }
             }

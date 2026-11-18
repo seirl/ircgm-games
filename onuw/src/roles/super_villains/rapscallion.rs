@@ -1,7 +1,7 @@
 use ircgm::prelude::*;
 
 use super::henchman::VILLAIN_PACK_STEP;
-use crate::board::{BoardMut, Roster};
+use crate::board::{BoardMut, CenterSlot, Roster};
 use crate::role::{
     GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
@@ -34,27 +34,26 @@ impl Role for Rapscallion {
 
 impl Rapscallion {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let roster = ctx.roster;
+        let hint = roster.center_or_pass_hint();
         let prompt = irc_format!(
-            "🧨 Rapscallion: Reply {}, {}, {}, or {} to peek at one center card!",
-            "1".bold(),
-            "2".bold(),
-            "3".bold(),
-            "pass".bold(),
+            "🧨 Rapscallion: Reply {} to peek at one center card!",
+            hint.as_str().bold(),
         );
         let ans = ctx
-            .ask(prompt, |m| {
+            .ask(prompt, move |m| {
                 if Roster::is_pass(&m.text) {
                     return AskMatch::accept_say(None, "🧨 Passed on peeking the center.");
                 }
-                match Roster::parse_center_slot(&m.text) {
-                    Some(c_idx) => AskMatch::accept_say(
-                        Some(c_idx),
+                match roster.parse_center_slot(&m.text) {
+                    Some(slot) => AskMatch::accept_say(
+                        Some(slot),
                         format!(
-                            "🧨 Locked in Center #{} — card reveals when the phase ends!",
-                            c_idx + 1
+                            "🧨 Locked in {} — card reveals when the phase ends!",
+                            slot.label(roster)
                         ),
                     ),
-                    None => AskMatch::reject("Reply 1, 2, 3, or pass.".yellow()),
+                    None => AskMatch::reject(format!("Reply {hint}.").yellow()),
                 }
             })
             .await?;
@@ -67,24 +66,23 @@ impl Rapscallion {
     fn resolve(
         seat: usize,
         actor_label: &str,
-        ans: Answer<Option<usize>>,
+        ans: Answer<Option<CenterSlot>>,
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        if let Answer::Ok(Some(c_idx)) = ans {
-            let seen = board.peek_center(seat, c_idx);
+        if let Answer::Ok(Some(slot)) = ans {
+            let seen = board.peek_center(seat, slot);
+            let slot_label = slot.label(ctx.roster);
             ctx.dm(
                 seat,
                 irc_format!(
-                    "🧨 Rapscallion Peek: Center #{} is {}!",
-                    c_idx + 1,
+                    "🧨 Rapscallion Peek: {slot_label} is {}!",
                     seen.display_for_peek(),
                 ),
             );
             ctx.record(irc_format!(
-                "🧨 {actor_label} ({}) peeked Center #{} ({}).",
+                "🧨 {actor_label} ({}) peeked {slot_label} ({}).",
                 ctx.nick(seat).bold(),
-                c_idx + 1,
                 seen.display_for_peek(),
             ));
         } else {

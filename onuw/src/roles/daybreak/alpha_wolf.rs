@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardKey, BoardMut, Card};
+use crate::board::{BoardAccess, BoardMut};
 use crate::role::{
     GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
@@ -8,23 +8,6 @@ use crate::roles::base::werewolf::{WEREWOLF, WOLF_PACK_STEP};
 
 pub struct AlphaWolf;
 pub static ALPHA_WOLF: AlphaWolf = AlphaWolf;
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct CenterWolfCard(pub(crate) Card);
-
-impl BoardKey for CenterWolfCard {
-    const ACCESS: u16 = BoardAccess::CUSTOM_1;
-
-    fn init() -> Self {
-        Self(Card::new(&WEREWOLF))
-    }
-}
-
-impl AsMut<Card> for CenterWolfCard {
-    fn as_mut(&mut self) -> &mut Card {
-        &mut self.0
-    }
-}
 
 impl Role for AlphaWolf {
     fn info(&self) -> RoleInfo {
@@ -37,6 +20,7 @@ impl Role for AlphaWolf {
         )
         .aliases(&["aw", "alpha"])
         .night_faction(NightFaction::Werewolf)
+        .extra_center_card("Center Wolf", "wolf", &["center_wolf", "cw"], const { &[&WEREWOLF] })
     }
 
     fn steps(&self) -> &'static [WakeStep] {
@@ -44,7 +28,7 @@ impl Role for AlphaWolf {
             &[
                 WOLF_PACK_STEP,
                 WakeStep::solo(&ALPHA_WOLF, |s, ctx| Box::pin(Self::prompt(s, ctx)))
-                    .writes(BoardAccess::PLAYER_FACES | CenterWolfCard::ACCESS),
+                    .writes(BoardAccess::PLAYER_FACES | BoardAccess::CENTER_FACES),
             ]
         }
     }
@@ -109,7 +93,7 @@ impl AlphaWolf {
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Some((old_card, planted)) =
-            board.swap_player_with_extra::<CenterWolfCard>(seat, target)
+            board.swap_player_with_extra(ALPHA_WOLF.info().id, seat, target)
         {
             ctx.record(irc_format!(
                 "🐺 {actor_label} ({}) bit {}, swapping {} in for {}.",

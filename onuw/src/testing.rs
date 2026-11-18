@@ -10,7 +10,7 @@ use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use crate::artifacts::Artifact;
-use crate::board::{BoardCards, BoardKey, Card, Roster, SeatInfo};
+use crate::board::{BoardCards, BoardKey, Card, CenterSlot, Roster, SeatInfo};
 use crate::voting::resolve_and_announce_winners;
 use crate::game::GameSummary;
 use crate::marks::Mark;
@@ -78,8 +78,8 @@ impl OnuwTestHarness {
         ];
         deck.extend_from_slice(&center);
 
+        let initial_board = BoardCards::new(&deck, player_cards, center_cards);
         let roster = Roster { seats, deck };
-        let initial_board = BoardCards::new(player_cards, center_cards);
 
         Self {
             bot,
@@ -357,7 +357,18 @@ impl NightReport {
     }
 
     pub fn center_role(&self, one_based: usize) -> &'static str {
-        self.board.center_card(one_based - 1).effective_role().name()
+        self.board
+            .center_card(CenterSlot::Main(one_based - 1))
+            .effective_role()
+            .name()
+    }
+
+    pub fn extra_role(&self, owner_id: &str) -> &'static str {
+        self.board
+            .extra_card(owner_id)
+            .expect("extra center slot exists")
+            .effective_role()
+            .name()
     }
 
     pub fn mark_at(&self, roster: &Roster, nick: &str) -> Mark {

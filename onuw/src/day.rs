@@ -47,12 +47,14 @@ pub async fn run_day_phase(
         }
     }
 
-    for c_idx in 0..3 {
-        if board.is_center_face_up(c_idx) {
+    for slot in roster.center_slots() {
+        if board.is_center_face_up(slot) {
             room.say(irc_format!(
                 "🔦 {}: {}",
-                format!("FACE-UP CENTER #{}", c_idx + 1).bold().yellow(),
-                board.center_card(c_idx).display_for_peek(),
+                format!("FACE-UP {}", slot.label(roster).to_ascii_uppercase())
+                    .bold()
+                    .yellow(),
+                board.center_card(slot).display_for_peek(),
             ))?;
         }
     }

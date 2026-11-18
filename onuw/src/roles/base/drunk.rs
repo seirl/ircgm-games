@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardMut, Roster};
+use crate::board::{BoardAccess, BoardMut, CenterSlot};
 use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 pub struct Drunk;
@@ -13,7 +13,7 @@ impl Role for Drunk {
             "Drunk",
             GameSet::Base,
             Team::Village,
-            "Wake and MUST swap your card face-down with 1 of the 3 center cards without looking.",
+            "Wake and MUST swap your card face-down with 1 center card without looking.",
         )
     }
 
@@ -39,20 +39,20 @@ impl Drunk {
             }));
         }
 
+        let roster = ctx.roster;
+        let hint = roster.center_choice_hint();
         let ans = ctx
             .ask(
                 irc_format!(
-                    "🍺 Drunk: You MUST swap your card with center {}, {}, or {}!",
-                    "1".bold(),
-                    "2".bold(),
-                    "3".bold(),
+                    "🍺 Drunk: You MUST swap your card with center {}!",
+                    hint.as_str().bold(),
                 ),
-                |m| match Roster::parse_center_slot(&m.text) {
-                    Some(c_idx) => AskMatch::accept_say(
-                        c_idx,
-                        format!("🍺 Locked in face-down swap with Center #{}!", c_idx + 1),
+                move |m| match roster.parse_center_slot(&m.text) {
+                    Some(slot) => AskMatch::accept_say(
+                        slot,
+                        format!("🍺 Locked in face-down swap with {}!", slot.label(roster)),
                     ),
-                    None => AskMatch::reject("Drunk MUST swap! Reply 1, 2, or 3.".yellow()),
+                    None => AskMatch::reject(format!("Drunk MUST swap! Reply {hint}.").yellow()),
                 },
             )
             .await?;
@@ -65,30 +65,30 @@ impl Drunk {
     fn resolve(
         seat: usize,
         actor_label: &str,
-        ans: Answer<usize>,
+        ans: Answer<CenterSlot>,
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
-        let c_idx = match ans {
+        let slot = match ans {
             Answer::Ok(c) => c,
             Answer::TimedOut | Answer::Left { .. } | Answer::Unreachable { .. } => {
-                let auto = fastrand::usize(0..3);
+                let auto = ctx.roster.choose_random_center_slot();
                 ctx.dm(
                     seat,
-                    format!("🍺 Randomly swapped your card with Center #{}.", auto + 1),
+                    format!("🍺 Randomly swapped your card with {}.", auto.label(ctx.roster)),
                 );
                 auto
             }
         };
-        let Some((old_self, new_self)) = board.swap_player_with_center(seat, seat, c_idx) else {
+        let Some((old_self, new_self)) = board.swap_player_with_center(seat, seat, slot) else {
             ctx.dm(seat, "🛡️ Your card was shielded—Drunk swap prevented!".yellow());
             return;
         };
         ctx.record(irc_format!(
-            "🍺 {actor_label} ({}) swapped {} with Center #{} ({}).",
+            "🍺 {actor_label} ({}) swapped {} with {} ({}).",
             ctx.nick(seat).bold(),
             old_self.display_for_peek(),
-            c_idx + 1,
+            slot.label(ctx.roster),
             new_self.display_for_peek(),
         ));
     }

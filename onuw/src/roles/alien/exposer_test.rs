@@ -1,3 +1,4 @@
+use crate::board::CenterSlot;
 use crate::roles::alien::{
     alien::{AlienEvent, ForcedAlienEvent, ALIEN},
     exposer::{ForcedExposerCount, EXPOSER},
@@ -35,9 +36,9 @@ async fn exposer_all_or_nothing_flips_center_cards_visible_to_later_wakers() {
         bob_dms.contains("Center #1 [🔦 Werewolf]") && bob_dms.contains("Center #2 [🔦 Tanner]"),
         "expected Curator to see exposed center cards, got:\n{bob_dms}"
     );
-    assert!(report.board.is_center_face_up(0));
-    assert!(report.board.is_center_face_up(1));
-    assert!(!report.board.is_center_face_up(2));
+    assert!(report.board.is_center_face_up(CenterSlot::Main(0)));
+    assert!(report.board.is_center_face_up(CenterSlot::Main(1)));
+    assert!(!report.board.is_center_face_up(CenterSlot::Main(2)));
 
     // Exposer + Doppelgänger-Exposer run sequentially: Doppelgänger sees Center #1 & #2 already exposed
     // and can only expose remaining face-down Center #3, while Oracle logs them separately:
@@ -69,9 +70,9 @@ async fn exposer_all_or_nothing_flips_center_cards_visible_to_later_wakers() {
     assert!(rej_bob.contains("already face up"), "got: {rej_bob}");
     h2.send_dm("Bob", "3").await; // Clamped to k = 1 remaining face-down center card
     let rep2 = h2.finish_night(n2).await;
-    assert!(rep2.board.is_center_face_up(0));
-    assert!(rep2.board.is_center_face_up(1));
-    assert!(rep2.board.is_center_face_up(2));
+    assert!(rep2.board.is_center_face_up(CenterSlot::Main(0)));
+    assert!(rep2.board.is_center_face_up(CenterSlot::Main(1)));
+    assert!(rep2.board.is_center_face_up(CenterSlot::Main(2)));
     let carol_watch = Text::parse(&rep2.dms_to("Carol")).plain();
     assert!(
         carol_watch.contains("Exposer (#1/2): Alice · Doppelgänger-Exposer: Bob"),

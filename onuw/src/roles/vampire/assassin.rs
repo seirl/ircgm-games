@@ -20,7 +20,7 @@ struct AssassinDuskState {
 }
 
 impl BoardKey for AssassinDuskState {
-    const ACCESS: u16 = BoardAccess::CUSTOM_1;
+    const ACCESS: u16 = BoardAccess::ROLE_STATE;
 
     fn init() -> Self {
         Self {

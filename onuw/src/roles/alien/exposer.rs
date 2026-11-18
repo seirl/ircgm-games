@@ -1,6 +1,6 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster};
+use crate::board::{BoardAccess, BoardKey, BoardMut, CenterSlot, Roster};
 use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -78,10 +78,15 @@ impl Exposer {
     }
 
     async fn prompt_seat(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let roster = ctx.roster;
         let rolled = ctx.get_key::<ActiveExposerCount>().0;
-        let face_down: Vec<usize> = (0..3).filter(|&c| !ctx.is_center_face_up(c)).collect();
+        let face_down: Vec<CenterSlot> = roster
+            .center_slots()
+            .into_iter()
+            .filter(|&slot| !ctx.is_center_face_up(slot))
+            .collect();
         if face_down.is_empty() {
-            ctx.say("🔦🛸 Exposer: All 3 center cards are already face up!".yellow());
+            ctx.say("🔦🛸 Exposer: All center cards are already face up!".yellow());
             return Ok(SeatEffect::new(move |label, _board, rctx| {
                 rctx.record(irc_format!(
                     "🔦🛸 {label} ({}) woke, but all center cards were already face up.",
@@ -93,13 +98,13 @@ impl Exposer {
         let k = rolled.min(face_down.len());
         let avail_str = face_down
             .iter()
-            .map(|&c| format!("#{}", c + 1))
+            .map(|&s| s.short_label(roster))
             .collect::<Vec<_>>()
             .join(", ");
         let example = face_down
             .iter()
             .take(k)
-            .map(|&c| (c + 1).to_string())
+            .map(|&s| s.token(roster))
             .collect::<Vec<_>>()
             .join(" ");
 
@@ -131,14 +136,17 @@ impl Exposer {
                             .yellow(),
                     );
                 }
-                let mut chosen: Vec<usize> = Vec::with_capacity(k);
+                let mut chosen: Vec<CenterSlot> = Vec::with_capacity(k);
                 for tok in parts {
-                    let Some(slot) = Roster::parse_center_slot(tok) else {
-                        return AskMatch::reject("Center slots must be 1, 2, or 3 (or pass).".yellow());
+                    let Some(slot) = view.roster.parse_center_slot(tok) else {
+                        return AskMatch::reject(
+                            format!("Center slots must be {}.", view.roster.center_or_pass_hint())
+                                .yellow(),
+                        );
                     };
                     if view.is_center_face_up(slot) {
                         return AskMatch::reject(
-                            format!("🔦 Center #{} is already face up!", slot + 1).yellow(),
+                            format!("🔦 {} is already face up!", slot.label(view.roster)).yellow(),
                         );
                     }
                     if chosen.contains(&slot) {
@@ -148,7 +156,7 @@ impl Exposer {
                 }
                 let labels = chosen
                     .iter()
-                    .map(|&c| format!("#{}", c + 1))
+                    .map(|&s| s.short_label(view.roster))
                     .collect::<Vec<_>>()
                     .join(", ");
                 AskMatch::accept_say(
@@ -167,7 +175,7 @@ impl Exposer {
     fn resolve(
         seat: usize,
         actor_label: &str,
-        slots: &[usize],
+        slots: &[CenterSlot],
         board: &mut BoardMut<'_>,
         ctx: &mut ResolveCtx<'_>,
     ) {
@@ -181,11 +189,11 @@ impl Exposer {
         }
 
         let mut parts = Vec::new();
-        for &c in slots {
-            let card = board.expose_center(seat, c);
+        for &slot in slots {
+            let card = board.expose_center(seat, slot);
             parts.push(irc_format!(
-                "#{} ({})",
-                c + 1,
+                "{} ({})",
+                slot.short_label(ctx.roster),
                 card.display_for_peek(),
             ));
         }

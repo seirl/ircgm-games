@@ -276,8 +276,8 @@ impl DeckSpec {
             })
             .collect();
 
+        let board = BoardCards::new(&deck, player_cards, center);
         let roster = Roster { seats, deck };
-        let board = BoardCards::new(player_cards, center);
         Ok((roster, board))
     }
 }

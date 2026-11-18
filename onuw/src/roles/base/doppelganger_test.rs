@@ -143,7 +143,7 @@ async fn doppelganger_alpha_wolf_swaps_immediately_without_pack_leak_before_real
     let night = h.spawn_night();
     // #1: Alice copies Bob (Alpha Wolf). In her immediate #1 prompt, she only knows herself and Bob
     // (Carol's Werewolf card is NOT leaked before #2!), and swaps the Center Werewolf onto Dave
-    // (putting Dave's Villager card into CenterWolfCard):
+    // (putting Dave's Villager card into the Center Wolf perpendicular slot):
     h.reply_dm("Alice", "Bob").await;
     let imm_prompt = loop {
         let m = h.wait_for_new_dm("Alice").await;
@@ -158,7 +158,7 @@ async fn doppelganger_alpha_wolf_swaps_immediately_without_pack_leak_before_real
     h.send_dm("Alice", "Dave").await;
 
     // #2-B: After the #2 pack wake (Alice, Bob, Carol), ONLY Bob wakes as Alpha Wolf (seeing only
-    // Dave & Eve as non-Wolves!) and swaps CenterWolfCard (now Dave's old Villager!) onto Eve, while Eve peeks Bob:
+    // Dave & Eve as non-Wolves!) and swaps Center Wolf (now Dave's old Villager!) onto Eve, while Eve peeks Bob:
     let bob_prompt = loop {
         let m = h.wait_for_new_dm("Bob").await;
         if m.contains("Alpha Wolf:") {

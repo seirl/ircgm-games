@@ -2,7 +2,7 @@ use futures::future::try_join_all;
 use ircgm::prelude::*;
 
 use super::alien::ALIEN_PACK_STEP;
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
+use crate::board::{BoardAccess, BoardKey, BoardMut, CenterSlot, Roster, SeatSet};
 use crate::role::{
     GameSet, GroupEffect, GroupPromptCtx, NightFaction, ResolveCtx, Role, RoleInfo, SpecialVictory,
     Team, VictoryCtx, WakeStep,
@@ -17,7 +17,7 @@ use crate::roles::{
 pub(super) struct OracleAlienExchange(pub bool);
 
 impl BoardKey for OracleAlienExchange {
-    const ACCESS: u16 = BoardAccess::CUSTOM_0;
+    const ACCESS: u16 = BoardAccess::ROLE_STATE;
 
     fn init() -> Self {
         Self(false)
@@ -178,7 +178,7 @@ const ORACLE_WRITES: u16 = BoardAccess::PLAYER_FACES
     | BoardAccess::PLAYER_BECAME
     | BoardAccess::CENTER_FACES
     | BoardAccess::WAKING_ROLES
-    | BoardAccess::CUSTOM_0
+    | BoardAccess::ROLE_STATE
     | BoardAccess::PUBLIC_ANNOUNCE;
 
 const ORACLE_STEP: WakeStep =
@@ -191,7 +191,7 @@ const ORACLE_STEP: WakeStep =
 #[derive(Clone, Copy)]
 enum OracleAnswer {
     YesNo(bool),
-    DrunkChoice(Option<usize>),
+    DrunkChoice(Option<CenterSlot>),
     Parity { is_even: bool },
     PlayerTarget(usize),
     Guess(u8),
@@ -337,32 +337,35 @@ impl Oracle {
             OracleQuestion::DrunkExchange { .. } => {
                 let prompt = irc_format!(
                     "🔮🛸 {title}: Do you want to exchange your card with a center card? Reply {} (or {}), or {}!",
-                    "1 / 2 / 3".bold(),
+                    roster.center_slash_hint().bold(),
                     "yes".bold(),
                     "no".bold(),
                 );
                 Ok(ctx
-                    .ask(seat, prompt, |m| {
+                    .ask(seat, prompt, move |m| {
                         let raw = m.text.trim();
-                        if let Some(c_idx) = Roster::parse_center_slot(raw) {
+                        if let Some(slot) = roster.parse_center_slot(raw) {
                             return AskMatch::accept_say(
-                                OracleAnswer::DrunkChoice(Some(c_idx)),
+                                OracleAnswer::DrunkChoice(Some(slot)),
                                 format!(
-                                    "🔮🛸 Locked in exchanging with Center #{} — resolves when the phase ends!",
-                                    c_idx + 1
+                                    "🔮🛸 Locked in exchanging with {} — resolves when the phase ends!",
+                                    slot.label(roster)
                                 ),
                             );
                         }
                         match Self::parse_yes_no(raw) {
                             Some(true) => AskMatch::accept_say(
-                                OracleAnswer::DrunkChoice(Some(fastrand::usize(0..3))),
+                                OracleAnswer::DrunkChoice(Some(roster.choose_random_center_slot())),
                                 "🔮🛸 Locked in center exchange — resolves when the phase ends!",
                             ),
                             Some(false) => AskMatch::accept_say(
                                 OracleAnswer::DrunkChoice(None),
                                 "🔮🛸 Declined center exchange.",
                             ),
-                            None => AskMatch::reject("Reply 1, 2, 3, yes, or no.".yellow()),
+                            None => AskMatch::reject(
+                                format!("Reply {}, yes, or no.", roster.center_choice_hint())
+                                    .yellow(),
+                            ),
                         }
                     })
                     .await?
@@ -719,7 +722,7 @@ impl Oracle {
             OracleQuestion::DrunkExchange { fizzle } => {
                 let slot_opt = match answer_opt {
                     Some(OracleAnswer::DrunkChoice(opt)) => opt,
-                    _ => fastrand::bool().then(|| fastrand::usize(0..3)),
+                    _ => fastrand::bool().then(|| rctx.roster.choose_random_center_slot()),
                 };
                 match slot_opt {
                     Some(_) if fizzle => {
@@ -751,17 +754,16 @@ impl Oracle {
                             if let Some((_, center_card)) =
                                 board.swap_player_with_center(seat, seat, slot)
                             {
+                                let slot_label = slot.label(rctx.roster);
                                 rctx.dm(
                                     seat,
                                     format!(
-                                        "🔮🛸 Exchanged your card with Center #{} (without looking)!",
-                                        slot + 1
+                                        "🔮🛸 Exchanged your card with {slot_label} (without looking)!"
                                     ),
                                 );
                                 rctx.record(irc_format!(
-                                    "🔮🛸 {role_title} ({}) exchanged cards with Center #{} ({}).",
+                                    "🔮🛸 {role_title} ({}) exchanged cards with {slot_label} ({}).",
                                     rctx.nick(seat).bold(),
-                                    slot + 1,
                                     center_card.display_for_peek(),
                                 ));
                             }
@@ -826,19 +828,24 @@ impl Oracle {
                     ));
                     return;
                 };
-                let mut slots = [0usize, 1, 2];
+                let mut slots = rctx.roster.center_slots();
+                let total_center = slots.len();
                 fastrand::shuffle(&mut slots);
-                let chosen = &slots[..n_cards];
+                let chosen = &slots[..n_cards.min(total_center)];
                 let mut parts = Vec::new();
-                for &c_idx in chosen {
-                    let seen = board.peek_center(seat, c_idx);
-                    parts.push(irc_format!("#{} {}", c_idx + 1, seen.display_for_peek()));
+                for &slot in chosen {
+                    let seen = board.peek_center(seat, slot);
+                    parts.push(irc_format!(
+                        "{} {}",
+                        slot.short_label(rctx.roster),
+                        seen.display_for_peek()
+                    ));
                 }
                 let joined = Text::join(&parts, ", ".grey());
                 rctx.dm(
                     seat,
                     irc_format!(
-                        "🔮🛸 Mother Ship granted {}/3 center card(s): {}",
+                        "🔮🛸 Mother Ship granted {}/{total_center} center card(s): {}",
                         chosen.len(),
                         joined.clone(),
                     ),
