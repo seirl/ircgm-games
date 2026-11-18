@@ -435,6 +435,7 @@ enum StepTierResolution {
         step: &'static WakeStep,
         seat: usize,
         wake_fn: PassiveWakeFn,
+        mark_acted_immediately: bool,
     },
     Solo {
         step: &'static WakeStep,
@@ -442,22 +443,53 @@ enum StepTierResolution {
         effect: SeatEffect,
         mark_acted_immediately: bool,
     },
+    TierEpilogue {
+        step: &'static WakeStep,
+        after_fn: fn(&mut BoardMut<'_>, &mut ResolveCtx<'_>),
+    },
 }
 
 impl StepTierResolution {
     fn step(&self) -> &'static WakeStep {
         match self {
-            Self::Group { step, .. } | Self::Passive { step, .. } | Self::Solo { step, .. } => {
-                step
-            }
+            Self::Group { step, .. }
+            | Self::Passive { step, .. }
+            | Self::Solo { step, .. }
+            | Self::TierEpilogue { step, .. } => step,
         }
     }
 
     fn resolve_reads(&self) -> u16 {
         match self {
             Self::Passive { .. } => BoardAccess::ALL_READS,
-            Self::Group { step, .. } | Self::Solo { step, .. } => step.effective_prompt_reads(),
+            Self::Group { step, .. }
+            | Self::Solo { step, .. }
+            | Self::TierEpilogue { step, .. } => step.effective_prompt_reads(),
         }
+    }
+}
+
+fn record_step_wakers(
+    out: &mut Vec<(String, SeatSet)>,
+    step: &WakeStep,
+    primary_label: String,
+    seats: SeatSet,
+    wakers: &NightWakers,
+) {
+    if seats.is_empty() {
+        return;
+    }
+    if step.copy_timing == Some(CopyTiming::OnRoleTurn) {
+        let dg_seats = seats & wakers.player_copied_seats();
+        let primary_seats = seats - dg_seats;
+        if !primary_seats.is_empty() {
+            out.push((primary_label, primary_seats));
+        }
+        if !dg_seats.is_empty() {
+            out.push((format!("Doppelgänger-{}", step.callout_name()), dg_seats));
+        }
+    } else {
+        out.push((primary_label, seats));
     }
 }
 
@@ -599,6 +631,36 @@ pub async fn run_night_phase(
             tier.styled_callout(),
         ))?;
 
+        match &tier.kind {
+            TierKind::StepSlot {
+                step, slot_idx: 0, ..
+            } => {
+                if let Some(hooks) = step.tier_hooks {
+                    let mut bm = BoardMut::new(
+                        &mut board,
+                        step.callout_name(),
+                        step.effective_prompt_reads(),
+                        step.resolve_writes.0,
+                    );
+                    (hooks.before_first_slot)(&mut bm, roster);
+                }
+            }
+            TierKind::Steps(steps) => {
+                for &step in steps {
+                    if let Some(hooks) = step.tier_hooks {
+                        let mut bm = BoardMut::new(
+                            &mut board,
+                            step.callout_name(),
+                            step.effective_prompt_reads(),
+                            step.resolve_writes.0,
+                        );
+                        (hooks.before_first_slot)(&mut bm, roster);
+                    }
+                }
+            }
+            _ => {}
+        }
+
         let (resolutions, tier_step_wakers) = {
             let spawner = TierPromptSpawner {
                 roster,
@@ -637,18 +699,41 @@ pub async fn run_night_phase(
                                 .is_some_and(|st| step_exec_phase(st, has_dusk) == tier.phase)
                         })
                         .collect();
-                    if !immediate_seats.is_empty() {
-                        tier_step_wakers.push((tier.callout_label(), immediate_seats));
+                    let open_eye_immediate: SeatSet = immediate_seats
+                        .into_iter()
+                        .filter(|&s| {
+                            wakers
+                                .role(s)
+                                .immediate_copy_step()
+                                .is_some_and(|st| st.eyes_open)
+                        })
+                        .collect();
+                    if !open_eye_immediate.is_empty() {
+                        tier_step_wakers.push((tier.callout_label(), open_eye_immediate));
                     }
                     for seat in immediate_seats {
                         let step = wakers
                             .role(seat)
                             .immediate_copy_step()
                             .expect("immediate copied role has immediate step");
-                        let StepKind::Solo(prompt_fn) = step.kind else {
-                            unreachable!("only Solo steps support CopyTiming::Immediate");
-                        };
-                        futs.push(spawner.solo(step, prompt_fn, seat, true));
+                        match step.kind {
+                            StepKind::Solo(prompt_fn) => {
+                                futs.push(spawner.solo(step, prompt_fn, seat, true));
+                            }
+                            StepKind::Passive(wake_fn) => {
+                                futs.push(Box::pin(async move {
+                                    Ok(StepTierResolution::Passive {
+                                        step,
+                                        seat,
+                                        wake_fn,
+                                        mark_acted_immediately: true,
+                                    })
+                                }));
+                            }
+                            StepKind::Group(_) => {
+                                unreachable!("Group steps do not support CopyTiming::Immediate");
+                            }
+                        }
                     }
                 }
 
@@ -666,12 +751,25 @@ pub async fn run_night_phase(
                     } else {
                         all_actors.get(*slot_idx..).unwrap_or(&[])
                     };
-                    if !slot_actors.is_empty() {
-                        tier_step_wakers
-                            .push((tier.callout_label(), slot_actors.iter().copied().collect()));
+                    if step.eyes_open && !slot_actors.is_empty() {
+                        record_step_wakers(
+                            &mut tier_step_wakers,
+                            step,
+                            tier.callout_label(),
+                            slot_actors.iter().copied().collect(),
+                            &wakers,
+                        );
                     }
                     for &seat in slot_actors {
                         futs.push(spawner.solo(step, prompt_fn, seat, false));
+                    }
+                    if *slot_idx + 1 == *total_slots {
+                        if let Some(hooks) = step.tier_hooks {
+                            let after_fn = hooks.after_last_slot;
+                            futs.push(Box::pin(async move {
+                                Ok(StepTierResolution::TierEpilogue { step, after_fn })
+                            }));
+                        }
                     }
                 }
 
@@ -681,8 +779,13 @@ pub async fn run_night_phase(
                             StepKind::Group(prompt_fn) => {
                                 let active_seats = compute_group_active_seats(step, &wakers);
                                 if step.eyes_open && !active_seats.is_empty() {
-                                    tier_step_wakers
-                                        .push((step.callout_name().to_owned(), active_seats));
+                                    record_step_wakers(
+                                        &mut tier_step_wakers,
+                                        step,
+                                        step.callout_name().to_owned(),
+                                        active_seats,
+                                        &wakers,
+                                    );
                                 }
                                 if active_seats.is_empty() && !step.run_when_unheld {
                                     continue;
@@ -692,10 +795,13 @@ pub async fn run_night_phase(
                             StepKind::Passive(wake_fn) => {
                                 let actors = collect_solo_or_passive_actors(roster, step, &wakers);
                                 if step.eyes_open && !actors.is_empty() {
-                                    tier_step_wakers.push((
+                                    record_step_wakers(
+                                        &mut tier_step_wakers,
+                                        step,
                                         step.callout_name().to_owned(),
                                         actors.iter().copied().collect(),
-                                    ));
+                                        &wakers,
+                                    );
                                 }
                                 for seat in actors {
                                     futs.push(Box::pin(async move {
@@ -703,6 +809,7 @@ pub async fn run_night_phase(
                                             step,
                                             seat,
                                             wake_fn,
+                                            mark_acted_immediately: false,
                                         })
                                     }));
                                 }
@@ -710,13 +817,22 @@ pub async fn run_night_phase(
                             StepKind::Solo(prompt_fn) => {
                                 let actors = collect_solo_or_passive_actors(roster, step, &wakers);
                                 if step.eyes_open && !actors.is_empty() {
-                                    tier_step_wakers.push((
+                                    record_step_wakers(
+                                        &mut tier_step_wakers,
+                                        step,
                                         step.callout_name().to_owned(),
                                         actors.iter().copied().collect(),
-                                    ));
+                                        &wakers,
+                                    );
                                 }
                                 for seat in actors {
                                     futs.push(spawner.solo(step, prompt_fn, seat, false));
+                                }
+                                if let Some(hooks) = step.tier_hooks {
+                                    let after_fn = hooks.after_last_slot;
+                                    futs.push(Box::pin(async move {
+                                        Ok(StepTierResolution::TierEpilogue { step, after_fn })
+                                    }));
                                 }
                             }
                         }
@@ -759,7 +875,15 @@ pub async fn run_night_phase(
                 StepTierResolution::Group { effect, .. } => {
                     effect.apply(&mut bm, &mut rctx);
                 }
-                StepTierResolution::Passive { seat, wake_fn, .. } => {
+                StepTierResolution::Passive {
+                    seat,
+                    wake_fn,
+                    mark_acted_immediately,
+                    ..
+                } => {
+                    if mark_acted_immediately {
+                        rctx.wakers.acted_immediately.insert(seat);
+                    }
                     let label = rctx.wakers.actor_label(roster, seat);
                     if step.eyes_open {
                         if let Some(line) = table_summary {
@@ -779,6 +903,9 @@ pub async fn run_night_phase(
                     }
                     let label = rctx.wakers.actor_label(roster, seat);
                     effect.apply(&label, &mut bm, &mut rctx);
+                }
+                StepTierResolution::TierEpilogue { after_fn, .. } => {
+                    after_fn(&mut bm, &mut rctx);
                 }
             }
         }

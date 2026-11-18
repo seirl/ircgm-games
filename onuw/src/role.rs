@@ -293,8 +293,19 @@ pub enum CopyTiming {
     Immediate,
     /// Copied action runs in a dedicated `<Copier>-<Role>` tier right after `Doppelgänger` (`Doppelgänger-Oracle`).
     AfterPlayerCopier,
-    /// Copied action runs in the role's scheduled Dusk/Night tier right after initial holders (`X-A`).
+    /// Copied action runs in the role's scheduled Dusk/Night tier as a separate `#X-A` sub-wake after initial holders.
     OnRoleTurn,
+    /// Copied actor wakes simultaneously inside the shared open-eyed group (`Mason`, `Groob & Zerb`, `Intern`, `Apprentice Assassin`).
+    WithGroup,
+}
+
+/// Optional once-per-role setup and epilogue hooks for [`WakeStep::solo`] roles whose
+/// Mother Ship / announcer directive rolls once and announces publicly even when unheld
+/// (`Body Snatcher`, `Rascal`, `Exposer`).
+#[derive(Clone, Copy)]
+pub struct TierHooks {
+    pub before_first_slot: fn(&mut BoardMut<'_>, &Roster),
+    pub after_last_slot: fn(&mut BoardMut<'_>, &mut ResolveCtx<'_>),
 }
 
 /// Deferred resolution closure returned by a solo role's DM prompt, invoked at the fixed-clock
@@ -391,6 +402,7 @@ pub struct WakeStep {
     pub copy_timing: Option<CopyTiming>,
     pub prompt_reads: BoardAccess,
     pub resolve_writes: BoardAccess,
+    pub(crate) tier_hooks: Option<TierHooks>,
     pub(crate) kind: StepKind,
 }
 
@@ -413,6 +425,7 @@ impl WakeStep {
             copy_timing: Some(CopyTiming::Immediate),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
+            tier_hooks: None,
             kind: StepKind::Solo(f),
         }
     }
@@ -439,7 +452,7 @@ impl WakeStep {
         s
     }
 
-    /// Role-owned group wake (`Mason`, `Minion`, `Leader`, `Intern`, `Groob`, `Zerb`, `Apprentice Assassin`).
+    /// Role-owned group wake (`Mason`, `Leader`, `Intern`, `Apprentice Assassin`, `Empath`, etc.).
     pub const fn group(owner: &'static dyn Role, f: GroupPromptFn) -> Self {
         Self {
             target: StepTarget::Role(owner),
@@ -451,6 +464,7 @@ impl WakeStep {
             copy_timing: Some(CopyTiming::OnRoleTurn),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
+            tier_hooks: None,
             kind: StepKind::Group(f),
         }
     }
@@ -467,6 +481,7 @@ impl WakeStep {
             copy_timing: None,
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
+            tier_hooks: None,
             kind: StepKind::Group(f),
         }
     }
@@ -494,6 +509,7 @@ impl WakeStep {
             copy_timing: Some(CopyTiming::OnRoleTurn),
             prompt_reads: BoardAccess(BoardAccess::VISIBLE_TABLE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
+            tier_hooks: None,
             kind: StepKind::Group(f),
         }
     }
@@ -510,6 +526,7 @@ impl WakeStep {
             copy_timing: Some(CopyTiming::OnRoleTurn),
             prompt_reads: BoardAccess(BoardAccess::NONE),
             resolve_writes: BoardAccess(BoardAccess::NONE),
+            tier_hooks: None,
             kind: StepKind::Passive(f),
         }
     }
@@ -517,9 +534,26 @@ impl WakeStep {
     pub const fn run_when_unheld(mut self) -> Self {
         assert!(
             matches!(self.kind, StepKind::Group(_)),
-            "only Group steps support .run_when_unheld()"
+            "only Group steps support .run_when_unheld() (use .with_tier_hooks(...) on Solo steps)"
         );
         self.run_when_unheld = true;
+        self
+    }
+
+    pub const fn with_tier_hooks(
+        mut self,
+        before_first_slot: fn(&mut BoardMut<'_>, &Roster),
+        after_last_slot: fn(&mut BoardMut<'_>, &mut ResolveCtx<'_>),
+    ) -> Self {
+        assert!(
+            matches!(self.kind, StepKind::Solo(_)),
+            "only Solo steps support .with_tier_hooks(...)"
+        );
+        self.run_when_unheld = true;
+        self.tier_hooks = Some(TierHooks {
+            before_first_slot,
+            after_last_slot,
+        });
         self
     }
 
@@ -529,6 +563,24 @@ impl WakeStep {
             "only Group steps support .copy_after_player_copier()"
         );
         self.copy_timing = Some(CopyTiming::AfterPlayerCopier);
+        self
+    }
+
+    pub const fn copy_with_group(mut self) -> Self {
+        assert!(
+            matches!(self.kind, StepKind::Group(_)),
+            "only Group/Pair steps support .copy_with_group()"
+        );
+        self.copy_timing = Some(CopyTiming::WithGroup);
+        self
+    }
+
+    pub const fn copy_immediately(mut self) -> Self {
+        assert!(
+            matches!(self.kind, StepKind::Solo(_) | StepKind::Passive(_)),
+            "only Solo and Passive steps support .copy_immediately()"
+        );
+        self.copy_timing = Some(CopyTiming::Immediate);
         self
     }
 
@@ -1175,6 +1227,16 @@ impl<'a> ResolveCtx<'a> {
 
     pub fn waking_role(&self, seat: usize) -> &'static dyn Role {
         self.wakers.role(seat)
+    }
+
+    /// All seats holding `faction` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
+    pub fn seats_with_faction(&self, faction: NightFaction) -> SeatSet {
+        self.wakers.seats_with_faction(faction)
+    }
+
+    /// All seats holding `role` (initial role or copied by `Copycat` / `Doppelgänger`), even if feared.
+    pub fn seats_with_role(&self, role: &'static dyn Role) -> SeatSet {
+        self.wakers.seats_with_role(role)
     }
 
     pub fn grant_wake_log(&mut self, seat: usize) {

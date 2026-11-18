@@ -1,10 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
-use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team,
-    WakeStep,
-};
+use crate::board::{BoardAccess, BoardKey, BoardMut, Roster};
+use crate::role::{GameSet, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep};
 
 /// Per-wake randomized Mother Ship mischief mode rolled for `#7F Rascal`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,6 +41,17 @@ impl BoardKey for ForcedRascalMode {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ActiveRascalMode(RascalMode);
+
+impl BoardKey for ActiveRascalMode {
+    const ACCESS: u16 = BoardAccess::NONE;
+
+    fn init() -> Self {
+        Self(RascalMode::Idiot)
+    }
+}
+
 #[derive(Clone, Copy)]
 enum RascalAction {
     Pass(&'static str),
@@ -71,8 +79,9 @@ impl Role for Rascal {
 
     fn steps(&self) -> &'static [WakeStep] {
         const {
-            &[WakeStep::group(&RASCAL, |seats, ctx| Box::pin(Self::wake(seats, ctx)))
-                .run_when_unheld()
+            &[WakeStep::solo(&RASCAL, |seat, ctx| Box::pin(Self::prompt_seat(seat, ctx)))
+                .copy_on_turn()
+                .with_tier_hooks(Self::init_tier, Self::finish_tier)
                 .reads(BoardAccess::CENTER_FACES)
                 .writes(
                     BoardAccess::PLAYER_FACES
@@ -84,41 +93,34 @@ impl Role for Rascal {
 }
 
 impl Rascal {
-    async fn wake(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let mode = ctx
+    fn init_tier(board: &mut BoardMut<'_>, _roster: &Roster) {
+        let mode = board
             .get_key::<ForcedRascalMode>()
             .0
             .unwrap_or_else(RascalMode::roll);
-        let effects = ctx
-            .prompt_seats(&RASCAL, active_seats, |seat, pctx| {
-                Box::pin(Self::prompt_seat(seat, mode, pctx))
-            })
-            .await?;
-
-        Ok(GroupEffect::new(move |board, rctx| {
-            rctx.apply_seat_effects(effects, board);
-            let desc = match mode {
-                RascalMode::Idiot => {
-                    "shift all other players' cards left or right (Village Idiot mode)"
-                }
-                RascalMode::Troublemaker => "swap 2 other players' cards (Troublemaker mode)",
-                RascalMode::Drunk => "exchange their own card with 1 center card (Drunk mode)",
-                RascalMode::Witch => "view 1 center card and give it to a player (Witch mode)",
-                RascalMode::Robber => "steal another player's card and view it (Robber mode)",
-            };
-            rctx.announce(irc_format!(
-                "😜 {} {} was instructed to {desc}!",
-                "Mother Ship (Rascal):".bold().cyan(),
-                RASCAL.info().styled_name(),
-            ));
-        }))
+        board.set_key(ActiveRascalMode(mode));
     }
 
-    async fn prompt_seat(
-        seat: usize,
-        mode: RascalMode,
-        mut ctx: PromptCtx<'_>,
-    ) -> Result<SeatEffect> {
+    fn finish_tier(board: &mut BoardMut<'_>, rctx: &mut ResolveCtx<'_>) {
+        let mode = board.get_key::<ActiveRascalMode>().0;
+        let desc = match mode {
+            RascalMode::Idiot => {
+                "shift all other players' cards left or right (Village Idiot mode)"
+            }
+            RascalMode::Troublemaker => "swap 2 other players' cards (Troublemaker mode)",
+            RascalMode::Drunk => "exchange their own card with 1 center card (Drunk mode)",
+            RascalMode::Witch => "view 1 center card and give it to a player (Witch mode)",
+            RascalMode::Robber => "steal another player's card and view it (Robber mode)",
+        };
+        rctx.announce(irc_format!(
+            "😜 {} {} was instructed to {desc}!",
+            "Mother Ship (Rascal):".bold().cyan(),
+            RASCAL.info().styled_name(),
+        ));
+    }
+
+    async fn prompt_seat(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let mode = ctx.get_key::<ActiveRascalMode>().0;
 
         let action = match mode {
             RascalMode::Idiot => {

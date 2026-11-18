@@ -92,7 +92,7 @@ impl Empath {
             );
         }
 
-        let pointers = ctx.roster.all_seats() - active_seats;
+        let pointers = ctx.roster.all_seats();
         let roster = ctx.roster;
         let ctx_ref = &ctx;
 
@@ -137,13 +137,19 @@ impl Empath {
                 "Mother Ship (Empath):".bold().cyan(),
                 question.phrase().bold().yellow(),
             ));
-            let pairs_str = results
+            let all_pairs_str = results
                 .iter()
                 .map(|&(src, dst)| format!("{} → {}", rctx.nick(src), rctx.nick(dst)))
                 .collect::<Vec<_>>()
                 .join(", ");
 
             for e_seat in active_seats {
+                let pairs_str = results
+                    .iter()
+                    .filter(|&&(src, _)| src != e_seat)
+                    .map(|&(src, dst)| format!("{} → {}", rctx.nick(src), rctx.nick(dst)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 if pairs_str.is_empty() {
                     rctx.dm(e_seat, "💓 Empath: No other players pointed.");
                 } else {
@@ -160,13 +166,13 @@ impl Empath {
 
             if active_seats.is_empty() {
                 rctx.record(irc_format!(
-                    "💓 Empath poll ({}) ran with Empath in the center ({pairs_str}).",
+                    "💓 Empath poll ({}) ran with Empath in the center ({all_pairs_str}).",
                     question.short_label(),
                 ));
             } else {
                 let empath_names = rctx.roster.format_seats(active_seats);
                 rctx.record(irc_format!(
-                    "💓 {} ({}) observed poll ({}): {pairs_str}.",
+                    "💓 {} ({}) observed poll ({}): {all_pairs_str}.",
                     EMPATH.info().styled_name(),
                     empath_names.bold(),
                     question.short_label(),

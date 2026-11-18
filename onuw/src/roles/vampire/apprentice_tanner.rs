@@ -1,11 +1,8 @@
 use ircgm::prelude::*;
 
 use crate::artifacts::Artifact;
-use crate::board::SeatSet;
-use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx,
-    WakeStep,
-};
+use crate::board::{BoardMut, SeatSet};
+use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx, WakeStep};
 use crate::roles::base::tanner::TANNER;
 
 pub struct ApprenticeTanner;
@@ -24,13 +21,7 @@ impl Role for ApprenticeTanner {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const {
-            &[
-                WakeStep::group(&APPRENTICE_TANNER, |seats, ctx| {
-                    Box::pin(Self::wake_group(seats, ctx))
-                }),
-            ]
-        }
+        const { &[WakeStep::passive(&APPRENTICE_TANNER, Self::inspect)] }
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
@@ -48,54 +39,41 @@ impl Role for ApprenticeTanner {
 }
 
 impl ApprenticeTanner {
-    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let tanners = ctx.seats_with_role(&TANNER);
-        for seat in active_seats {
-            let peers = active_seats.without(seat);
-            let peer_note = if peers.is_empty() {
-                String::new()
-            } else {
-                format!(
-                    " (fellow Apprentice Tanner: {})",
-                    ctx.roster.format_seats(peers)
-                )
-            };
-            if tanners.is_empty() {
-                ctx.dm(
-                    seat,
-                    irc_format!(
-                        "🪢 Apprentice Tanner: {}{peer_note}! You win ONLY if YOU die!",
-                        "NO player holds the Tanner".bold().yellow(),
-                    ),
-                );
-            } else {
-                ctx.dm(
-                    seat,
-                    irc_format!(
-                        "🪢 Apprentice Tanner: The Tanner is {}{peer_note} — get the Tanner killed to win!",
-                        ctx.roster.format_seats(tanners).bold().orange(),
-                    ),
-                );
-            }
+    fn inspect(
+        seat: usize,
+        actor_label: &str,
+        _board: &mut BoardMut<'_>,
+        ctx: &mut ResolveCtx<'_>,
+    ) {
+        let tanners = ctx.seats_with_role(&TANNER).without(seat);
+        let actor_nick = ctx.nick(seat);
+        if tanners.is_empty() {
+            ctx.dm(
+                seat,
+                irc_format!(
+                    "🪢 {actor_label}: {}! You win ONLY if YOU die!",
+                    "NO player holds the Tanner".bold().yellow(),
+                ),
+            );
+            ctx.record(irc_format!(
+                "🪢 {actor_label} ({}) saw no Tanner in play.",
+                actor_nick.bold(),
+            ));
+        } else {
+            let tanner_names = ctx.roster.format_seats(tanners);
+            ctx.dm(
+                seat,
+                irc_format!(
+                    "🪢 {actor_label}: The Tanner is {} — get the Tanner killed to win!",
+                    tanner_names.as_str().bold().orange(),
+                ),
+            );
+            ctx.record(irc_format!(
+                "🪢 {actor_label} ({}) saw Tanner: {}.",
+                actor_nick.bold(),
+                tanner_names.bold().orange(),
+            ));
         }
-
-        Ok(GroupEffect::new(move |_board, rctx| {
-            let names = rctx.roster.format_seats(active_seats);
-            let styled = APPRENTICE_TANNER.info().styled_name();
-            if tanners.is_empty() {
-                rctx.record(irc_format!(
-                    "🪢 {styled} ({}) saw no Tanner in play.",
-                    names.bold(),
-                ));
-            } else {
-                let tanner_names = rctx.roster.format_seats(tanners);
-                rctx.record(irc_format!(
-                    "🪢 {styled} ({}) saw Tanner: {}.",
-                    names.bold(),
-                    tanner_names.bold().orange(),
-                ));
-            }
-        }))
     }
 }
 

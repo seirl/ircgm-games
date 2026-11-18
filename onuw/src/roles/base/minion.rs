@@ -1,9 +1,7 @@
 use ircgm::prelude::*;
 
-use crate::board::SeatSet;
-use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, NightFaction, Role, RoleInfo, Team, WakeStep,
-};
+use crate::board::BoardMut;
+use crate::role::{GameSet, NightFaction, ResolveCtx, Role, RoleInfo, Team, WakeStep};
 
 pub struct Minion;
 pub static MINION: Minion = Minion;
@@ -21,60 +19,52 @@ impl Role for Minion {
     }
 
     fn steps(&self) -> &'static [WakeStep] {
-        const {
-            &[WakeStep::group(&MINION, |seats, ctx| {
-                Box::pin(Self::wake_group(seats, ctx))
-            })]
-        }
+        const { &[WakeStep::passive(&MINION, Self::inspect).copy_immediately()] }
     }
 }
 
 impl Minion {
-    async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+    fn inspect(
+        seat: usize,
+        actor_label: &str,
+        _board: &mut BoardMut<'_>,
+        ctx: &mut ResolveCtx<'_>,
+    ) {
         let has_tanner = ctx.roster.deck_has(&super::tanner::TANNER);
         let wolves = ctx.seats_with_faction(NightFaction::Werewolf);
-        for m_seat in active_seats {
-            if wolves.is_empty() {
-                let goal = if has_tanner {
-                    "Survive and get another non-Tanner player killed to win!"
-                } else {
-                    "Survive and get another player killed to win!"
-                };
-                ctx.dm(
-                    m_seat,
-                    irc_format!(
-                        "🗡️ Minion: {}! {goal}",
-                        "NO players hold Werewolf cards".bold().yellow()
-                    ),
-                );
+        let actor_nick = ctx.nick(seat);
+        if wolves.is_empty() {
+            let goal = if has_tanner {
+                "Survive and get another non-Tanner player killed to win!"
             } else {
-                ctx.dm(
-                    m_seat,
-                    irc_format!(
-                        "🗡️ Minion: The Werewolves are {} (they do not know who you are!).",
-                        ctx.roster.format_seats(wolves).bold().red()
-                    ),
-                );
-            }
+                "Survive and get another player killed to win!"
+            };
+            ctx.dm(
+                seat,
+                irc_format!(
+                    "🗡️ {actor_label}: {}! {goal}",
+                    "NO players hold Werewolf cards".bold().yellow()
+                ),
+            );
+            ctx.record(irc_format!(
+                "🗡️ {actor_label} ({}) saw no Werewolves in play.",
+                actor_nick.bold(),
+            ));
+        } else {
+            let wolf_names = ctx.roster.format_seats(wolves);
+            ctx.dm(
+                seat,
+                irc_format!(
+                    "🗡️ {actor_label}: The Werewolves are {} (they do not know who you are!).",
+                    wolf_names.as_str().bold().red()
+                ),
+            );
+            ctx.record(irc_format!(
+                "🗡️ {actor_label} ({}) saw Werewolf pack: {}.",
+                actor_nick.bold(),
+                wolf_names.bold().red(),
+            ));
         }
-
-        Ok(GroupEffect::new(move |_board, rctx| {
-            let names = rctx.roster.format_seats(active_seats);
-            let styled = MINION.info().styled_name();
-            if wolves.is_empty() {
-                rctx.record(irc_format!(
-                    "🗡️ {styled} ({}) saw no Werewolves in play.",
-                    names.bold(),
-                ));
-            } else {
-                let wolf_names = rctx.roster.format_seats(wolves);
-                rctx.record(irc_format!(
-                    "🗡️ {styled} ({}) saw Werewolf pack: {}.",
-                    names.bold(),
-                    wolf_names.bold().red(),
-                ));
-            }
-        }))
     }
 }
 

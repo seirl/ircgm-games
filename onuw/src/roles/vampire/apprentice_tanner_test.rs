@@ -62,4 +62,38 @@ async fn apprentice_tanner_wins_when_tanner_dies_or_becomes_backup_tanner_when_a
         )
         .await;
     assert_eq!(dawn2.winner_nicks(&h2.roster), vec!["Alice"]);
+
+    // 3. Apprentice Tanner + Doppelgänger-Apprentice Tanner wake separately without seeing each other:
+    use crate::roles::alien::oracle::{ForcedOracleQuestion, OracleQuestion, ORACLE};
+    use crate::roles::base::doppelganger::DOPPELGANGER;
+    use ircgm::prelude::Text;
+
+    let mut h3 = OnuwTestHarness::new(
+        &[
+            ("Alice", &APPRENTICE_TANNER),
+            ("Bob", &DOPPELGANGER),
+            ("Carol", &TANNER),
+            ("Dave", &ORACLE),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h3.set_key(ForcedOracleQuestion(Some(OracleQuestion::NumberGuess {
+        secret: 5,
+    })));
+    let n3 = h3.spawn_night();
+    h3.reply_dm("Dave", "5").await;
+    h3.reply_dm("Bob", "Alice").await; // Doppelgänger -> Apprentice Tanner
+    let rep3 = h3.finish_night(n3).await;
+
+    let alice_dm = Text::parse(&rep3.dms_to("Alice")).plain();
+    let bob_dm = Text::parse(&rep3.dms_to("Bob")).plain();
+    let dave_watch = Text::parse(&rep3.dms_to("Dave")).plain();
+    assert!(alice_dm.contains("Apprentice Tanner: The Tanner is Carol"));
+    assert!(!alice_dm.contains("Bob") && !alice_dm.contains("fellow"));
+    assert!(bob_dm.contains("Doppelgänger-Apprentice Tanner: The Tanner is Carol"));
+    assert!(
+        dave_watch.contains("Apprentice Tanner: Alice · Doppelgänger-Apprentice Tanner: Bob"),
+        "got:\n{dave_watch}"
+    );
 }

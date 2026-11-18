@@ -19,7 +19,8 @@ pub(super) const GROOB_ZERB_STEP: WakeStep = WakeStep::pair(
     Team::Alien,
     Some(NightFaction::Alien),
     |seats, ctx| Box::pin(wake_groob_zerb_pair(seats, ctx)),
-);
+)
+.copy_with_group();
 
 pub(super) fn both_groob_and_zerb_in_play(board: &BoardCards) -> bool {
     !board.active_holders(&GROOB).is_empty() && !board.active_holders(&ZERB).is_empty()

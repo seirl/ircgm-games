@@ -3,8 +3,7 @@ use ircgm::prelude::*;
 use super::alien::ALIEN_PACK_STEP;
 use crate::board::{BoardAccess, BoardKey, BoardMut, Roster, SeatSet};
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo,
-    SeatEffect, Team, WakeStep,
+    GameSet, NightFaction, PromptCtx, ResolveCtx, Role, RoleInfo, SeatEffect, Team, WakeStep,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,6 +37,17 @@ impl BoardKey for ForcedBodySnatcherMode {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ActiveBodySnatcherMode(BodySnatcherMode);
+
+impl BoardKey for ActiveBodySnatcherMode {
+    const ACCESS: u16 = BoardAccess::NONE;
+
+    fn init() -> Self {
+        Self(BodySnatcherMode::Pretend)
+    }
+}
+
 struct SnatchedAlien;
 static SNATCHED_ALIEN: SnatchedAlien = SnatchedAlien;
 
@@ -66,10 +76,12 @@ pub struct BodySnatcher;
 pub static BODY_SNATCHER: BodySnatcher = BodySnatcher;
 
 const BODY_SNATCHER_SOLO_STEP: WakeStep =
-    WakeStep::group(&BODY_SNATCHER, |seats, ctx| {
-        Box::pin(BodySnatcher::wake(seats, ctx))
+    WakeStep::solo(&BODY_SNATCHER, |seat, ctx| {
+        Box::pin(BodySnatcher::prompt_seat(seat, ctx))
     })
-    .run_when_unheld()
+    .copy_on_turn()
+    .with_tier_hooks(BodySnatcher::init_tier, BodySnatcher::finish_tier)
+    .reads(BoardAccess::PLAYER_FACES)
     .writes(
         BoardAccess::PLAYER_FACES
             | BoardAccess::CENTER_FACES
@@ -96,43 +108,36 @@ impl Role for BodySnatcher {
 }
 
 impl BodySnatcher {
-    async fn wake(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
-        let mode = ctx
+    fn init_tier(board: &mut BoardMut<'_>, _roster: &Roster) {
+        let mode = board
             .get_key::<ForcedBodySnatcherMode>()
             .0
             .unwrap_or_else(BodySnatcherMode::roll);
-        let effects = ctx
-            .prompt_seats(&BODY_SNATCHER, active_seats, |seat, pctx| {
-                Box::pin(Self::prompt_seat(seat, mode, pctx))
-            })
-            .await?;
-
-        Ok(GroupEffect::new(move |board, rctx| {
-            rctx.apply_seat_effects(effects, board);
-            let msg = match mode {
-                BodySnatcherMode::StealPlayer => {
-                    "steal a non-Alien player's card (assimilating it into an Alien)!"
-                }
-                BodySnatcherMode::StealCenter => {
-                    "steal 1 center card (assimilating it into an Alien)!"
-                }
-                BodySnatcherMode::Pretend => {
-                    "PRETEND to move cards around without actually moving anything!"
-                }
-            };
-            rctx.announce(irc_format!(
-                "🛸🧬 {} {} was instructed to {msg}",
-                "Mother Ship (Body Snatcher):".bold().green(),
-                BODY_SNATCHER.info().styled_name(),
-            ));
-        }))
+        board.set_key(ActiveBodySnatcherMode(mode));
     }
 
-    async fn prompt_seat(
-        seat: usize,
-        mode: BodySnatcherMode,
-        mut ctx: PromptCtx<'_>,
-    ) -> Result<SeatEffect> {
+    fn finish_tier(board: &mut BoardMut<'_>, rctx: &mut ResolveCtx<'_>) {
+        let mode = board.get_key::<ActiveBodySnatcherMode>().0;
+        let msg = match mode {
+            BodySnatcherMode::StealPlayer => {
+                "steal a non-Alien player's card (assimilating it into an Alien)!"
+            }
+            BodySnatcherMode::StealCenter => {
+                "steal 1 center card (assimilating it into an Alien)!"
+            }
+            BodySnatcherMode::Pretend => {
+                "PRETEND to move cards around without actually moving anything!"
+            }
+        };
+        rctx.announce(irc_format!(
+            "🛸🧬 {} {} was instructed to {msg}",
+            "Mother Ship (Body Snatcher):".bold().green(),
+            BODY_SNATCHER.info().styled_name(),
+        ));
+    }
+
+    async fn prompt_seat(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        let mode = ctx.get_key::<ActiveBodySnatcherMode>().0;
 
         let action = match mode {
             BodySnatcherMode::Pretend => {
@@ -151,7 +156,17 @@ impl BodySnatcher {
                     );
                     SnatchAction::Blocked("self shielded")
                 } else {
-                    let aliens = ctx.known_pack_mates(NightFaction::Alien);
+                    let snap = ctx.board_for_peek();
+                    let current_alien_cards: SeatSet = ctx
+                        .roster
+                        .all_seats()
+                        .into_iter()
+                        .filter(|&i| {
+                            snap.player_card(i).effective_role().night_faction()
+                                == Some(NightFaction::Alien)
+                        })
+                        .collect();
+                    let aliens = ctx.known_pack_mates(NightFaction::Alien) | current_alien_cards;
                     let eligible =
                         (ctx.roster.all_seats() - aliens - ctx.shielded_seats()).without(seat);
                     if eligible.is_empty() {
