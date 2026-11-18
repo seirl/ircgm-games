@@ -7,116 +7,73 @@ use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, Vic
 ///
 /// Official *One Night Ultimate Alien* player-count absorption table (contiguous adjacent players
 /// absorbed alongside the `Blob` itself, to their left, right, or split evenly to both sides):
-/// - `3p`: `0` other players (`SelfOnly`)
-/// - `4p`: `1` other player (`Left1`, `Right1`)
-/// - `5–6p`: `2` other players (`Left2`, `Right2`, `LeftAndRight`)
-/// - `7–8p`: `3` other players (`Left3`, `Right3`)
-/// - `9–10p`: `4` other players (`Left4`, `Right4`, `Left2Right2`)
+/// - `3p`: `0` other players (`0, 0`)
+/// - `4p`: `1` other player (`1, 0` or `0, 1`)
+/// - `5–6p`: `2` other players (`2, 0`, `0, 2`, or `1, 1`)
+/// - `7–8p`: `3` other players (`3, 0` or `0, 3`)
+/// - `9–10p`: `4` other players (`4, 0`, `0, 4`, or `2, 2`)
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BlobShape {
-    SelfOnly,
-    Left1,
-    Right1,
-    LeftAndRight,
-    Left2,
-    Right2,
-    Left3,
-    Right3,
-    Left4,
-    Right4,
-    Left2Right2,
+pub(crate) struct BlobShape {
+    pub left: u8,
+    pub right: u8,
 }
 
 impl BlobShape {
+    pub(crate) const SELF_ONLY: Self = Self::new(0, 0);
+    pub(crate) const LEFT_1: Self = Self::new(1, 0);
+    pub(crate) const RIGHT_1: Self = Self::new(0, 1);
+    pub(crate) const LEFT_AND_RIGHT: Self = Self::new(1, 1);
+    pub(crate) const LEFT_2: Self = Self::new(2, 0);
+    pub(crate) const RIGHT_2: Self = Self::new(0, 2);
+    pub(crate) const LEFT_3: Self = Self::new(3, 0);
+    pub(crate) const RIGHT_3: Self = Self::new(0, 3);
+    pub(crate) const LEFT_4: Self = Self::new(4, 0);
+    pub(crate) const RIGHT_4: Self = Self::new(0, 4);
+    pub(crate) const LEFT_2_RIGHT_2: Self = Self::new(2, 2);
+
+    pub(crate) const fn new(left: u8, right: u8) -> Self {
+        Self { left, right }
+    }
+
     pub(crate) fn roll(player_count: usize) -> Self {
         let pool: &[Self] = match player_count {
-            ..=3 => &[Self::SelfOnly],
-            4 => &[Self::Left1, Self::Right1],
-            5..=6 => &[Self::Left2, Self::Right2, Self::LeftAndRight],
-            7..=8 => &[Self::Left3, Self::Right3],
-            _ => &[Self::Left4, Self::Right4, Self::Left2Right2],
+            ..=3 => &[Self::SELF_ONLY],
+            4 => &[Self::LEFT_1, Self::RIGHT_1],
+            5..=6 => &[Self::LEFT_2, Self::RIGHT_2, Self::LEFT_AND_RIGHT],
+            7..=8 => &[Self::LEFT_3, Self::RIGHT_3],
+            _ => &[Self::LEFT_4, Self::RIGHT_4, Self::LEFT_2_RIGHT_2],
         };
         pool[fastrand::usize(..pool.len())]
     }
 
-    fn default_for_count(player_count: usize) -> Self {
+    const fn default_for_count(player_count: usize) -> Self {
         match player_count {
-            ..=3 => Self::SelfOnly,
-            4 => Self::Left1,
-            5..=6 => Self::LeftAndRight,
-            7..=8 => Self::Left3,
-            _ => Self::Left2Right2,
+            ..=3 => Self::SELF_ONLY,
+            4 => Self::LEFT_1,
+            5..=6 => Self::LEFT_AND_RIGHT,
+            7..=8 => Self::LEFT_3,
+            _ => Self::LEFT_2_RIGHT_2,
         }
     }
 
-    fn description(self) -> &'static str {
-        match self {
-            Self::SelfOnly => "0 other players (only the Blob itself)",
-            Self::Left1 => "1 player to their LEFT",
-            Self::Right1 => "1 player to their RIGHT",
-            Self::LeftAndRight => "both immediate LEFT & RIGHT neighbors",
-            Self::Left2 => "2 players to their LEFT",
-            Self::Right2 => "2 players to their RIGHT",
-            Self::Left3 => "3 players to their LEFT",
-            Self::Right3 => "3 players to their RIGHT",
-            Self::Left4 => "4 players to their LEFT",
-            Self::Right4 => "4 players to their RIGHT",
-            Self::Left2Right2 => "2 players to their LEFT & 2 players to their RIGHT",
+    fn description(self) -> String {
+        let unit = |k: u8| if k == 1 { "player" } else { "players" };
+        match (self.left, self.right) {
+            (0, 0) => "0 other players (only the Blob itself)".to_owned(),
+            (1, 1) => "both immediate LEFT & RIGHT neighbors".to_owned(),
+            (l, 0) => format!("{l} {} to their LEFT", unit(l)),
+            (0, r) => format!("{r} {} to their RIGHT", unit(r)),
+            (l, r) => format!("{l} {} to their LEFT & {r} {} to their RIGHT", unit(l), unit(r)),
         }
     }
 
     pub(crate) fn absorbed_seats(self, n: usize, seat: usize) -> SeatSet {
-        let step_left = |k: usize| (seat + n - (k % n)) % n;
-        let step_right = |k: usize| (seat + k) % n;
         let mut set = SeatSet::single(seat);
-        match self {
-            Self::SelfOnly => {}
-            Self::Left1 => {
-                set.insert(step_left(1));
-            }
-            Self::Right1 => {
-                set.insert(step_right(1));
-            }
-            Self::LeftAndRight => {
-                set.insert(step_left(1));
-                set.insert(step_right(1));
-            }
-            Self::Left2 => {
-                for k in 1..=2 {
-                    set.insert(step_left(k));
-                }
-            }
-            Self::Right2 => {
-                for k in 1..=2 {
-                    set.insert(step_right(k));
-                }
-            }
-            Self::Left3 => {
-                for k in 1..=3 {
-                    set.insert(step_left(k));
-                }
-            }
-            Self::Right3 => {
-                for k in 1..=3 {
-                    set.insert(step_right(k));
-                }
-            }
-            Self::Left4 => {
-                for k in 1..=4 {
-                    set.insert(step_left(k));
-                }
-            }
-            Self::Right4 => {
-                for k in 1..=4 {
-                    set.insert(step_right(k));
-                }
-            }
-            Self::Left2Right2 => {
-                for k in 1..=2 {
-                    set.insert(step_left(k));
-                    set.insert(step_right(k));
-                }
-            }
+        for k in 1..=usize::from(self.left) {
+            set.insert((seat + n - (k % n)) % n);
+        }
+        for k in 1..=usize::from(self.right) {
+            set.insert((seat + k) % n);
         }
         set
     }
@@ -200,20 +157,21 @@ impl Blob {
     }
 
     fn finish_tier(board: &mut BoardMut<'_>, rctx: &mut ResolveCtx<'_>) {
-        let shape = board
+        let desc = board
             .get_key::<ActiveBlobShape>()
             .0
-            .unwrap_or_else(|| BlobShape::default_for_count(rctx.roster.len()));
+            .unwrap_or_else(|| BlobShape::default_for_count(rctx.roster.len()))
+            .description();
         rctx.announce(irc_format!(
             "🟢 {} Whoever holds the {} is merged with {} ({}) — keep ALL absorbed players alive!",
             "Blob Absorption:".bold().green(),
             BLOB.info().styled_name(),
-            shape.description().bold().yellow(),
+            desc.as_str().bold().yellow(),
             rctx.roster.format_table_circle(),
         ));
         rctx.record(irc_format!(
             "🟢 Blob absorption rolled: {}.",
-            shape.description().bold().green(),
+            desc.as_str().bold().green(),
         ));
     }
 }

@@ -1,4 +1,4 @@
-use crate::role::{GameSet, Role, RoleInfo, SpecialVictory, Team, VictoryCtx};
+use crate::role::{GameSet, IndependentGroup, Role, RoleInfo, SpecialVictory, Team, VictoryCtx};
 
 pub struct Tanner;
 pub static TANNER: Tanner = Tanner;
@@ -12,6 +12,7 @@ impl Role for Tanner {
             Team::Independent,
             "You hate your job. You ONLY win if the village kills you!",
         )
+        .independent_group(IndependentGroup::Tanner)
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {

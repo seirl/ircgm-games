@@ -45,6 +45,12 @@ impl BoardKey for ForcedAlienEvent {
     }
 }
 
+#[derive(Clone, Copy)]
+enum AlienPackPrompt {
+    BioScan,
+    CenterProbe,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum AlienPointChoice {
     Pass,
@@ -256,11 +262,22 @@ impl Alien {
                 }
                 AlienDirective::None
             }
-            ev => {
+            AlienEvent::BioScan => {
                 Self::ask_pack_directive(
                     &ctx,
                     active_seats,
-                    ev,
+                    AlienPackPrompt::BioScan,
+                    non_alien_seats,
+                    non_aliens,
+                    shielded,
+                )
+                .await?
+            }
+            AlienEvent::CenterProbe => {
+                Self::ask_pack_directive(
+                    &ctx,
+                    active_seats,
+                    AlienPackPrompt::CenterProbe,
                     non_alien_seats,
                     non_aliens,
                     shielded,
@@ -277,7 +294,7 @@ impl Alien {
     async fn ask_pack_directive(
         ctx: &GroupPromptCtx<'_>,
         active_seats: SeatSet,
-        event: AlienEvent,
+        prompt_kind: AlienPackPrompt,
         non_alien_seats: SeatSet,
         non_aliens: SeatSet,
         shielded: SeatSet,
@@ -288,16 +305,13 @@ impl Alien {
         let picked = silent_point(
             ctx,
             active_seats,
-            |_seat| match event {
-                AlienEvent::BioScan => irc_format!(
+            |_seat| match prompt_kind {
+                AlienPackPrompt::BioScan => irc_format!(
                     "👽 Mother Ship Bio-Scan — Reply {} (or {}) to point silently at a non-Alien! Non-Aliens: {non_aliens_str}",
                     "<nick>".bold(),
                     "pass".bold(),
                 ),
-                AlienEvent::CenterProbe
-                | AlienEvent::StandardRecon
-                | AlienEvent::PassLeft
-                | AlienEvent::PassRight => irc_format!(
+                AlienPackPrompt::CenterProbe => irc_format!(
                     "🛸 Mother Ship Center Probe — Reply {} (or {}) to point silently at 1 center card!",
                     "1 / 2 / 3".bold(),
                     "pass".bold(),
@@ -307,8 +321,8 @@ impl Alien {
                 if Roster::is_pass(raw) {
                     return Ok(("waves pass!".to_owned(), Some(AlienPointChoice::Pass)));
                 }
-                match event {
-                    AlienEvent::BioScan => parse_single_player_point(
+                match prompt_kind {
+                    AlienPackPrompt::BioScan => parse_single_player_point(
                         roster,
                         raw,
                         "scan",
@@ -319,10 +333,7 @@ impl Alien {
                         "🤫 Silent night (no talking)! Reply <nick> or pass.",
                     )
                     .map(|(desc, opt)| (desc, opt.map(AlienPointChoice::Scan))),
-                    AlienEvent::CenterProbe
-                    | AlienEvent::StandardRecon
-                    | AlienEvent::PassLeft
-                    | AlienEvent::PassRight => {
+                    AlienPackPrompt::CenterProbe => {
                         let stripped = raw.strip_prefix('!').unwrap_or(raw).trim();
                         let parts: Vec<&str> = stripped.split_whitespace().collect();
                         let arg = match parts.as_slice() {
@@ -376,18 +387,10 @@ impl Alien {
         }
         match action {
             AlienDirective::ForcedOracleExchange => {
-                let unshielded: Vec<usize> = active_seats
-                    .into_iter()
-                    .filter(|&s| !board.is_shielded(s))
-                    .collect();
-                if unshielded.len() >= 2 {
-                    for i in 0..unshielded.len() - 1 {
-                        let _ = board.swap_players(unshielded[0], unshielded[i], unshielded[i + 1]);
-                    }
-                    let moved_set: SeatSet = unshielded.iter().copied().collect();
-                    board.record_card_viewers(moved_set);
+                let moved_set = board.rotate_unshielded_ring(active_seats, false);
+                if !moved_set.is_empty() {
                     let names = ctx.roster.format_seats(moved_set);
-                    for &s in &unshielded {
+                    for s in moved_set {
                         ctx.dm(
                             s,
                             irc_format!(
@@ -404,31 +407,16 @@ impl Alien {
                 }
             }
             AlienDirective::RotateCards { pass_right } => {
-                let unshielded: Vec<usize> = active_seats
-                    .into_iter()
-                    .filter(|&s| !board.is_shielded(s))
-                    .collect();
-                if unshielded.len() >= 2 {
-                    let k = unshielded.len();
-                    if pass_right {
-                        for i in (1..k).rev() {
-                            let _ =
-                                board.swap_players(unshielded[0], unshielded[i], unshielded[i - 1]);
-                        }
-                    } else {
-                        for i in 0..k - 1 {
-                            let _ =
-                                board.swap_players(unshielded[0], unshielded[i], unshielded[i + 1]);
-                        }
-                    }
-                    let moved_set: SeatSet = unshielded.iter().copied().collect();
-                    board.record_card_viewers(moved_set);
+                let moved_set = board.rotate_unshielded_ring(active_seats, pass_right);
+                if !moved_set.is_empty() {
+                    let ring: Vec<usize> = moved_set.into_iter().collect();
+                    let k = ring.len();
                     let dir_word = if pass_right { "RIGHT" } else { "LEFT" };
-                    for (pos, &s) in unshielded.iter().enumerate() {
+                    for (pos, &s) in ring.iter().enumerate() {
                         let (to_seat, from_seat) = if pass_right {
-                            (unshielded[(pos + 1) % k], unshielded[(pos + k - 1) % k])
+                            (ring[(pos + 1) % k], ring[(pos + k - 1) % k])
                         } else {
-                            (unshielded[(pos + k - 1) % k], unshielded[(pos + 1) % k])
+                            (ring[(pos + k - 1) % k], ring[(pos + 1) % k])
                         };
                         ctx.dm(
                             s,

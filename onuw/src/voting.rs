@@ -420,7 +420,8 @@ pub fn resolve_and_announce_winners(
     let center_hunted = (0..3).any(|c| is_hunted_card(board.center_card(c)))
         || is_hunted_card(board.get_key::<CenterWolfCard>().0)
         || is_hunted_card(board.get_key::<ExtraVillainCard>().0);
-    if !hunted_seats.is_empty() || center_hunted {
+    let hunted_active = !hunted_seats.is_empty() || center_hunted;
+    if hunted_active {
         forced_team_candidate = None;
         team_block = TeamBlock::AllTeams;
         with_team_claims.clear();
@@ -536,6 +537,8 @@ pub fn resolve_and_announce_winners(
             dead_seats: dead,
             team_block,
             winning_teams: &winning_teams,
+            hunted_active,
+            hunted_seats,
             casemap: room.casemap(),
             day_channel_log,
             announcements: &mut forfeit_announcements,

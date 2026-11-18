@@ -10,8 +10,8 @@ use ircgm::CaseMap;
 use crate::board::{deck_has_monster_faction, BoardCards, Roster, SeatSet};
 use crate::marks::{apply_traitor_win_override, find_mark};
 use crate::role::{
-    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, Role, SpecialVictory, Team,
-    VictoryCtx, VoteDefense, WinnerFilterCtx, WinnerMap,
+    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, IndependentGroup, Role,
+    SpecialVictory, Team, VictoryCtx, VoteDefense, WinnerFilterCtx, WinnerMap,
 };
 use crate::roles::find_role;
 
@@ -367,6 +367,13 @@ impl Artifact {
 impl EndgameModifier for Artifact {
     fn modifier_name(&self) -> &'static str {
         self.name()
+    }
+
+    fn independent_group(&self) -> Option<IndependentGroup> {
+        match self {
+            Artifact::CudgelOfTheTanner => Some(IndependentGroup::Tanner),
+            _ => None,
+        }
     }
 
     fn adjust_alignment(

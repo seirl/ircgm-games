@@ -5,8 +5,8 @@ use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster, SeatSet};
 use crate::role::{
-    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, NightWakers, Phase, StepKind,
-    Team, TeamBlock, WinnerFilterCtx, WinnerMap,
+    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, IndependentGroup, NightWakers,
+    Phase, StepKind, Team, TeamBlock, WinnerFilterCtx, WinnerMap,
 };
 
 /// Vampire expansion Marks (every player starts Dusk with `Mark::Clarity`).
@@ -278,7 +278,7 @@ pub(crate) fn apply_traitor_win_override(
     ctx: &WinnerFilterCtx<'_>,
     winners: &mut WinnerMap,
 ) {
-    if winners.get(&holder) == Some(&"Oracle Slain") {
+    if ctx.hunted_active {
         return;
     }
     let team = ctx.board.effective_team(holder);
@@ -299,34 +299,11 @@ pub(crate) fn apply_traitor_win_override(
                 winners.remove(&holder);
             }
         }
-    } else {
-        // Multi-member Independent teams (`Tanner` + `Apprentice Tanner`, `Mad Scientist` + `Intern`):
-        use crate::artifacts::Artifact;
-        use crate::roles::{
-            base::tanner::TANNER,
-            super_villains::mad_scientist_intern::{INTERN, MAD_SCIENTIST},
-            vampire::apprentice_tanner::APPRENTICE_TANNER,
-        };
-        let cudgel_holders: SeatSet = (0..ctx.roster.len())
-            .filter(|&i| ctx.board.artifact(i) == Some(Artifact::CudgelOfTheTanner))
-            .collect();
-        let tanner_group =
-            ctx.board.active_holders(&TANNER) | cudgel_holders | ctx.board.active_holders(&APPRENTICE_TANNER);
-        let lab_group: SeatSet = (ctx.board.role_card_holders(&MAD_SCIENTIST)
-            | ctx.board.active_holders(&INTERN))
-        .into_iter()
-        .filter(|&i| ctx.board.effective_team(i) == Team::Independent)
-        .collect();
-        let teammates = if tanner_group.contains(holder) {
-            tanner_group.without(holder)
-        } else if lab_group.contains(holder) {
-            lab_group.without(holder)
-        } else {
-            SeatSet::EMPTY
-        };
+    } else if let Some(group) = ctx.board.effective_independent_group(holder) {
+        let teammates = ctx.board.seats_in_independent_group(group).without(holder);
         if !teammates.is_empty() {
             let blocked_by_other =
-                ctx.team_block == TeamBlock::AllTeams && !lab_group.contains(holder);
+                ctx.team_block == TeamBlock::AllTeams && group != IndependentGroup::Mad;
             if !blocked_by_other && teammates.intersects(ctx.dead_seats) {
                 winners.insert(holder, "Traitor");
             } else {

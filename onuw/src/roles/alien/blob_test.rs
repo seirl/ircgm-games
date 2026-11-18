@@ -15,7 +15,7 @@ async fn blob_announces_shape_even_when_in_center_and_wins_when_absorbed_cluster
         [&BLOB, &VILLAGER, &VILLAGER],
     )
     .await;
-    h.set_key(ActiveBlobShape(Some(BlobShape::Right1)));
+    h.set_key(ActiveBlobShape(Some(BlobShape::RIGHT_1)));
 
     let night = h.spawn_night();
     h.reply_dm("Bob", "pass").await;
@@ -71,23 +71,23 @@ async fn blob_absorption_count_scales_with_player_count_from_3p_to_10p() {
 
     // Check wrap-around geometry at seat 0 for 9-player shapes:
     assert_eq!(
-        BlobShape::Left4.absorbed_seats(9, 0),
+        BlobShape::LEFT_4.absorbed_seats(9, 0),
         SeatSet::from([0, 8, 7, 6, 5])
     );
     assert_eq!(
-        BlobShape::Right4.absorbed_seats(9, 0),
+        BlobShape::RIGHT_4.absorbed_seats(9, 0),
         SeatSet::from([0, 1, 2, 3, 4])
     );
     assert_eq!(
-        BlobShape::Left2Right2.absorbed_seats(9, 0),
+        BlobShape::LEFT_2_RIGHT_2.absorbed_seats(9, 0),
         SeatSet::from([7, 8, 0, 1, 2])
     );
     assert_eq!(
-        BlobShape::Left3.absorbed_seats(7, 0),
+        BlobShape::LEFT_3.absorbed_seats(7, 0),
         SeatSet::from([0, 6, 5, 4])
     );
     assert_eq!(
-        BlobShape::Right3.absorbed_seats(7, 6),
+        BlobShape::RIGHT_3.absorbed_seats(7, 6),
         SeatSet::from([6, 0, 1, 2])
     );
 

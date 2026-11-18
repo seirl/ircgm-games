@@ -348,44 +348,45 @@ async fn feared_doppelganger_nostradamus_adopts_announced_decoy_and_monster_foll
 }
 
 #[tokio::test(start_paused = true)]
-async fn nostradamus_evaluates_adopted_independent_victory_when_card_moves_to_center_or_holder_is_converted()
-{
+async fn nostradamus_shares_independent_group_wins_while_solo_center_independents_do_not_win() {
     use crate::artifacts::Artifact;
     use crate::marks::Mark;
     use crate::roles::{
-        alien::mortician::{ForcedMorticianMode, MorticianMode, MORTICIAN},
+        alien::{
+            blob::{ActiveBlobShape, BlobShape, BLOB},
+            mortician::{ForcedMorticianMode, MorticianMode, MORTICIAN},
+        },
         daybreak::witch::WITCH,
-        super_villains::family_man::{ActiveFamilyShape, FamilyShape, FAMILY_MAN},
+        super_villains::{
+            family_man::{ActiveFamilyShape, FamilyShape, FAMILY_MAN},
+            mad_scientist_intern::{INTERN, MAD_SCIENTIST},
+        },
         vampire::{
             apprentice_tanner::APPRENTICE_TANNER, assassin::ASSASSIN, vampire::VAMPIRE,
         },
     };
 
-    // 1. Family Man swapped to center by Witch (#6-B) after Nostradamus peeks it at #5-E:
-    //    no player holds Family Man at Voting, so family survival evaluates relative to Nostradamus (Alice)!
-    let mut h_fam = OnuwTestHarness::new(
+    // 1. Tanner (Bob) swapped into center by Witch (#6-B) while Apprentice Tanner (Dave) becomes backup Tanner and dies:
+    //    surviving Nostradamus (Alice -> IndependentGroup::Tanner) co-wins alongside Dave!
+    let mut h_tan_center = OnuwTestHarness::new(
         &[
             ("Alice", &NOSTRADAMUS),
-            ("Bob", &FAMILY_MAN),
+            ("Bob", &TANNER),
             ("Carol", &WITCH),
-            ("Dave", &WEREWOLF),
+            ("Dave", &APPRENTICE_TANNER),
         ],
         [&VILLAGER, &VILLAGER, &VILLAGER],
     )
     .await;
-    h_fam.set_key(ActiveFamilyShape(Some(FamilyShape::Right1)));
-    let n_fam = h_fam.spawn_night();
-    h_fam.reply_dm("Dave", "1").await;
-    h_fam.reply_dm("Alice", "Bob").await;
-    // Witch gives Center #1 (Villager) to Bob, pushing Family Man into Center #1!
-    h_fam.reply_dm("Carol", "1").await;
-    h_fam.reply_dm("Carol", "Bob").await;
-    let rep_fam = h_fam.finish_night(n_fam).await;
+    let n_tc = h_tan_center.spawn_night();
+    h_tan_center.reply_dm("Alice", "Bob").await;
+    h_tan_center.reply_dm("Carol", "1").await;
+    h_tan_center.reply_dm("Carol", "Bob").await;
+    let rep_tc = h_tan_center.finish_night(n_tc).await;
 
-    // Dave (seat 3, NOT Alice's Right1 neighbor Bob) dies -> Village wins AND Alice (Nostradamus -> Family Man) co-wins!
-    let dawn_fam = h_fam
+    let dawn_tc = h_tan_center
         .resolve_voting(
-            rep_fam,
+            rep_tc,
             &[
                 ("Alice", Some("Dave")),
                 ("Bob", Some("Dave")),
@@ -395,83 +396,12 @@ async fn nostradamus_evaluates_adopted_independent_victory_when_card_moves_to_ce
         )
         .await;
     assert_eq!(
-        dawn_fam.winner_nicks(&h_fam.roster),
-        vec!["Alice", "Bob", "Carol"]
+        dawn_tc.winner_nicks(&h_tan_center.roster),
+        vec!["Alice", "Dave"]
     );
 
-    // 2. Family Man converted by Mark::Vampire in Dusk (card stays at Bob's seat 2):
-    //    family survival evaluates relative to the Family Man card's seat (Bob, seat 2 -> Right1 is Dave, seat 3)!
-    let mut h_vamp_fam = OnuwTestHarness::new(
-        &[
-            ("Alice", &NOSTRADAMUS),
-            ("Carol", &VAMPIRE),
-            ("Bob", &FAMILY_MAN),
-            ("Dave", &VILLAGER),
-        ],
-        [&VILLAGER, &VILLAGER, &VILLAGER],
-    )
-    .await;
-    h_vamp_fam.set_key(ActiveFamilyShape(Some(FamilyShape::Right1)));
-    let n_vf = h_vamp_fam.spawn_night();
-    h_vamp_fam.reply_dm("Carol", "Bob").await; // Vampire bites Bob (Mark::Vampire)
-    h_vamp_fam.reply_dm("Alice", "Bob").await; // Nostradamus peeks Bob's Family Man card face
-    let rep_vf = h_vamp_fam.finish_night(n_vf).await;
-
-    // 1-1-1-1 circle vote -> 0 deaths -> Vampires (Carol & Bob) win AND Alice (Nostradamus -> Family Man) co-wins!
-    let dawn_vf = h_vamp_fam
-        .resolve_voting(
-            rep_vf,
-            &[
-                ("Alice", Some("Carol")),
-                ("Carol", Some("Bob")),
-                ("Bob", Some("Dave")),
-                ("Dave", Some("Alice")),
-            ],
-        )
-        .await;
-    assert_eq!(
-        dawn_vf.winner_nicks(&h_vamp_fam.roster),
-        vec!["Alice", "Carol", "Bob"]
-    );
-
-    // 3. Assassin places Mark::Assassin on Dave in Dusk (#-1), Nostradamus peeks Assassin (Bob) at #5-E,
-    //    and Witch (#6-B) swaps Bob's Assassin card into the center: when Dave dies, Nostradamus still wins!
-    let mut h_ass = OnuwTestHarness::new(
-        &[
-            ("Alice", &NOSTRADAMUS),
-            ("Bob", &ASSASSIN),
-            ("Carol", &WITCH),
-            ("Dave", &WEREWOLF),
-        ],
-        [&VILLAGER, &VILLAGER, &VILLAGER],
-    )
-    .await;
-    let n_ass = h_ass.spawn_night();
-    h_ass.reply_dm("Bob", "Dave").await;
-    h_ass.reply_dm("Dave", "1").await;
-    h_ass.reply_dm("Alice", "Bob").await;
-    h_ass.reply_dm("Carol", "1").await;
-    h_ass.reply_dm("Carol", "Bob").await;
-    let rep_ass = h_ass.finish_night(n_ass).await;
-
-    let dawn_ass = h_ass
-        .resolve_voting(
-            rep_ass,
-            &[
-                ("Alice", Some("Dave")),
-                ("Bob", Some("Dave")),
-                ("Carol", Some("Dave")),
-                ("Dave", Some("Bob")),
-            ],
-        )
-        .await;
-    assert_eq!(
-        dawn_ass.winner_nicks(&h_ass.roster),
-        vec!["Alice", "Bob", "Carol"]
-    );
-
-    // 4. Apprentice Tanner (Bob) swapped into center by Witch (#6-B) while Tanner (Dave) is in play and dies:
-    //    surviving Nostradamus (Alice) still wins!
+    // 2. Apprentice Tanner (Bob) swapped into center by Witch (#6-B) while Tanner (Dave) dies:
+    //    surviving Nostradamus (Alice -> IndependentGroup::Tanner) co-wins alongside Dave!
     let mut h_at = OnuwTestHarness::new(
         &[
             ("Alice", &NOSTRADAMUS),
@@ -501,8 +431,8 @@ async fn nostradamus_evaluates_adopted_independent_victory_when_card_moves_to_ce
         .await;
     assert_eq!(dawn_at.winner_nicks(&h_at.roster), vec!["Alice", "Dave"]);
 
-    // 5. Tanner with Mark::Vampire is NOT a Tanner (0 active Tanners -> Nostradamus loses even when Bob dies),
-    //    whereas if another seat holds CudgelOfTheTanner and dies, Nostradamus wins!
+    // 3. Tanner with Mark::Vampire is NOT a Tanner (0 active Tanners -> Nostradamus loses when Bob dies),
+    //    whereas if Carol holds CudgelOfTheTanner (`IndependentGroup::Tanner`) and dies, Nostradamus co-wins!
     let mut h_tan = OnuwTestHarness::new(
         &[
             ("Alice", &NOSTRADAMUS),
@@ -529,7 +459,6 @@ async fn nostradamus_evaluates_adopted_independent_victory_when_card_moves_to_ce
             ],
         )
         .await;
-    // Bob died as a Vampire (not a Tanner), so Village (Carol & Dave) wins and Nostradamus (Alice -> Tanner) loses!
     assert_eq!(
         dawn_tan_vamp.winner_nicks(&h_tan.roster),
         vec!["Carol", "Dave"]
@@ -563,13 +492,106 @@ async fn nostradamus_evaluates_adopted_independent_victory_when_card_moves_to_ce
             ],
         )
         .await;
-    // Carol (Cudgel of the Tanner) dies -> Carol and surviving Nostradamus (Alice) win, blocking Vampire Bob!
     assert_eq!(
         dawn_tan_cudgel.winner_nicks(&h_tan2.roster),
         vec!["Alice", "Carol"]
     );
 
-    // 6. Mortician swapped into center by Witch (#6-B): Nostradamus (Alice, seat 0) wins when adjacent neighbor Dave (seat 3) dies!
+    // 4. Mad Scientist (Bob) bitten by Vampire in Dusk while Intern (Dave) becomes responsible for the lab and dies:
+    //    surviving Nostradamus (Alice -> IndependentGroup::Mad) co-wins alongside Intern Dave!
+    let mut h_mad = OnuwTestHarness::new(
+        &[
+            ("Alice", &NOSTRADAMUS),
+            ("Bob", &MAD_SCIENTIST),
+            ("Carol", &VAMPIRE),
+            ("Dave", &INTERN),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_mad = h_mad.spawn_night();
+    h_mad.reply_dm("Carol", "Bob").await;
+    h_mad.reply_dm("Alice", "Bob").await;
+    let rep_mad = h_mad.finish_night(n_mad).await;
+
+    let dawn_mad = h_mad
+        .resolve_voting(
+            rep_mad,
+            &[
+                ("Alice", Some("Dave")),
+                ("Bob", Some("Dave")),
+                ("Carol", Some("Dave")),
+                ("Dave", Some("Bob")),
+            ],
+        )
+        .await;
+    assert_eq!(
+        dawn_mad.winner_nicks(&h_mad.roster),
+        vec!["Alice", "Dave"]
+    );
+
+    // 5. Solo card-bound Independents (`Family Man`, `Blob`, `Mortician`, `Assassin`) swapped into the center
+    //    have `0` active holders at Voting and rightly do NOT win:
+    let mut h_fam = OnuwTestHarness::new(
+        &[
+            ("Alice", &NOSTRADAMUS),
+            ("Bob", &FAMILY_MAN),
+            ("Carol", &WITCH),
+            ("Dave", &WEREWOLF),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h_fam.set_key(ActiveFamilyShape(Some(FamilyShape::Right1)));
+    let n_fam = h_fam.spawn_night();
+    h_fam.reply_dm("Dave", "1").await;
+    h_fam.reply_dm("Alice", "Bob").await;
+    h_fam.reply_dm("Carol", "1").await;
+    h_fam.reply_dm("Carol", "Bob").await;
+    let rep_fam = h_fam.finish_night(n_fam).await;
+    let dawn_fam = h_fam
+        .resolve_voting(
+            rep_fam,
+            &[
+                ("Alice", Some("Dave")),
+                ("Bob", Some("Dave")),
+                ("Carol", Some("Dave")),
+                ("Dave", Some("Bob")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn_fam.winner_nicks(&h_fam.roster), vec!["Bob", "Carol"]);
+
+    let mut h_blob = OnuwTestHarness::new(
+        &[
+            ("Alice", &NOSTRADAMUS),
+            ("Bob", &BLOB),
+            ("Carol", &WITCH),
+            ("Dave", &WEREWOLF),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h_blob.set_key(ActiveBlobShape(Some(BlobShape::RIGHT_1)));
+    let n_blob = h_blob.spawn_night();
+    h_blob.reply_dm("Dave", "1").await;
+    h_blob.reply_dm("Alice", "Bob").await;
+    h_blob.reply_dm("Carol", "1").await;
+    h_blob.reply_dm("Carol", "Bob").await;
+    let rep_blob = h_blob.finish_night(n_blob).await;
+    let dawn_blob = h_blob
+        .resolve_voting(
+            rep_blob,
+            &[
+                ("Alice", Some("Dave")),
+                ("Bob", Some("Dave")),
+                ("Carol", Some("Dave")),
+                ("Dave", Some("Bob")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn_blob.winner_nicks(&h_blob.roster), vec!["Bob", "Carol"]);
+
     let mut h_mort = OnuwTestHarness::new(
         &[
             ("Alice", &NOSTRADAMUS),
@@ -588,7 +610,6 @@ async fn nostradamus_evaluates_adopted_independent_victory_when_card_moves_to_ce
     h_mort.reply_dm("Carol", "Bob").await;
     h_mort.reply_dm("Bob", "pass").await;
     let rep_mort = h_mort.finish_night(n_mort).await;
-
     let dawn_mort = h_mort
         .resolve_voting(
             rep_mort,
@@ -600,8 +621,35 @@ async fn nostradamus_evaluates_adopted_independent_victory_when_card_moves_to_ce
             ],
         )
         .await;
-    assert_eq!(
-        dawn_mort.winner_nicks(&h_mort.roster),
-        vec!["Alice", "Bob", "Carol"]
-    );
+    assert_eq!(dawn_mort.winner_nicks(&h_mort.roster), vec!["Bob", "Carol"]);
+
+    let mut h_ass = OnuwTestHarness::new(
+        &[
+            ("Alice", &NOSTRADAMUS),
+            ("Bob", &ASSASSIN),
+            ("Carol", &WITCH),
+            ("Dave", &WEREWOLF),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_ass = h_ass.spawn_night();
+    h_ass.reply_dm("Bob", "Dave").await;
+    h_ass.reply_dm("Dave", "1").await;
+    h_ass.reply_dm("Alice", "Bob").await;
+    h_ass.reply_dm("Carol", "1").await;
+    h_ass.reply_dm("Carol", "Bob").await;
+    let rep_ass = h_ass.finish_night(n_ass).await;
+    let dawn_ass = h_ass
+        .resolve_voting(
+            rep_ass,
+            &[
+                ("Alice", Some("Dave")),
+                ("Bob", Some("Dave")),
+                ("Carol", Some("Dave")),
+                ("Dave", Some("Bob")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn_ass.winner_nicks(&h_ass.roster), vec!["Bob", "Carol"]);
 }

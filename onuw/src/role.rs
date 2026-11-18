@@ -179,6 +179,13 @@ impl NightFaction {
     }
 }
 
+/// Official multi-member sub-teams within [`Team::Independent`] (*Team Tanner* and *Team Mad*).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum IndependentGroup {
+    Tanner,
+    Mad,
+}
+
 /// Static card identity, team alignment, and deck metadata returned by [`Role::info`].
 #[derive(Clone, Copy, Debug)]
 pub struct RoleInfo {
@@ -188,6 +195,7 @@ pub struct RoleInfo {
     pub team: Team,
     pub threat_team: Option<Team>,
     pub night_faction: Option<NightFaction>,
+    pub independent_group: Option<IndependentGroup>,
     pub summary: &'static str,
     pub aliases: &'static [&'static str],
     pub is_minion: bool,
@@ -216,6 +224,7 @@ impl RoleInfo {
             team,
             threat_team,
             night_faction: None,
+            independent_group: None,
             summary,
             aliases: &[],
             is_minion: false,
@@ -233,6 +242,11 @@ impl RoleInfo {
 
     pub const fn night_faction(mut self, faction: NightFaction) -> Self {
         self.night_faction = Some(faction);
+        self
+    }
+
+    pub const fn independent_group(mut self, group: IndependentGroup) -> Self {
+        self.independent_group = Some(group);
         self
     }
 
@@ -1367,6 +1381,8 @@ pub struct WinnerFilterCtx<'a> {
     pub dead_seats: SeatSet,
     pub team_block: TeamBlock,
     pub winning_teams: &'a std::collections::HashSet<Team>,
+    pub hunted_active: bool,
+    pub hunted_seats: SeatSet,
     pub casemap: CaseMap,
     pub day_channel_log: &'a [ChatMessage],
     pub announcements: &'a mut Vec<Text>,
@@ -1376,6 +1392,10 @@ pub struct WinnerFilterCtx<'a> {
 /// implemented across [`Role`], [`Mark`], and [`crate::artifacts::Artifact`].
 pub trait EndgameModifier: Send + Sync {
     fn modifier_name(&self) -> &'static str;
+
+    fn independent_group(&self) -> Option<IndependentGroup> {
+        None
+    }
 
     fn adjust_alignment(
         &self,
@@ -1487,6 +1507,10 @@ pub trait Role: Send + Sync + 'static {
 impl EndgameModifier for &'static dyn Role {
     fn modifier_name(&self) -> &'static str {
         self.name()
+    }
+
+    fn independent_group(&self) -> Option<IndependentGroup> {
+        self.info().independent_group
     }
 
     fn adjust_alignment(

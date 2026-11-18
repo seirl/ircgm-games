@@ -9,7 +9,7 @@ use ircgm::prelude::*;
 
 use crate::artifacts::Artifact;
 use crate::marks::Mark;
-use crate::role::{EffectiveAlignment, EndgameModifier, ResolveCtx, Role, Team};
+use crate::role::{EffectiveAlignment, EndgameModifier, IndependentGroup, ResolveCtx, Role, Team};
 pub use crate::seat_set::{SeatIter, SeatSet};
 
 /// Bitmask tracking which tabletop zones a [`crate::role::WakeStep`] reads during its prompt
@@ -640,6 +640,25 @@ impl BoardCards {
         self.effective_alignment(seat).team
     }
 
+    /// Multi-member [`IndependentGroup`] (`Tanner` or `Mad`) for `seat` after folding `Role < Mark < Artifact`,
+    /// returning `None` whenever `seat`'s final effective team is not [`Team::Independent`].
+    pub fn effective_independent_group(&self, seat: usize) -> Option<IndependentGroup> {
+        if self.effective_team(seat) != Team::Independent {
+            return None;
+        }
+        self.seat_endgame_modifiers(seat)
+            .into_iter()
+            .rev()
+            .find_map(|m| m.independent_group())
+    }
+
+    /// All seats whose final effective alignment belongs to `group` (`Tanner` or `Mad`).
+    pub fn seats_in_independent_group(&self, group: IndependentGroup) -> SeatSet {
+        (0..self.players.len())
+            .filter(|&i| self.effective_independent_group(i) == Some(group))
+            .collect()
+    }
+
     /// True if `seat` counts as a primary monster threat for `monster_team`
     /// (`Werewolf`, `Vampire`, `Alien`, or `SuperVillain`), respecting `Artifact` > `Mark` > `Role` precedence.
     pub fn is_monster_threat_for(&self, seat: usize, monster_team: Team) -> bool {
@@ -875,6 +894,35 @@ impl<'a> BoardMut<'a> {
         Some((old_player, planted))
     }
 
+    fn rotate_ring_slice(players: &mut [Card], ring: &[usize], rotate_right: bool) {
+        let snapshot: Vec<Card> = ring.iter().map(|&i| players[i]).collect();
+        let k = ring.len();
+        for (pos, &dst_seat) in ring.iter().enumerate() {
+            let src_pos = if rotate_right {
+                (pos + k - 1) % k
+            } else {
+                (pos + 1) % k
+            };
+            players[dst_seat] = snapshot[src_pos];
+        }
+    }
+
+    /// Rotates all unshielded seats in `seats` one step around their ascending seat ring (`Aliens`),
+    /// recording every moved seat for `Aura Seer` and returning the moved [`SeatSet`].
+    pub fn rotate_unshielded_ring(&mut self, seats: SeatSet, rotate_right: bool) -> SeatSet {
+        self.check_read(BoardAccess::SHIELDS, "SHIELDS");
+        self.check_write(BoardAccess::PLAYER_FACES, "PLAYER_FACES");
+        let moved = seats - self.inner.shielded;
+        let ring: Vec<usize> = moved.into_iter().collect();
+        if ring.len() >= 2 {
+            Self::rotate_ring_slice(&mut self.inner.players, &ring, rotate_right);
+            self.inner.viewed_or_moved_actors |= moved;
+            moved
+        } else {
+            SeatSet::EMPTY
+        }
+    }
+
     /// Rotates all unshielded seats other than `actor` one step (`Village Idiot`), returning how many cards moved.
     pub fn rotate_other_unshielded(&mut self, actor: usize, rotate_right: bool) -> usize {
         self.check_read(BoardAccess::SHIELDS, "SHIELDS");
@@ -882,16 +930,7 @@ impl<'a> BoardMut<'a> {
         let ring: Vec<usize> = self.unshielded_other_seats(actor).into_iter().collect();
         if ring.len() >= 2 {
             self.inner.viewed_or_moved_actors.insert(actor);
-            let snapshot: Vec<Card> = ring.iter().map(|&i| self.inner.players[i]).collect();
-            let k = ring.len();
-            for (pos, &dst_seat) in ring.iter().enumerate() {
-                let src_pos = if rotate_right {
-                    (pos + k - 1) % k
-                } else {
-                    (pos + 1) % k
-                };
-                self.inner.players[dst_seat] = snapshot[src_pos];
-            }
+            Self::rotate_ring_slice(&mut self.inner.players, &ring, rotate_right);
             ring.len()
         } else {
             0
