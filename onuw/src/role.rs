@@ -82,11 +82,24 @@ pub enum Team {
     Alien,
     /// Super Villains (`Henchman`, `Temptress`, `Dr. Peeker`, `Rapscallion`).
     SuperVillain,
-    /// Solo / custom win condition (`Tanner`, `Assassin`, `Groob`, `Zerb`, `Blob`, `Mortician`, `Mad Scientist`, `Intern`).
+    /// *Team Tanner* (`Tanner`, `Apprentice Tanner`, `Artifact::CudgelOfTheTanner`).
+    Tanner,
+    /// *Team Mad* (`Mad Scientist`, `Intern`).
+    Mad,
+    /// Solo / unaffiliated custom win condition (`Blob`, `Mortician`, `Assassin`, `Synthetic Alien`, `Family Man`, rival `Groob`/`Zerb`).
     Independent,
 }
 
 impl Team {
+    /// Collective factions whose members all share a team-wide win (`Village` + the 4 monster factions).
+    pub const COLLECTIVE_TEAMS: &'static [Team] = &[
+        Team::Village,
+        Team::Werewolf,
+        Team::Vampire,
+        Team::Alien,
+        Team::SuperVillain,
+    ];
+
     /// All four hostile monster factions used for *Epic Battle* detection and Tanner-style team blocks.
     pub const MONSTER_TEAMS: &'static [Team] = &[
         Team::Werewolf,
@@ -95,6 +108,13 @@ impl Team {
         Team::SuperVillain,
     ];
 
+    pub const fn is_collective(self) -> bool {
+        matches!(
+            self,
+            Team::Village | Team::Werewolf | Team::Vampire | Team::Alien | Team::SuperVillain
+        )
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Team::Village => "Village",
@@ -102,6 +122,8 @@ impl Team {
             Team::Vampire => "Vampire",
             Team::Alien => "Alien",
             Team::SuperVillain => "Super Villain",
+            Team::Tanner => "Tanner",
+            Team::Mad => "Team Mad",
             Team::Independent => "Independent",
         }
     }
@@ -113,6 +135,8 @@ impl Team {
             Team::Vampire => "Vampire Team",
             Team::Alien => "Alien Team",
             Team::SuperVillain => "Super Villain Team",
+            Team::Tanner => "Tanner Team",
+            Team::Mad => "Mad Team",
             Team::Independent => "Independent",
         }
     }
@@ -123,7 +147,7 @@ impl Team {
             Team::Werewolf | Team::SuperVillain => s.bold().red().into(),
             Team::Vampire => s.bold().magenta().into(),
             Team::Alien => s.bold().green().into(),
-            Team::Independent => s.bold().orange().into(),
+            Team::Tanner | Team::Mad | Team::Independent => s.bold().orange().into(),
         }
     }
 
@@ -179,13 +203,6 @@ impl NightFaction {
     }
 }
 
-/// Official multi-member sub-teams within [`Team::Independent`] (*Team Tanner* and *Team Mad*).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum IndependentGroup {
-    Tanner,
-    Mad,
-}
-
 /// Static card identity, team alignment, and deck metadata returned by [`Role::info`].
 #[derive(Clone, Copy, Debug)]
 pub struct RoleInfo {
@@ -195,7 +212,6 @@ pub struct RoleInfo {
     pub team: Team,
     pub threat_team: Option<Team>,
     pub night_faction: Option<NightFaction>,
-    pub independent_group: Option<IndependentGroup>,
     pub summary: &'static str,
     pub aliases: &'static [&'static str],
     pub is_minion: bool,
@@ -215,7 +231,7 @@ impl RoleInfo {
     ) -> Self {
         let threat_team = match team {
             Team::Werewolf | Team::Vampire | Team::Alien | Team::SuperVillain => Some(team),
-            Team::Village | Team::Independent => None,
+            Team::Village | Team::Tanner | Team::Mad | Team::Independent => None,
         };
         Self {
             id,
@@ -224,7 +240,6 @@ impl RoleInfo {
             team,
             threat_team,
             night_faction: None,
-            independent_group: None,
             summary,
             aliases: &[],
             is_minion: false,
@@ -242,11 +257,6 @@ impl RoleInfo {
 
     pub const fn night_faction(mut self, faction: NightFaction) -> Self {
         self.night_faction = Some(faction);
-        self
-    }
-
-    pub const fn independent_group(mut self, group: IndependentGroup) -> Self {
-        self.independent_group = Some(group);
         self
     }
 
@@ -1321,7 +1331,7 @@ impl TeamBlock {
         match self {
             Self::None => false,
             Self::MonsterTeams => Team::MONSTER_TEAMS.contains(&team),
-            Self::AllTeams => team != Team::Independent,
+            Self::AllTeams => team.is_collective(),
         }
     }
 }
@@ -1381,6 +1391,7 @@ pub struct WinnerFilterCtx<'a> {
     pub dead_seats: SeatSet,
     pub team_block: TeamBlock,
     pub winning_teams: &'a std::collections::HashSet<Team>,
+    pub base_winners: &'a WinnerMap,
     pub hunted_active: bool,
     pub hunted_seats: SeatSet,
     pub casemap: CaseMap,
@@ -1392,10 +1403,6 @@ pub struct WinnerFilterCtx<'a> {
 /// implemented across [`Role`], [`Mark`], and [`crate::artifacts::Artifact`].
 pub trait EndgameModifier: Send + Sync {
     fn modifier_name(&self) -> &'static str;
-
-    fn independent_group(&self) -> Option<IndependentGroup> {
-        None
-    }
 
     fn adjust_alignment(
         &self,
@@ -1507,10 +1514,6 @@ pub trait Role: Send + Sync + 'static {
 impl EndgameModifier for &'static dyn Role {
     fn modifier_name(&self) -> &'static str {
         self.name()
-    }
-
-    fn independent_group(&self) -> Option<IndependentGroup> {
-        self.info().independent_group
     }
 
     fn adjust_alignment(

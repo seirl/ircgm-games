@@ -2,8 +2,8 @@ use ircgm::prelude::*;
 
 use crate::board::{Roster, SeatSet};
 use crate::role::{
-    GameSet, GroupEffect, GroupPromptCtx, IndependentGroup, Role, RoleInfo, SpecialVictory, Team,
-    VictoryCtx, WakeStep,
+    GameSet, GroupEffect, GroupPromptCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx,
+    WakeStep,
 };
 
 pub struct MadScientist;
@@ -18,11 +18,10 @@ impl Role for MadScientist {
             "mad_scientist",
             "Mad Scientist",
             GameSet::SuperVillains,
-            Team::Independent,
+            Team::Mad,
             "Your invention requires a jolt—you ONLY win if YOU are killed!",
         )
         .aliases(&["ms", "scientist"])
-        .independent_group(IndependentGroup::Mad)
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
@@ -37,10 +36,9 @@ impl Role for Intern {
             "intern",
             "Intern",
             GameSet::SuperVillains,
-            Team::Independent,
+            Team::Mad,
             "Wake to see who the Mad Scientist is. You win if the Mad Scientist dies (or if no Mad Scientist is in play and YOU die)!",
         )
-        .independent_group(IndependentGroup::Mad)
     }
 
     fn summary_for_deck(&self, roster: &Roster) -> String {

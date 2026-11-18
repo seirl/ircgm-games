@@ -111,7 +111,8 @@ impl Role for Nostradamus {
         ctx: &WinnerFilterCtx<'_>,
         winners: &mut WinnerMap,
     ) {
-        if ctx.dead_seats.contains(holder) || ctx.board.effective_team(holder) != Team::Independent {
+        let team = ctx.board.effective_team(holder);
+        if ctx.dead_seats.contains(holder) || team.is_collective() {
             return;
         }
         let face_id = ctx.board.player_card(holder).face_role().id();
@@ -151,11 +152,12 @@ impl Role for Nostradamus {
             return;
         }
 
-        let candidates = match adopted.info().independent_group {
-            Some(group) => ctx.board.seats_in_independent_group(group),
-            None => ctx.board.active_holders(adopted),
+        let candidates = if team != Team::Independent {
+            ctx.board.seats_on_team(team).without(holder)
+        } else {
+            ctx.board.active_holders(adopted)
         };
-        if candidates.into_iter().any(|s| winners.contains_key(&s)) {
+        if candidates.into_iter().any(|s| ctx.base_winners.contains_key(&s)) {
             winners.insert(holder, "Nostradamus");
         }
     }

@@ -9,7 +9,7 @@ use ircgm::prelude::*;
 
 use crate::artifacts::Artifact;
 use crate::marks::Mark;
-use crate::role::{EffectiveAlignment, EndgameModifier, IndependentGroup, ResolveCtx, Role, Team};
+use crate::role::{EffectiveAlignment, EndgameModifier, ResolveCtx, Role, Team};
 pub use crate::seat_set::{SeatIter, SeatSet};
 
 /// Bitmask tracking which tabletop zones a [`crate::role::WakeStep`] reads during its prompt
@@ -276,7 +276,7 @@ impl Roster {
             }
         }
         for &r in &self.deck {
-            if r.team() == Team::Independent {
+            if !r.team().is_collective() {
                 push_unique(r.name());
             }
             for &extra in r.extra_non_village_labels() {
@@ -640,22 +640,10 @@ impl BoardCards {
         self.effective_alignment(seat).team
     }
 
-    /// Multi-member [`IndependentGroup`] (`Tanner` or `Mad`) for `seat` after folding `Role < Mark < Artifact`,
-    /// returning `None` whenever `seat`'s final effective team is not [`Team::Independent`].
-    pub fn effective_independent_group(&self, seat: usize) -> Option<IndependentGroup> {
-        if self.effective_team(seat) != Team::Independent {
-            return None;
-        }
-        self.seat_endgame_modifiers(seat)
-            .into_iter()
-            .rev()
-            .find_map(|m| m.independent_group())
-    }
-
-    /// All seats whose final effective alignment belongs to `group` (`Tanner` or `Mad`).
-    pub fn seats_in_independent_group(&self, group: IndependentGroup) -> SeatSet {
+    /// All seats whose final effective alignment is `team`.
+    pub fn seats_on_team(&self, team: Team) -> SeatSet {
         (0..self.players.len())
-            .filter(|&i| self.effective_independent_group(i) == Some(group))
+            .filter(|&i| self.effective_team(i) == team)
             .collect()
     }
 

@@ -5,8 +5,8 @@ use ircgm::prelude::*;
 
 use crate::board::{BoardCards, Roster, SeatSet};
 use crate::role::{
-    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, IndependentGroup, NightWakers,
-    Phase, StepKind, Team, TeamBlock, WinnerFilterCtx, WinnerMap,
+    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, NightWakers, Phase, StepKind,
+    Team, TeamBlock, WinnerFilterCtx, WinnerMap,
 };
 
 /// Vampire expansion Marks (every player starts Dusk with `Mark::Clarity`).
@@ -282,33 +282,16 @@ pub(crate) fn apply_traitor_win_override(
         return;
     }
     let team = ctx.board.effective_team(holder);
-    if team != Team::Independent {
-        let teammates: SeatSet = ctx
-            .roster
-            .all_seats()
-            .without(holder)
-            .into_iter()
-            .filter(|&o| ctx.board.effective_team(o) == team)
-            .collect();
-        if !teammates.is_empty() {
-            let traitor_won =
-                ctx.team_block != TeamBlock::AllTeams && teammates.intersects(ctx.dead_seats);
-            if traitor_won {
-                winners.insert(holder, "Traitor");
-            } else {
-                winners.remove(&holder);
-            }
-        }
-    } else if let Some(group) = ctx.board.effective_independent_group(holder) {
-        let teammates = ctx.board.seats_in_independent_group(group).without(holder);
-        if !teammates.is_empty() {
-            let blocked_by_other =
-                ctx.team_block == TeamBlock::AllTeams && group != IndependentGroup::Mad;
-            if !blocked_by_other && teammates.intersects(ctx.dead_seats) {
-                winners.insert(holder, "Traitor");
-            } else {
-                winners.remove(&holder);
-            }
+    if team == Team::Independent {
+        return;
+    }
+    let teammates = ctx.board.seats_on_team(team).without(holder);
+    if !teammates.is_empty() {
+        let blocked_by_other = ctx.team_block == TeamBlock::AllTeams && team != Team::Mad;
+        if !blocked_by_other && teammates.intersects(ctx.dead_seats) {
+            winners.insert(holder, "Traitor");
+        } else {
+            winners.remove(&holder);
         }
     }
 }

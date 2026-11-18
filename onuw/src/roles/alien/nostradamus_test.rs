@@ -29,7 +29,7 @@ async fn nostradamus_stops_on_non_village_announces_team_and_must_survive_to_win
 
     assert!(report.channel_lines.iter().any(|l| {
         let plain = Text::parse(l).plain();
-        plain.contains("Nostradamus Prophecy: Nostradamus has joined Tanner!")
+        plain.contains("Nostradamus Prophecy: Nostradamus has joined Tanner Team!")
     }));
 
     let dawn = h
@@ -110,7 +110,7 @@ async fn doppelganger_nostradamus_emits_two_separate_prophecies_tracks_card_swap
         .collect();
     let nostra_idx = plain_lines
         .iter()
-        .position(|l| l.contains("Nostradamus Prophecy: Nostradamus has joined Tanner!"))
+        .position(|l| l.contains("Nostradamus Prophecy: Nostradamus has joined Tanner Team!"))
         .expect("separate Nostradamus prophecy");
     let dg_nostra_idx = plain_lines
         .iter()
@@ -165,7 +165,7 @@ async fn doppelganger_nostradamus_emits_two_separate_prophecies_tracks_card_swap
         .collect();
     assert!(decoy_lines
         .iter()
-        .any(|l| l.contains("Nostradamus Prophecy: Nostradamus has joined Tanner!")));
+        .any(|l| l.contains("Nostradamus Prophecy: Nostradamus has joined Tanner Team!")));
     assert!(decoy_lines
         .iter()
         .any(|l| l.contains("Nostradamus Prophecy: Doppelgänger-Nostradamus has joined ")));
@@ -284,8 +284,8 @@ async fn feared_doppelganger_nostradamus_adopts_announced_decoy_and_monster_foll
         .expect("Doppelgänger-Nostradamus prophecy announced");
     let expected = if dg_prophecy.contains("Vampire Team") {
         Team::Vampire
-    } else if dg_prophecy.contains("Tanner") {
-        Team::Independent
+    } else if dg_prophecy.contains("Tanner Team") {
+        Team::Tanner
     } else {
         Team::Village
     };
@@ -348,7 +348,7 @@ async fn feared_doppelganger_nostradamus_adopts_announced_decoy_and_monster_foll
 }
 
 #[tokio::test(start_paused = true)]
-async fn nostradamus_shares_independent_group_wins_while_solo_center_independents_do_not_win() {
+async fn nostradamus_shares_tanner_and_mad_team_wins_while_solo_center_independents_do_not_win() {
     use crate::artifacts::Artifact;
     use crate::marks::Mark;
     use crate::roles::{
@@ -367,7 +367,7 @@ async fn nostradamus_shares_independent_group_wins_while_solo_center_independent
     };
 
     // 1. Tanner (Bob) swapped into center by Witch (#6-B) while Apprentice Tanner (Dave) becomes backup Tanner and dies:
-    //    surviving Nostradamus (Alice -> IndependentGroup::Tanner) co-wins alongside Dave!
+    //    surviving Nostradamus (Alice -> Team::Tanner) co-wins alongside Dave!
     let mut h_tan_center = OnuwTestHarness::new(
         &[
             ("Alice", &NOSTRADAMUS),
@@ -401,7 +401,7 @@ async fn nostradamus_shares_independent_group_wins_while_solo_center_independent
     );
 
     // 2. Apprentice Tanner (Bob) swapped into center by Witch (#6-B) while Tanner (Dave) dies:
-    //    surviving Nostradamus (Alice -> IndependentGroup::Tanner) co-wins alongside Dave!
+    //    surviving Nostradamus (Alice -> Team::Tanner) co-wins alongside Dave!
     let mut h_at = OnuwTestHarness::new(
         &[
             ("Alice", &NOSTRADAMUS),
@@ -432,7 +432,7 @@ async fn nostradamus_shares_independent_group_wins_while_solo_center_independent
     assert_eq!(dawn_at.winner_nicks(&h_at.roster), vec!["Alice", "Dave"]);
 
     // 3. Tanner with Mark::Vampire is NOT a Tanner (0 active Tanners -> Nostradamus loses when Bob dies),
-    //    whereas if Carol holds CudgelOfTheTanner (`IndependentGroup::Tanner`) and dies, Nostradamus co-wins!
+    //    whereas if Carol holds CudgelOfTheTanner (`Team::Tanner`) and dies, Nostradamus co-wins!
     let mut h_tan = OnuwTestHarness::new(
         &[
             ("Alice", &NOSTRADAMUS),
@@ -498,7 +498,7 @@ async fn nostradamus_shares_independent_group_wins_while_solo_center_independent
     );
 
     // 4. Mad Scientist (Bob) bitten by Vampire in Dusk while Intern (Dave) becomes responsible for the lab and dies:
-    //    surviving Nostradamus (Alice -> IndependentGroup::Mad) co-wins alongside Intern Dave!
+    //    surviving Nostradamus (Alice -> Team::Mad) co-wins alongside Intern Dave!
     let mut h_mad = OnuwTestHarness::new(
         &[
             ("Alice", &NOSTRADAMUS),
@@ -652,4 +652,32 @@ async fn nostradamus_shares_independent_group_wins_while_solo_center_independent
         )
         .await;
     assert_eq!(dawn_ass.winner_nicks(&h_ass.roster), vec!["Bob", "Carol"]);
+
+    // 6. Seat-order independence with `Mark::Traitor`: Seat 0 (`Tanner` + `Mark::Traitor`) dies while
+    //    Seat 1 (`Nostradamus` -> `Team::Tanner`) survives: Seat 0 loses as Traitor (since teammate Seat 1
+    //    survived), while Seat 1 (`Nostradamus`) still wins from `base_winners`!
+    let mut h_tr = OnuwTestHarness::new(
+        &[
+            ("Alice", &TANNER),
+            ("Bob", &NOSTRADAMUS),
+            ("Carol", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_tr = h_tr.spawn_night();
+    h_tr.reply_dm("Bob", "Alice").await;
+    let mut rep_tr = h_tr.finish_night(n_tr).await;
+    rep_tr.board.set_mark_for_test(0, Mark::Traitor);
+    let dawn_tr = h_tr
+        .resolve_voting(
+            rep_tr,
+            &[
+                ("Alice", Some("Carol")),
+                ("Bob", Some("Alice")),
+                ("Carol", Some("Alice")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn_tr.winner_nicks(&h_tr.roster), vec!["Bob"]);
 }

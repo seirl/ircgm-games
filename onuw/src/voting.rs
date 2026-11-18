@@ -506,13 +506,7 @@ pub fn resolve_and_announce_winners(
         }
     }
 
-    for &team in &[
-        Team::Village,
-        Team::Werewolf,
-        Team::Vampire,
-        Team::Alien,
-        Team::SuperVillain,
-    ] {
+    for &team in Team::COLLECTIVE_TEAMS {
         if winning_teams.contains(&team) {
             for seat in 0..n {
                 if board.effective_team(seat) == team {
@@ -527,7 +521,8 @@ pub fn resolve_and_announce_winners(
         }
     }
 
-    // 4c. Win overrides (`Mark::Traitor`) followed by win-forfeit penalties (`Diseased`, `Mark::Disease`, `Artifact` conduct):
+    // 4c. Win overrides (`Nostradamus`, `Mark::Traitor`, `DaggerOfTheTraitor`) followed by win-forfeit penalties:
+    let base_winners = winners.clone();
     let mut forfeit_announcements = Vec::new();
     {
         let mut fctx = WinnerFilterCtx {
@@ -537,6 +532,7 @@ pub fn resolve_and_announce_winners(
             dead_seats: dead,
             team_block,
             winning_teams: &winning_teams,
+            base_winners: &base_winners,
             hunted_active,
             hunted_seats,
             casemap: room.casemap(),

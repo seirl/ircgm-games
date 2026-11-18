@@ -10,8 +10,8 @@ use ircgm::CaseMap;
 use crate::board::{deck_has_monster_faction, BoardCards, Roster, SeatSet};
 use crate::marks::{apply_traitor_win_override, find_mark};
 use crate::role::{
-    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, IndependentGroup, Role,
-    SpecialVictory, Team, VictoryCtx, VoteDefense, WinnerFilterCtx, WinnerMap,
+    DeathCtx, DeathEffect, EffectiveAlignment, EndgameModifier, Role, SpecialVictory, Team,
+    VictoryCtx, VoteDefense, WinnerFilterCtx, WinnerMap,
 };
 use crate::roles::find_role;
 
@@ -22,7 +22,7 @@ pub enum Artifact {
     ClawOfTheWerewolf,
     /// Turns the holder into a Villager (`Team::Village`, clears threats).
     BrandOfTheVillager,
-    /// Turns the holder into a Tanner (`Team::Independent`, wins iff killed).
+    /// Turns the holder into a Tanner (`Team::Tanner`, wins iff killed).
     CudgelOfTheTanner,
     /// Turns the holder into a Hunter (`Team::Village`, kills voted target on death).
     BowOfTheHunter,
@@ -369,13 +369,6 @@ impl EndgameModifier for Artifact {
         self.name()
     }
 
-    fn independent_group(&self) -> Option<IndependentGroup> {
-        match self {
-            Artifact::CudgelOfTheTanner => Some(IndependentGroup::Tanner),
-            _ => None,
-        }
-    }
-
     fn adjust_alignment(
         &self,
         _seat: usize,
@@ -403,7 +396,7 @@ impl EndgameModifier for Artifact {
                 threat_team: None,
             },
             Artifact::CudgelOfTheTanner => EffectiveAlignment {
-                team: Team::Independent,
+                team: Team::Tanner,
                 threat_team: None,
             },
             Artifact::DaggerOfTheTraitor

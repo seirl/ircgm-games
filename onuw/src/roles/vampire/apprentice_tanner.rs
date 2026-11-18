@@ -2,10 +2,7 @@ use ircgm::prelude::*;
 
 use crate::artifacts::Artifact;
 use crate::board::{BoardMut, SeatSet};
-use crate::role::{
-    GameSet, IndependentGroup, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx,
-    WakeStep,
-};
+use crate::role::{GameSet, ResolveCtx, Role, RoleInfo, SpecialVictory, Team, VictoryCtx, WakeStep};
 use crate::roles::base::tanner::TANNER;
 
 pub struct ApprenticeTanner;
@@ -17,11 +14,10 @@ impl Role for ApprenticeTanner {
             "apprentice_tanner",
             "Apprentice Tanner",
             GameSet::Vampire,
-            Team::Independent,
+            Team::Tanner,
             "Wake to see who the Tanner is: win ONLY if the Tanner dies! If no Tanner is in play, win ONLY if YOU die!",
         )
         .aliases(&["apptanner", "at"])
-        .independent_group(IndependentGroup::Tanner)
     }
 
     fn steps(&self) -> &'static [WakeStep] {
