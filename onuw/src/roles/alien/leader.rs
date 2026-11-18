@@ -55,15 +55,17 @@ impl Role for Leader {
 
         if !alien_voters.is_empty() && alien_voters.into_iter().all(|a| ctx.votes[a] == seat)
         {
-            claims.push(SpecialVictory::force_team(
-                Team::Alien,
+            let nick = ctx.roster.seats[seat].user.nick();
+            let banner = if ctx.board.seats_on_team(Team::Alien).is_empty() {
                 format!(
-                    "🛸 All Aliens pointed at the Leader ({}) — Aliens abduct the Leader and WIN!",
-                    ctx.roster.seats[seat].user.nick()
+                    "🛸 All Aliens pointed at the Leader ({nick}) — the Leader is abducted and the Village loses!"
                 )
-                .bold()
-                .yellow(),
-            ));
+            } else {
+                format!(
+                    "🛸 All Aliens pointed at the Leader ({nick}) — Aliens abduct the Leader and WIN!"
+                )
+            };
+            claims.push(SpecialVictory::force_team(Team::Alien, banner.bold().yellow()));
         }
 
         if both_groob_and_zerb_in_play(ctx.board)

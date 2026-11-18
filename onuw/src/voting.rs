@@ -68,13 +68,10 @@ pub fn resolve_and_announce_winners(
         chronicle.push(entry);
     }
 
-    let max_raw_votes = tally.iter().copied().max().unwrap_or(0);
     let death_ctx = DeathCtx {
         roster,
         board: &board,
         votes: &votes,
-        tally: &tally,
-        max_votes: max_raw_votes,
     };
 
     // Determine active monster factions in front of players (`Epic Battle` when >= 2 monster factions clash):
@@ -128,7 +125,7 @@ pub fn resolve_and_announce_winners(
     }
 
     // Standard ONUW: highest vote count >= 2 among non-immune seats dies.
-    // Epic Battle (>= 3 active factions, e.g. 2+ monster factions + Village): BOTH most votes (>= 2)
+    // Epic Battle (>= 3 active factions, e.g. 2+ monster factions + Village): most votes (>= 1)
     // AND 2nd-most votes (>= 1) die, unless 2+ players tied for most votes (in which case all tied for 1st die).
     let killable_seats = roster.all_seats() - vote_immune;
     let max_killable_votes = killable_seats
@@ -136,19 +133,18 @@ pub fn resolve_and_announce_winners(
         .map(|idx| tally[idx])
         .max()
         .unwrap_or(0);
+    let min_top_votes = if is_epic_battle { 1 } else { 2 };
 
     let mut saved_by_immunity = SeatSet::EMPTY;
     for &(protected_seat, _) in &immunities {
         let p_votes = tally[protected_seat];
-        let saved_from_vote = (p_votes >= 2 && p_votes >= max_killable_votes)
-            || (is_epic_battle && max_raw_votes >= 2 && p_votes >= 1 && p_votes >= max_killable_votes);
-        if saved_from_vote {
+        if p_votes >= min_top_votes && p_votes >= max_killable_votes {
             saved_by_immunity.insert(protected_seat);
         }
     }
 
     let mut dead = SeatSet::EMPTY;
-    if max_killable_votes >= 2 {
+    if max_killable_votes >= min_top_votes {
         let top_tied: SeatSet = killable_seats
             .into_iter()
             .filter(|&idx| tally[idx] == max_killable_votes)
@@ -168,14 +164,6 @@ pub fn resolve_and_announce_winners(
                         dead.insert(idx);
                     }
                 }
-            }
-        }
-    } else if is_epic_battle && max_raw_votes >= 2 && max_killable_votes == 1 {
-        // An immune seat absorbed the >= 2-vote top spot in an Epic Battle;
-        // the unprotected 1-vote runner(s)-up still die!
-        for idx in killable_seats {
-            if tally[idx] == 1 {
-                dead.insert(idx);
             }
         }
     }
@@ -474,33 +462,33 @@ pub fn resolve_and_announce_winners(
         if village_wins {
             winning_teams.insert(Team::Village);
         }
+    }
 
-        for &team in Team::MONSTER_TEAMS {
-            if team_block.blocks(team) {
-                continue;
-            }
-            let threats = threats_of(team);
-            let minions = minions_for(team);
-            if !threats.is_empty() {
-                let all_own_survive = threats.is_disjoint(dead);
-                let won = if present_monster_factions.len() >= 2 {
-                    let rival_killed = present_monster_factions
-                        .iter()
-                        .any(|&other| other != team && threats_of(other).intersects(dead));
-                    all_own_survive && rival_killed
-                } else {
-                    all_own_survive
-                };
-                if won {
-                    winning_teams.insert(team);
-                }
+    for &team in Team::MONSTER_TEAMS {
+        if winning_teams.contains(&team) || team_block.blocks(team) {
+            continue;
+        }
+        let threats = threats_of(team);
+        let minions = minions_for(team);
+        if !threats.is_empty() {
+            let all_own_survive = threats.is_disjoint(dead);
+            let won = if present_monster_factions.len() >= 2 {
+                let rival_killed = present_monster_factions
+                    .iter()
+                    .any(|&other| other != team && threats_of(other).intersects(dead));
+                all_own_survive && rival_killed
             } else {
-                // Non-threat followers (`Minion`, `Squire`, `Oracle [Alien Team]`, monster-aligned `Nostradamus`)
-                // with 0 primary threats in play win individually if they survive AND a non-follower dies:
-                for m in minions - dead {
-                    if !(dead - minions).is_empty() {
-                        winners.insert(m, team.win_label());
-                    }
+                all_own_survive
+            };
+            if won {
+                winning_teams.insert(team);
+            }
+        } else {
+            // Non-threat followers (`Minion`, `Squire`, `Oracle [Alien Team]`, monster-aligned `Nostradamus`)
+            // with 0 primary threats in play win individually if they survive AND a non-follower dies:
+            for m in minions - dead {
+                if !(dead - minions).is_empty() {
+                    winners.insert(m, team.win_label());
                 }
             }
         }

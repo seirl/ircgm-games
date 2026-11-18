@@ -1240,8 +1240,6 @@ pub struct DeathCtx<'a> {
     pub roster: &'a Roster,
     pub board: &'a BoardCards,
     pub votes: &'a [usize],
-    pub tally: &'a [usize],
-    pub max_votes: usize,
 }
 
 pub enum VoteDefense {

@@ -152,3 +152,115 @@ async fn leader_unanimous_alien_point_steals_victory_and_groob_zerb_survival_win
         .contains("The Aliens are Alice, Bob"));
     assert!(!rep5.dms_to("Carol").contains("pointing"));
 }
+
+#[tokio::test(start_paused = true)]
+async fn epic_battle_one_vote_circle_tie_leader_monster_cowin_and_groob_zerb_abduction_banner() {
+    use crate::marks::Mark;
+    use crate::roles::{base::werewolf::WEREWOLF, vampire::vampire::VAMPIRE};
+
+    // (a) 4-player Epic Battle (`Werewolf`, `Vampire`, `2x Villager`) on a 1-1-1-1 circle vote:
+    //     all 4 tied 1-vote leaders die -> Village (Carol & Dave) wins!
+    let mut h_tie = OnuwTestHarness::new(
+        &[
+            ("Alice", &WEREWOLF),
+            ("Bob", &VAMPIRE),
+            ("Carol", &VILLAGER),
+            ("Dave", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    let n_tie = h_tie.spawn_night();
+    h_tie.reply_dm("Bob", "Carol").await;
+    h_tie.reply_dm("Alice", "pass").await;
+    let mut rep_tie = h_tie.finish_night(n_tie).await;
+    rep_tie.board.set_mark_for_test(2, Mark::Clarity);
+    let dawn_tie = h_tie
+        .resolve_voting(
+            rep_tie,
+            &[
+                ("Alice", Some("Bob")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Dave")),
+                ("Dave", Some("Alice")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn_tie.dead_nicks(&h_tie.roster).len(), 4);
+    assert_eq!(
+        dawn_tie.winner_nicks(&h_tie.roster),
+        vec!["Carol", "Dave"]
+    );
+
+    // (b) Epic Battle `[Alien, Leader, Werewolf, Vampire]` where Alien points at Leader (1 vote, tied 2nd),
+    //     Vampire points at Alien (1 vote, tied 2nd), and Leader + Werewolf point at Vampire (2 votes, 1st):
+    //     Vampire, Alien, and Leader all die — Alien wins via Leader abduction ("even if an alien is killed")
+    //     AND surviving Werewolf co-wins because rival monsters died!
+    let mut h_eb = OnuwTestHarness::new(
+        &[
+            ("Alice", &ALIEN),
+            ("Bob", &LEADER),
+            ("Carol", &WEREWOLF),
+            ("Dave", &VAMPIRE),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h_eb.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
+    let n_eb = h_eb.spawn_night();
+    h_eb.reply_dm("Dave", "Bob").await;
+    h_eb.reply_dm("Carol", "pass").await;
+    let mut rep_eb = h_eb.finish_night(n_eb).await;
+    rep_eb.board.set_mark_for_test(1, Mark::Clarity);
+    let dawn_eb = h_eb
+        .resolve_voting(
+            rep_eb,
+            &[
+                ("Alice", Some("Bob")),
+                ("Bob", Some("Dave")),
+                ("Carol", Some("Dave")),
+                ("Dave", Some("Alice")),
+            ],
+        )
+        .await;
+    assert_eq!(
+        dawn_eb.dead_nicks(&h_eb.roster),
+        ["Alice".to_owned(), "Bob".to_owned(), "Dave".to_owned()]
+            .into_iter()
+            .collect()
+    );
+    assert_eq!(dawn_eb.winner_nicks(&h_eb.roster), vec!["Alice", "Carol"]);
+
+    // (c) `[Groob, Zerb, Leader, 2x Villager]` where both rivals point at Leader while Groob is executed:
+    //     Zerb wins alone, Village loses, and the abduction banner does not falsely claim "Aliens ... WIN!"!
+    let mut h_gz = OnuwTestHarness::new(
+        &[
+            ("Alice", &GROOB),
+            ("Bob", &ZERB),
+            ("Carol", &LEADER),
+            ("Dave", &VILLAGER),
+            ("Eve", &VILLAGER),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h_gz.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
+    let n_gz = h_gz.spawn_night();
+    let rep_gz = h_gz.finish_night(n_gz).await;
+    let dawn_gz = h_gz
+        .resolve_voting(
+            rep_gz,
+            &[
+                ("Alice", Some("Carol")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Alice")),
+                ("Dave", Some("Alice")),
+                ("Eve", Some("Alice")),
+            ],
+        )
+        .await;
+    assert_eq!(dawn_gz.winner_nicks(&h_gz.roster), vec!["Bob"]);
+    let chan_gz = dawn_gz.channel_text();
+    assert!(chan_gz.contains("the Leader is abducted and the Village loses!"));
+    assert!(!chan_gz.contains("Aliens abduct the Leader and WIN!"));
+}
