@@ -83,9 +83,9 @@ impl Revealer {
     ) {
         if let Answer::Ok(Some(target)) = ans {
             // Daybreak rulebook / FAQ: Revealer flips back monster threats and Independent roles
-            // (plus Innocent Bystander), while leaving evil minions (Minion, Squire, Renfield) face-up.
+            // (including teamless Innocent Bystander), while leaving evil minions face-up.
             let Some((card, stayed_face_up)) = board.reveal_player_unless(seat, target, |r| {
-                (r.team() != Team::Village && !r.is_minion()) || r.flips_back_on_reveal()
+                r.team() != Team::Village && !r.is_minion()
             }) else {
                 return;
             };

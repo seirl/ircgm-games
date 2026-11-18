@@ -192,7 +192,6 @@ pub struct RoleInfo {
     pub summary: &'static str,
     pub aliases: &'static [&'static str],
     pub is_minion: bool,
-    pub flips_back_on_reveal: bool,
     pub places_marks: bool,
     pub requires_pair_in_deck: bool,
     pub anarchy_bundle: Option<&'static str>,
@@ -221,7 +220,6 @@ impl RoleInfo {
             summary,
             aliases: &[],
             is_minion: false,
-            flips_back_on_reveal: false,
             places_marks: false,
             requires_pair_in_deck: false,
             anarchy_bundle: None,
@@ -247,11 +245,6 @@ impl RoleInfo {
     pub const fn minion(mut self) -> Self {
         self.is_minion = true;
         self.threat_team = None;
-        self
-    }
-
-    pub const fn flips_back_on_reveal(mut self) -> Self {
-        self.flips_back_on_reveal = true;
         self
     }
 
@@ -1301,6 +1294,9 @@ impl TeamBlock {
 pub enum SpecialVictory {
     /// Personal victory for an `Independent` role or artifact holder, optionally blocking teams from winning.
     Independent(TeamBlock),
+    /// Teamless role (`Innocent Bystander`) that is not on `team` (e.g. for `Traitor` / `Flipper` / `Nostradamus`),
+    /// yet wins whenever `team` wins.
+    WithTeam(Team),
     /// Overrides normal team victory rules so `team` wins (`Leader` unanimous Alien point).
     ForceTeam { team: Team, announcement: Text },
     /// Global hunt override (`Oracle` `#7` wrong guess): holders win solo iff surviving;
@@ -1319,6 +1315,10 @@ impl SpecialVictory {
 
     pub const fn independent_sole_winner() -> Self {
         Self::Independent(TeamBlock::AllTeams)
+    }
+
+    pub const fn with_team(team: Team) -> Self {
+        Self::WithTeam(team)
     }
 
     pub fn force_team(team: Team, announcement: impl Into<Text>) -> Self {
@@ -1344,6 +1344,7 @@ pub struct WinnerFilterCtx<'a> {
     pub votes: &'a [Option<usize>],
     pub dead_seats: SeatSet,
     pub team_block: TeamBlock,
+    pub winning_teams: &'a std::collections::HashSet<Team>,
     pub casemap: CaseMap,
     pub day_channel_log: &'a [ChatMessage],
     pub announcements: &'a mut Vec<Text>,
@@ -1577,12 +1578,6 @@ impl dyn Role {
     /// True for primary Werewolf/Vampire/Alien/SuperVillain threats (including `Groob` & `Zerb`, excluding `Minion` and `Renfield`).
     pub fn is_primary_threat(&self) -> bool {
         self.threat_team().is_some()
-    }
-
-    /// True for roles that `Revealer` / `Flipper` must flip back face-down despite having `Team::Village`
-    /// (`Innocent Bystander`, who wins with Heroes/Village without being on the Hero team).
-    pub fn flips_back_on_reveal(&self) -> bool {
-        self.info().flips_back_on_reveal
     }
 
     pub fn has_step(&self, step: &WakeStep) -> bool {

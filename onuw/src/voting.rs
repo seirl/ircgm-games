@@ -385,6 +385,7 @@ pub fn resolve_and_announce_winners(
     let mut team_block = TeamBlock::None;
     let mut hunted_seats = SeatSet::EMPTY;
     let mut hunted_label = "Oracle";
+    let mut with_team_claims: Vec<(usize, Team, &'static str)> = Vec::new();
     let mut winners: WinnerMap = HashMap::new();
     for seat in 0..n {
         for modifier in board.seat_endgame_modifiers(seat) {
@@ -398,6 +399,9 @@ pub fn resolve_and_announce_winners(
                     SpecialVictory::Independent(block) => {
                         winners.insert(seat, modifier.modifier_name());
                         team_block = team_block.max(block);
+                    }
+                    SpecialVictory::WithTeam(team) => {
+                        with_team_claims.push((seat, team, modifier.modifier_name()));
                     }
                     SpecialVictory::Hunted => {
                         hunted_seats.insert(seat);
@@ -421,6 +425,7 @@ pub fn resolve_and_announce_winners(
     if !hunted_seats.is_empty() || center_hunted {
         forced_team_candidate = None;
         team_block = TeamBlock::AllTeams;
+        with_team_claims.clear();
         winners.clear();
         if hunted_seats.intersects(dead) {
             for seat in roster.all_seats() - hunted_seats {
@@ -517,6 +522,11 @@ pub fn resolve_and_announce_winners(
             }
         }
     }
+    for (seat, team, label) in with_team_claims {
+        if winning_teams.contains(&team) {
+            winners.insert(seat, label);
+        }
+    }
 
     // 4c. Win overrides (`Mark::Traitor`) followed by win-forfeit penalties (`Diseased`, `Mark::Disease`, `Artifact` conduct):
     let mut forfeit_announcements = Vec::new();
@@ -527,6 +537,7 @@ pub fn resolve_and_announce_winners(
             votes: &votes,
             dead_seats: dead,
             team_block,
+            winning_teams: &winning_teams,
             casemap: room.casemap(),
             day_channel_log,
             announcements: &mut forfeit_announcements,

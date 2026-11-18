@@ -5,7 +5,7 @@ use crate::board::{BoardAccess, BoardCards, BoardKey, BoardMut, Roster, SeatSet}
 use crate::marks::Mark;
 use crate::role::{
     EffectiveAlignment, GameSet, GroupEffect, GroupPromptCtx, PromptCtx, ResolveCtx, Role,
-    RoleInfo, Team, WakeStep, WinnerFilterCtx, WinnerMap,
+    RoleInfo, SpecialVictory, Team, VictoryCtx, WakeStep, WinnerFilterCtx, WinnerMap,
 };
 
 /// Maps physical card `face_role().id()` (`"nostradamus"`, `"doppelganger"`, `"copycat"`, `"mirror_man"`)
@@ -124,11 +124,20 @@ impl Role for Nostradamus {
         if adopted.id() == self.info().id {
             return;
         }
-        let co_won = ctx
-            .board
-            .active_holders(adopted)
-            .into_iter()
-            .any(|s| winners.contains_key(&s));
+        let vctx = VictoryCtx {
+            roster: ctx.roster,
+            board: ctx.board,
+            votes: ctx.votes,
+            dead_seats: ctx.dead_seats,
+        };
+        let co_won = match adopted.special_victory(holder, &vctx) {
+            Some(SpecialVictory::WithTeam(t)) => ctx.winning_teams.contains(&t),
+            _ => ctx
+                .board
+                .active_holders(adopted)
+                .into_iter()
+                .any(|s| winners.contains_key(&s)),
+        };
         if co_won {
             winners.insert(holder, "Nostradamus");
         }

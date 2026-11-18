@@ -1,4 +1,4 @@
-use crate::role::{GameSet, Role, RoleInfo, Team};
+use crate::role::{GameSet, Role, RoleInfo, SpecialVictory, Team, VictoryCtx};
 
 pub struct InnocentBystander;
 pub static INNOCENT_BYSTANDER: InnocentBystander = InnocentBystander;
@@ -9,10 +9,13 @@ impl Role for InnocentBystander {
             "innocent_bystander",
             "Innocent Bystander",
             GameSet::SuperVillains,
-            Team::Village,
-            "Sleep at night. You have no powers (and Flipper/Revealer flips your card back face-down!), and you win if the Hero/Village team wins!",
+            Team::Independent,
+            "Sleep at night. You are not on any team (so Flipper/Revealer flips your card back face-down!), and you win if the Hero/Village team wins!",
         )
         .aliases(&["bystander", "ib", "2nd innocent bystander"])
-        .flips_back_on_reveal()
+    }
+
+    fn special_victory(&self, _seat: usize, _ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+        Some(SpecialVictory::with_team(Team::Village))
     }
 }
