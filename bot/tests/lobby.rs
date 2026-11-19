@@ -42,7 +42,7 @@ async fn lobby_starts_idle_switches_via_admin_game_command_and_delegates_onuw_co
     srv.settle().await;
     let status = srv.take_messages_to("#lobby").join("\n");
     assert!(status.contains("Active game: none (idle)"));
-    assert!(status.contains("Enabled: onuw, secret_hitler"));
+    assert!(status.contains("Enabled: onuw, secret_hitler, coup"));
     assert!(!status.contains("One Night Ultimate Werewolf"));
     assert!(!status.contains('`'));
 
@@ -460,4 +460,102 @@ async fn admin_switches_between_onuw_and_secret_hitler_and_protects_active_sh_ro
 
     bot2.request_shutdown();
     task2.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn admin_runs_coup_inquisition_and_reformation_through_bot_supervisor() {
+    let (bot, mut srv) = test_harness("GM");
+    srv.complete_join("#lobby", &["Alice", "Bob", "Carol", "Admin"]);
+    srv.set_account("Admin", Some("adminacct"));
+    srv.settle().await;
+
+    let lobby = bot.room("#lobby").unwrap();
+    let enabled = EnabledGames::all();
+    let admins = vec!["adminacct".to_owned()];
+
+    let task = tokio::spawn({
+        let bot = bot.clone();
+        let lobby = lobby.clone();
+        async move { run_lobby(&bot, &lobby, &admins, &enabled).await }
+    });
+    srv.settle().await;
+    let _ = srv.take_messages_to("#lobby");
+
+    // Admin loads Coup lobby:
+    srv.chat("Admin", "#lobby", "!game coup");
+    srv.settle().await;
+    let greeting = srv.take_messages_to("#lobby").join("\n");
+    assert!(greeting.contains("Coup"));
+    assert!(greeting.contains("!start [inquisition|reformation]"));
+    assert!(!greeting.contains('`'));
+
+    // Start Inquisitor recruitment via `!start inquisition`, join via `!play`, then cancel via admin `!stop`:
+    srv.chat("Alice", "#lobby", "!start inquisition");
+    srv.settle().await;
+    let inq_open = srv.take_messages_to("#lobby").join("\n");
+    assert!(inq_open.contains("Coup: Inquisitor"));
+    assert!(!inq_open.contains('`'));
+
+    srv.chat("Bob", "#lobby", "!play");
+    srv.chat("Admin", "#lobby", "!stop");
+    srv.settle().await;
+    assert!(srv
+        .take_messages_to("#lobby")
+        .join("\n")
+        .contains("Stopped coup lobby."));
+
+    // Start Reformation recruitment via `!start reformation`, 3 players join, start dealt match:
+    srv.chat("Alice", "#lobby", "!start reformation");
+    srv.settle().await;
+    srv.chat("Bob", "#lobby", "!join");
+    srv.chat("Carol", "#lobby", "!play");
+    srv.chat("Alice", "#lobby", "!go");
+    srv.settle().await;
+    let started = srv.take_messages_to("#lobby").join("\n");
+    assert!(started.contains("Coup: Reformation begins!"));
+    assert!(!started.contains('`'));
+
+    // Mid-match: `!game onuw` and `!game none` are rejected without interrupting Coup!
+    srv.chat("Admin", "#lobby", "!game onuw");
+    srv.chat("Admin", "#lobby", "!game none");
+    srv.settle().await;
+    let busy = srv.take_messages_to("#lobby").join("\n");
+    assert!(busy.contains("A game of coup is in progress — finish it or run !stop first!"));
+    assert!(!busy.contains("Switching lobby"));
+    assert!(!busy.contains("Closed coup lobby"));
+    assert!(!busy.contains('`'));
+
+    // AFK timers advance Income -> mandatory 10+ Coups to clean completion:
+    let mut completed = false;
+    for _ in 0..250 {
+        srv.advance(Duration::from_secs(60)).await;
+        let out = srv.take_messages_to("#lobby").join("\n");
+        if out.contains("Game complete!") {
+            assert!(out.contains("wins Coup!"));
+            assert!(out.contains("!reveal"));
+            assert!(!out.contains("Final Cards:"));
+            assert!(!out.contains('`'));
+            completed = true;
+            break;
+        }
+    }
+    assert!(completed, "expected Coup: Reformation round to complete");
+
+    srv.chat("Alice", "#lobby", "!reveal");
+    srv.settle().await;
+    let revealed = srv.take_messages_to("#lobby").join("\n");
+    assert!(revealed.contains("Final Cards:"));
+    assert!(revealed.contains("What Happened:"));
+    assert!(!revealed.contains('`'));
+
+    // After completion, admin `!game none` closes the Coup lobby cleanly:
+    srv.chat("Admin", "#lobby", "!game none");
+    srv.settle().await;
+    assert!(srv
+        .take_messages_to("#lobby")
+        .join("\n")
+        .contains("Closed coup lobby — bot is now idle."));
+
+    bot.request_shutdown();
+    task.await.unwrap().unwrap();
 }

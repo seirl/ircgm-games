@@ -1,12 +1,13 @@
 [workspace]
 resolver = "2"
-members = ["bot", "onuw", "secret-hitler"]
-default-members = ["bot", "onuw", "secret-hitler"]
+members = ["bot", "coup", "onuw", "secret-hitler"]
+default-members = ["bot", "coup", "onuw", "secret-hitler"]
 
 [workspace.dependencies]
 fastrand = "2"
 futures = "0.3"
 ircgm = { git = "https://github.com/seirl/ircgm" }
+ircgm-coup = { path = "coup" }
 ircgm-onuw = { path = "onuw" }
 ircgm-secret-hitler = { path = "secret-hitler" }
 tokio = { version = "1", features = ["sync", "time", "macros", "rt"] }

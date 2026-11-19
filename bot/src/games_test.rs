@@ -3,7 +3,7 @@ use super::{find_entry, EnabledGames};
 #[test]
 fn enabled_games_parses_all_aliases_and_deduplicates() {
     let all = EnabledGames::from_specs::<&str>(&[]).unwrap();
-    assert_eq!(all.slugs(), &["onuw", "secret_hitler"]);
+    assert_eq!(all.slugs(), &["onuw", "secret_hitler", "coup"]);
 
     let by_alias = EnabledGames::from_specs(&["werewolf, onuw"]).unwrap();
     assert_eq!(by_alias.slugs(), &["onuw"]);
@@ -31,5 +31,7 @@ fn find_entry_matches_slug_and_alias_case_insensitively() {
     assert_eq!(find_entry("!secret-hitler").unwrap().slug, "secret_hitler");
     assert_eq!(find_entry("SH").unwrap().slug, "secret_hitler");
     assert_eq!(find_entry("!hitler").unwrap().slug, "secret_hitler");
+    assert_eq!(find_entry("COUP").unwrap().slug, "coup");
+    assert_eq!(find_entry("!coup").unwrap().slug, "coup");
     assert!(find_entry("nonexistent").is_none());
 }

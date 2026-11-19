@@ -3,6 +3,7 @@
 use std::future::Future;
 
 use ircgm::prelude::*;
+use ircgm_coup::{CoupLaunch, CoupLobby, CoupRound, GameConfig as CoupGameConfig};
 use ircgm_onuw::{GameConfig as OnuwGameConfig, OnuwLaunch, OnuwLobby, OnuwRound, ALL_ROLES};
 use ircgm_secret_hitler::{
     GameConfig as SecretHitlerGameConfig, SecretHitlerLaunch, SecretHitlerLobby, SecretHitlerRound,
@@ -93,10 +94,41 @@ impl GameLobby for SecretHitlerLobby {
     }
 }
 
+impl GameLobby for CoupLobby {
+    type Launch = CoupLaunch;
+    type Round = CoupRound;
+
+    fn wait_for_start(
+        &mut self,
+        lobby: &Room,
+    ) -> impl Future<Output = Result<Self::Launch>> + Send {
+        CoupLobby::wait_for_start(self, lobby)
+    }
+
+    fn recruit(
+        &mut self,
+        bot: &Bot,
+        lobby: &Room,
+        launch: Self::Launch,
+    ) -> impl Future<Output = Result<Option<Self::Round>>> + Send {
+        CoupLobby::recruit(self, bot, lobby, launch)
+    }
+
+    fn play_round(
+        &mut self,
+        bot: &Bot,
+        lobby: &Room,
+        round: Self::Round,
+    ) -> impl Future<Output = Result<()>> + Send {
+        CoupLobby::play_round(self, bot, lobby, round)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GameKind {
     Onuw,
     SecretHitler,
+    Coup,
 }
 
 pub struct GameEntry {
@@ -114,6 +146,10 @@ pub fn default_secret_hitler_lobby() -> SecretHitlerLobby {
     SecretHitlerLobby::new(SecretHitlerGameConfig::default())
 }
 
+pub fn default_coup_lobby() -> CoupLobby {
+    CoupLobby::new(CoupGameConfig::default())
+}
+
 pub static REGISTRY: &[GameEntry] = &[
     GameEntry {
         slug: "onuw",
@@ -126,6 +162,12 @@ pub static REGISTRY: &[GameEntry] = &[
         aliases: &["sh", "hitler", "secrethitler"],
         summary: "Secret Hitler (5–10p)",
         kind: GameKind::SecretHitler,
+    },
+    GameEntry {
+        slug: "coup",
+        aliases: &[],
+        summary: "Coup + Inquisitor & Reformation (2–10p)",
+        kind: GameKind::Coup,
     },
 ];
 

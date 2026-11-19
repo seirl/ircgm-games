@@ -394,11 +394,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "ircgm-coup"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "irc",
+ "ircgm",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ircgm-games-bot"
 version = "0.1.0"
 dependencies = [
  "fastrand",
  "ircgm",
+ "ircgm-coup",
  "ircgm-onuw",
  "ircgm-secret-hitler",
  "tokio",

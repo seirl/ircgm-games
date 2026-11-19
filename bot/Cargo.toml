@@ -9,6 +9,7 @@ description = "IRC game master bot runner for ircgm-games"
 [dependencies]
 fastrand.workspace = true
 ircgm.workspace = true
+ircgm-coup.workspace = true
 ircgm-onuw.workspace = true
 ircgm-secret-hitler.workspace = true
 tokio.workspace = true
