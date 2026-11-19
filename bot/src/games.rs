@@ -4,6 +4,9 @@ use std::future::Future;
 
 use ircgm::prelude::*;
 use ircgm_onuw::{GameConfig as OnuwGameConfig, OnuwLaunch, OnuwLobby, OnuwRound, ALL_ROLES};
+use ircgm_secret_hitler::{
+    GameConfig as SecretHitlerGameConfig, SecretHitlerLaunch, SecretHitlerLobby, SecretHitlerRound,
+};
 
 /// Bot-local three-phase lobby contract implemented for each registered game.
 pub trait GameLobby: Send {
@@ -60,9 +63,40 @@ impl GameLobby for OnuwLobby {
     }
 }
 
+impl GameLobby for SecretHitlerLobby {
+    type Launch = SecretHitlerLaunch;
+    type Round = SecretHitlerRound;
+
+    fn wait_for_start(
+        &mut self,
+        lobby: &Room,
+    ) -> impl Future<Output = Result<Self::Launch>> + Send {
+        SecretHitlerLobby::wait_for_start(self, lobby)
+    }
+
+    fn recruit(
+        &mut self,
+        bot: &Bot,
+        lobby: &Room,
+        launch: Self::Launch,
+    ) -> impl Future<Output = Result<Option<Self::Round>>> + Send {
+        SecretHitlerLobby::recruit(self, bot, lobby, launch)
+    }
+
+    fn play_round(
+        &mut self,
+        bot: &Bot,
+        lobby: &Room,
+        round: Self::Round,
+    ) -> impl Future<Output = Result<()>> + Send {
+        SecretHitlerLobby::play_round(self, bot, lobby, round)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GameKind {
     Onuw,
+    SecretHitler,
 }
 
 pub struct GameEntry {
@@ -76,12 +110,24 @@ pub fn default_onuw_lobby() -> OnuwLobby {
     OnuwLobby::new(OnuwGameConfig::default())
 }
 
-pub static REGISTRY: &[GameEntry] = &[GameEntry {
-    slug: "onuw",
-    aliases: &["werewolf"],
-    summary: "One Night Ultimate Werewolf",
-    kind: GameKind::Onuw,
-}];
+pub fn default_secret_hitler_lobby() -> SecretHitlerLobby {
+    SecretHitlerLobby::new(SecretHitlerGameConfig::default())
+}
+
+pub static REGISTRY: &[GameEntry] = &[
+    GameEntry {
+        slug: "onuw",
+        aliases: &["werewolf"],
+        summary: "One Night Ultimate Werewolf",
+        kind: GameKind::Onuw,
+    },
+    GameEntry {
+        slug: "secret_hitler",
+        aliases: &["sh", "hitler", "secrethitler"],
+        summary: "Secret Hitler (5–10p)",
+        kind: GameKind::SecretHitler,
+    },
+];
 
 pub fn find_entry(name: &str) -> Option<&'static GameEntry> {
     let word = name.split_whitespace().next()?;

@@ -400,6 +400,7 @@ dependencies = [
  "fastrand",
  "ircgm",
  "ircgm-onuw",
+ "ircgm-secret-hitler",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -411,6 +412,17 @@ version = "0.1.0"
 dependencies = [
  "fastrand",
  "futures",
+ "irc",
+ "ircgm",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "ircgm-secret-hitler"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
  "irc",
  "ircgm",
  "tokio",

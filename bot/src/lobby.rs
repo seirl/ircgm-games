@@ -3,7 +3,8 @@
 use ircgm::prelude::*;
 
 use crate::games::{
-    default_onuw_lobby, find_entry, send_games_status, EnabledGames, GameEntry, GameKind, GameLobby,
+    default_onuw_lobby, default_secret_hitler_lobby, find_entry, send_games_status, EnabledGames,
+    GameEntry, GameKind, GameLobby,
 };
 
 fn is_admin_msg(msg: &ChatMessage, admins: &[String]) -> bool {
@@ -381,6 +382,17 @@ pub async fn run_lobby(
         let exit = match entry.kind {
             GameKind::Onuw => {
                 run_game_session(bot, lobby, admins, enabled, entry, default_onuw_lobby()).await?
+            }
+            GameKind::SecretHitler => {
+                run_game_session(
+                    bot,
+                    lobby,
+                    admins,
+                    enabled,
+                    entry,
+                    default_secret_hitler_lobby(),
+                )
+                .await?
             }
         };
 

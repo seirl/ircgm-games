@@ -1,0 +1,18 @@
+[package]
+name = "ircgm-secret-hitler"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "Secret Hitler (5–10 players, official rules) built on ircgm"
+
+[dependencies]
+fastrand.workspace = true
+ircgm.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+irc = { version = "1.1", default-features = false }
+ircgm = { workspace = true, features = ["testing"] }
+tokio = { workspace = true, features = ["test-util"] }

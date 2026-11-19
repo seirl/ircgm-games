@@ -42,7 +42,7 @@ async fn lobby_starts_idle_switches_via_admin_game_command_and_delegates_onuw_co
     srv.settle().await;
     let status = srv.take_messages_to("#lobby").join("\n");
     assert!(status.contains("Active game: none (idle)"));
-    assert!(status.contains("Enabled: onuw"));
+    assert!(status.contains("Enabled: onuw, secret_hitler"));
     assert!(!status.contains("One Night Ultimate Werewolf"));
     assert!(!status.contains('`'));
 
@@ -301,4 +301,163 @@ async fn lobby_protects_active_onuw_game_from_game_switch_until_complete_or_stop
 
     bot.request_shutdown();
     task.await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn admin_switches_between_onuw_and_secret_hitler_and_protects_active_sh_round() {
+    let (bot, mut srv) = test_harness("GM");
+    srv.complete_join("#lobby", &["Alice", "Bob", "Carol", "Dave", "Eve", "Admin"]);
+    srv.set_account("Admin", Some("adminacct"));
+    srv.settle().await;
+
+    let lobby = bot.room("#lobby").unwrap();
+    let enabled = EnabledGames::all();
+    let admins = vec!["adminacct".to_owned()];
+
+    let task = tokio::spawn({
+        let bot = bot.clone();
+        let lobby = lobby.clone();
+        let admins = admins.clone();
+        async move { run_lobby(&bot, &lobby, &admins, &enabled).await }
+    });
+    srv.settle().await;
+    let _ = srv.take_messages_to("#lobby");
+
+    // Load ONUW, open an unstarted recruitment lobby, and hot-switch directly to Secret Hitler:
+    srv.chat("Admin", "#lobby", "!game onuw");
+    srv.settle().await;
+    assert!(srv
+        .take_messages_to("#lobby")
+        .join("\n")
+        .contains("One Night Ultimate Werewolf"));
+
+    srv.chat("Alice", "#lobby", "!start");
+    srv.settle().await;
+    let _ = srv.take_messages_to("#lobby");
+
+    srv.chat("Admin", "#lobby", "!game sh");
+    srv.settle().await;
+    let switched = srv.take_messages_to("#lobby").join("\n");
+    assert!(switched.contains("Switching lobby from onuw to secret_hitler"));
+    assert!(switched.contains("Secret Hitler"));
+    assert!(switched.contains("!start"));
+    assert!(switched.contains("!rules"));
+    assert!(!switched.contains('`'));
+
+    // Secret Hitler owns `!rules` and `!tracks`, ignores removed `!fast`, and admin `!stop`
+    // while idle reports no game is running without closing the lobby:
+    srv.chat("Alice", "#lobby", "!rules");
+    srv.chat("Alice", "#lobby", "!tracks 5p");
+    srv.chat("Admin", "#lobby", "!fast on");
+    srv.chat("Admin", "#lobby", "!stop");
+    srv.settle().await;
+    let info = srv.take_messages_to("#lobby").join("\n");
+    assert!(info.contains("Secret Hitler Rules"));
+    assert!(info.contains("5-Player Secret Hitler"));
+    assert!(info.contains("No game is running."));
+    assert!(!info.contains("Fast mode"));
+    assert!(!info.contains("Closed secret_hitler lobby"));
+    assert!(!info.contains('`'));
+
+    // Admin `!stop` cancels open recruitment while keeping Secret Hitler loaded:
+    srv.chat("Alice", "#lobby", "!start");
+    srv.settle().await;
+    let _ = srv.take_messages_to("#lobby");
+    srv.chat("Admin", "#lobby", "!stop");
+    srv.settle().await;
+    assert!(srv
+        .take_messages_to("#lobby")
+        .join("\n")
+        .contains("Stopped secret_hitler lobby."));
+
+    // Start a 5-player game and verify open-lobby `!start` / `!reveal` hints and `!play` alias:
+    srv.chat("Alice", "#lobby", "!start");
+    srv.settle().await;
+    let _ = srv.take_messages_to("#lobby");
+    srv.chat("Bob", "#lobby", "!start");
+    srv.chat("Bob", "#lobby", "!reveal");
+    srv.settle().await;
+    let open_hints = srv.take_messages_to("#lobby").join("\n");
+    assert!(open_hints.contains("Lobby is already open"));
+    assert!(open_hints.contains("Finish the current game first"));
+
+    srv.chat("Bob", "#lobby", "!join");
+    srv.chat("Carol", "#lobby", "!play");
+    srv.chat("Dave", "#lobby", "!join");
+    srv.chat("Eve", "#lobby", "!play");
+    srv.chat("Alice", "#lobby", "!go");
+    srv.settle().await;
+    let _ = srv.take_messages_to("#lobby");
+
+    // Once dealt, `!start` reports busy AND admin `!game onuw` / `!game none` are rejected
+    // rather than interrupting the in-progress Secret Hitler match!
+    srv.chat("Admin", "#lobby", "!start");
+    srv.chat("Admin", "#lobby", "!game onuw");
+    srv.chat("Admin", "#lobby", "!game none");
+    srv.settle().await;
+    let busy = srv.take_messages_to("#lobby").join("\n");
+    assert!(busy.contains("A Secret Hitler game is already in progress"));
+    assert!(busy.contains("A game of secret_hitler is in progress — finish it or run !stop first!"));
+    assert!(!busy.contains("Switching lobby"));
+    assert!(!busy.contains("Closed secret_hitler lobby"));
+    assert!(!busy.contains('`'));
+
+    // Default timers advance AFK votes through Chaos cleanly to game completion:
+    let mut completed = false;
+    for _ in 0..200 {
+        srv.advance(Duration::from_secs(60)).await;
+        let out = srv.take_messages_to("#lobby").join("\n");
+        if out.contains("Game complete!") {
+            assert!(out.contains("🏆 Winners:"));
+            assert!(out.contains("!reveal"));
+            assert!(out.contains("!start"));
+            assert!(!out.contains("🃏 Secret Roles:"));
+            assert!(!out.contains('`'));
+            completed = true;
+            break;
+        }
+    }
+    assert!(completed, "expected Secret Hitler round to complete via Chaos");
+
+    srv.chat("Alice", "#lobby", "!reveal");
+    srv.settle().await;
+    let revealed = srv.take_messages_to("#lobby").join("\n");
+    assert!(revealed.contains("🃏 Secret Roles:"));
+    assert!(revealed.contains("📜 What Happened:"));
+    assert!(!revealed.contains('`'));
+
+    // Now that the match is over, admin `!game onuw` switches cleanly back to ONUW!
+    srv.chat("Admin", "#lobby", "!game onuw");
+    srv.settle().await;
+    let back_to_onuw = srv.take_messages_to("#lobby").join("\n");
+    assert!(back_to_onuw.contains("Switching lobby from secret_hitler to onuw"));
+    assert!(back_to_onuw.contains("One Night Ultimate Werewolf"));
+
+    // Verify `--games onuw` prevents switching to a disabled game:
+    bot.request_shutdown();
+    task.await.unwrap().unwrap();
+
+    let (bot2, mut srv2) = test_harness("GM");
+    srv2.complete_join("#only-onuw", &["Admin"]);
+    srv2.set_account("Admin", Some("adminacct"));
+    srv2.settle().await;
+    let lobby2 = bot2.room("#only-onuw").unwrap();
+    let only_onuw = EnabledGames::from_specs(&["onuw"]).unwrap();
+    let task2 = tokio::spawn({
+        let bot2 = bot2.clone();
+        let lobby2 = lobby2.clone();
+        async move { run_lobby(&bot2, &lobby2, &admins, &only_onuw).await }
+    });
+    srv2.settle().await;
+    let _ = srv2.take_messages_to("#only-onuw");
+
+    srv2.chat("Admin", "#only-onuw", "!game sh");
+    srv2.settle().await;
+    assert!(srv2
+        .take_messages_to("#only-onuw")
+        .join("\n")
+        .contains("secret_hitler is not enabled in this lobby"));
+
+    bot2.request_shutdown();
+    task2.await.unwrap().unwrap();
 }
