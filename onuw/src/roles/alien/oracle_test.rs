@@ -250,3 +250,37 @@ async fn oracle_alien_exchange_jackpot_wake_log_player_peek_and_public_conversio
     assert_eq!(oracle_omens, 2);
     assert_eq!(dg_oracle_omens, 1);
 }
+
+#[tokio::test(start_paused = true)]
+async fn oracle_all_night_watch_logs_same_tier_passive_wakers() {
+    use crate::roles::base::{insomniac::INSOMNIAC, minion::MINION};
+
+    // With no interactive role between Oracle and open-eyed Passive roles (Minion, Insomniac),
+    // all three share Tier 1; Oracle's jackpot All-Night Watch must still log Minion & Insomniac
+    // without logging Oracle to herself.
+    let mut h = OnuwTestHarness::new(
+        &[
+            ("Alice", &ORACLE),
+            ("Bob", &MINION),
+            ("Carol", &INSOMNIAC),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h.set_key(ForcedOracleQuestion(Some(OracleQuestion::NumberGuess {
+        secret: 7,
+    })));
+    let night = h.spawn_night();
+    h.reply_dm("Alice", "7").await;
+    let report = h.finish_night(night).await;
+
+    let watch = Text::parse(&report.dms_to("Alice")).plain();
+    assert!(
+        watch.contains("Oracle All-Night Watch (who opened their eyes): Minion: Bob · Insomniac: Carol"),
+        "expected same-tier passive wakers in Oracle watch log, got:\n{watch}"
+    );
+    assert!(
+        !watch.contains("Oracle: Alice"),
+        "Oracle should not be logged to herself, got:\n{watch}"
+    );
+}

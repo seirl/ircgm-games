@@ -7,6 +7,7 @@
 //!   unconditionally waits until `origin + tier.end_offset` (`tokio::time::sleep_until`) before
 //!   committing mutations, sending passive/third-party DMs, or advancing to the next tier.
 
+use std::collections::VecDeque;
 use std::time::Duration;
 
 use futures::future::try_join_all;
@@ -470,7 +471,8 @@ impl StepTierResolution {
 }
 
 fn record_step_wakers(
-    out: &mut Vec<(String, SeatSet)>,
+    out: &mut VecDeque<(usize, String, SeatSet)>,
+    at_res_idx: usize,
     step: &WakeStep,
     primary_label: String,
     seats: SeatSet,
@@ -483,13 +485,17 @@ fn record_step_wakers(
         let dg_seats = seats & wakers.player_copied_seats();
         let primary_seats = seats - dg_seats;
         if !primary_seats.is_empty() {
-            out.push((primary_label, primary_seats));
+            out.push_back((at_res_idx, primary_label, primary_seats));
         }
         if !dg_seats.is_empty() {
-            out.push((format!("Doppelgänger-{}", step.callout_name()), dg_seats));
+            out.push_back((
+                at_res_idx,
+                format!("Doppelgänger-{}", step.callout_name()),
+                dg_seats,
+            ));
         }
     } else {
-        out.push((primary_label, seats));
+        out.push_back((at_res_idx, primary_label, seats));
     }
 }
 
@@ -661,7 +667,7 @@ pub async fn run_night_phase(
             _ => {}
         }
 
-        let (resolutions, tier_step_wakers) = {
+        let (resolutions, mut tier_step_wakers) = {
             let spawner = TierPromptSpawner {
                 roster,
                 cfg: &tier_cfg,
@@ -670,7 +676,7 @@ pub async fn run_night_phase(
                 board_snap: PromptBoard::new(&board),
             };
             let mut futs: Vec<BoxFuture<'_, Result<StepTierResolution>>> = Vec::new();
-            let mut tier_step_wakers: Vec<(String, SeatSet)> = Vec::new();
+            let mut tier_step_wakers: VecDeque<(usize, String, SeatSet)> = VecDeque::new();
 
             match &tier.kind {
                 TierKind::AfterPlayerCopier { step, .. } => {
@@ -680,7 +686,7 @@ pub async fn run_night_phase(
                     let active_seats =
                         compute_group_active_seats(step, &wakers) & wakers.player_copied_seats();
                     if step.eyes_open && !active_seats.is_empty() {
-                        tier_step_wakers.push((tier.callout_label(), active_seats));
+                        tier_step_wakers.push_back((futs.len(), tier.callout_label(), active_seats));
                     }
                     if !active_seats.is_empty() || step.run_when_unheld {
                         futs.push(spawner.group(step, prompt_fn, active_seats, true));
@@ -709,7 +715,11 @@ pub async fn run_night_phase(
                         })
                         .collect();
                     if !open_eye_immediate.is_empty() {
-                        tier_step_wakers.push((tier.callout_label(), open_eye_immediate));
+                        tier_step_wakers.push_back((
+                            futs.len(),
+                            tier.callout_label(),
+                            open_eye_immediate,
+                        ));
                     }
                     for seat in immediate_seats {
                         let step = wakers
@@ -754,6 +764,7 @@ pub async fn run_night_phase(
                     if step.eyes_open && !slot_actors.is_empty() {
                         record_step_wakers(
                             &mut tier_step_wakers,
+                            futs.len(),
                             step,
                             tier.callout_label(),
                             slot_actors.iter().copied().collect(),
@@ -781,6 +792,7 @@ pub async fn run_night_phase(
                                 if step.eyes_open && !active_seats.is_empty() {
                                     record_step_wakers(
                                         &mut tier_step_wakers,
+                                        futs.len(),
                                         step,
                                         step.callout_name().to_owned(),
                                         active_seats,
@@ -797,6 +809,7 @@ pub async fn run_night_phase(
                                 if step.eyes_open && !actors.is_empty() {
                                     record_step_wakers(
                                         &mut tier_step_wakers,
+                                        futs.len(),
                                         step,
                                         step.callout_name().to_owned(),
                                         actors.iter().copied().collect(),
@@ -825,6 +838,7 @@ pub async fn run_night_phase(
                                 if step.eyes_open && !actors.is_empty() {
                                     record_step_wakers(
                                         &mut tier_step_wakers,
+                                        futs.len(),
                                         step,
                                         step.callout_name().to_owned(),
                                         actors.iter().copied().collect(),
@@ -851,16 +865,23 @@ pub async fn run_night_phase(
 
         sleep_until(tier_deadline).await;
 
-        if !wakers.wake_log_recipients.is_empty() {
-            for (step_name, seats) in tier_step_wakers {
-                wakers.wake_log.push((
-                    tier.phase,
-                    format!("{step_name}: {}", roster.format_seats(seats)),
-                ));
+        for (res_idx, res) in resolutions.into_iter().enumerate() {
+            // Rule (ONUA App — Oracle Number): guessing right lets Oracle keep
+            // her eyes open for the rest of the night. Flush each step's wake
+            // record in resolution order so same-tier open-eyed Passive roles
+            // after Oracle are logged without logging Oracle to herself.
+            while tier_step_wakers
+                .front()
+                .is_some_and(|(idx, _, _)| *idx == res_idx)
+            {
+                let (_, step_name, seats) = tier_step_wakers.pop_front().unwrap();
+                if !wakers.wake_log_recipients.is_empty() {
+                    wakers.wake_log.push((
+                        tier.phase,
+                        format!("{step_name}: {}", roster.format_seats(seats)),
+                    ));
+                }
             }
-        }
-
-        for res in resolutions {
             let step = res.step();
             let table_summary = board.visible_table_summary(roster);
             let mut rctx = ResolveCtx {
