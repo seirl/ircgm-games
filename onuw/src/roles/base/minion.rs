@@ -31,6 +31,12 @@ impl Minion {
         ctx: &mut ResolveCtx<'_>,
     ) {
         let has_tanner = ctx.roster.deck_has(&super::tanner::TANNER);
+        // Rule (ONUV — Mark of Fear): feared Werewolves/Dream Wolf still
+        // raise thumbs ("though she still sticks out her thumb for the Minion
+        // and Squire.").
+        // Rule (ONUW — Minion): "If no players are Werewolves, the Minion
+        // wins as long as one other player (not the Minion) dies, and that
+        // player is not a Tanner."
         let wolves = ctx.seats_with_faction(NightFaction::Werewolf);
         let actor_nick = ctx.nick(seat);
         if wolves.is_empty() {

@@ -44,6 +44,10 @@ impl Curator {
                     Some(idx) if view.is_shielded(idx) => {
                         AskMatch::reject("🛡️ Shielded players cannot receive Artifacts!".yellow())
                     }
+                    // Rule (Daybreak — Curator): "The Doppelgänger-Curator
+                    // wakes up after the Curator, and may place an Artifact
+                    // token on any player's card that doesn't already have an
+                    // Artifact or Shield token on it."
                     Some(idx) if view.has_artifact(idx) => {
                         AskMatch::reject("🏺 That player already has an Artifact token!".yellow())
                     }

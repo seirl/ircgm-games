@@ -25,6 +25,9 @@ impl Role for MadScientist {
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+        // Rule (ONUSV Rulebook — Mad Scientist): "If the Mad Scientist is
+        // caught and a villain is also caught, he wins and the hero team does
+        // not win."
         ctx.is_dead(seat)
             .then_some(SpecialVictory::independent_sole_winner())
     }
@@ -58,6 +61,11 @@ impl Role for Intern {
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+        // Rule (ONUSV Rulebook — Intern): "If no player is a Mad Scientist,
+        // the Intern is responsible for his terrible experiments. She wins
+        // exactly like the Mad Scientist would win if he were in the game."
+        // (`active_holders` excludes Mark::Vampire / Artifact overrides on Mad
+        // Scientist.)
         let scientists = ctx.active_holders(&MAD_SCIENTIST).without(seat);
         let won = if scientists.is_empty() {
             ctx.is_dead(seat)

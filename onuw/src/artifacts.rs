@@ -319,6 +319,10 @@ impl Artifact {
 }
 
 impl Artifact {
+    // Rule (ONUV Special Cases — Artifacts): "An Artifact token that gives a
+    // player a new role overrides both that player's card and his Mark (if the
+    // Mark gave him a new team, such as the Mark of the Vampire)." (`Dagger`,
+    // `Mask`, `Shroud`, and `Void` keep the underlying role & Mark.)
     pub fn replaces_role_card(self) -> bool {
         matches!(
             self,
@@ -408,6 +412,9 @@ impl EndgameModifier for Artifact {
 
     fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
         match self {
+            // Rule (Bonus Roles — Cloak of the Prince): "You are now a
+            // Prince. Votes against you do not count."
+            // (`blocks_hunter_shot = false`)
             Artifact::CloakOfThePrince => Some(VoteDefense::immune(
                 seat,
                 false,
@@ -417,6 +424,9 @@ impl EndgameModifier for Artifact {
                     self.styled(),
                 ),
             )),
+            // Rule (Bonus Roles — Sword of the Bodyguard): "You are now a
+            // Bodyguard. The player you vote for cannot be killed."
+            // (`blocks_hunter_shot = true`)
             Artifact::SwordOfTheBodyguard => {
                 let target = ctx.votes[seat];
                 Some(VoteDefense::immune(
@@ -458,6 +468,9 @@ impl EndgameModifier for Artifact {
 
     fn victory_claims(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Vec<SpecialVictory> {
         match self {
+            // Rule (Daybreak — Cudgel of the Tanner): "You are now a Tanner.
+            // You only win if you die. If you die, the werewolf team cannot
+            // win."
             Artifact::CudgelOfTheTanner if ctx.is_dead(seat) => {
                 vec![SpecialVictory::independent_blocking_monsters()]
             }
@@ -477,6 +490,11 @@ impl EndgameModifier for Artifact {
         ctx: &mut WinnerFilterCtx<'_>,
         winners: &mut WinnerMap,
     ) {
+        // Rule (Daybreak — Mask of Muting / Shroud of Shame): "You may not
+        // speak. You may use hand motions, sign language, etc., as long as you
+        // remain completely silent." / "You must turn your chair, body, and
+        // face away from the other players." Violators forfeit only their own
+        // win.
         if let Some(forfeit_msg) =
             self.check_day_conduct_forfeit(holder, ctx.roster, ctx.casemap, ctx.day_channel_log)
         {

@@ -41,6 +41,12 @@ impl Role for Werewolf {
 
 impl Werewolf {
     async fn wake_group(active_seats: SeatSet, ctx: GroupPromptCtx<'_>) -> Result<GroupEffect> {
+        // Rule (Daybreak — Dream Wolf): "sticking out her thumb so the other
+        // Werewolves know who she is" suppresses Lone Wolf ("If there is only
+        // one Werewolf, the Werewolf may view one center card.").
+        // Rule (ONUV — Mark of Fear): "If the Dream Wolf has the Mark of
+        // Fear, she does not stick out her thumb during the Werewolves' turn,
+        // though she still sticks out her thumb for the Minion and Squire."
         let dream_wolves = ctx.waking_seats_with_faction(NightFaction::Werewolf) - active_seats;
 
         let intent = if let Some(solo) = active_seats.only() {

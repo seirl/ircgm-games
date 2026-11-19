@@ -25,17 +25,18 @@ pub(super) fn both_groob_and_zerb_in_play(board: &BoardCards) -> bool {
     !board.active_holders(&GROOB).is_empty() && !board.active_holders(&ZERB).is_empty()
 }
 
-/// Computes who each waking `#1D` participant points at during `#3C Leader`:
-/// only when BOTH at least one `Groob` and at least one `Zerb` woke at `#1D`, each participant
-/// points at every *other* `#1D` open-eyed player except a player they personally copied via
-/// `Doppelgänger` (whom they already know shares their own role). If only `Groob`(s) or only
-/// `Zerb`(s) woke (e.g., `Copycat` + `Mirror Man` copying center `Groob` without `Zerb`), nobody
-/// points so they raise thumbs as regular Aliens instead of faking rivalry to `Leader`.
+/// Computes `#3-C Leader` pointing vectors for waking `#1-D` `Groob` & `Zerb`
+/// seats.
 pub(super) fn groob_zerb_pointers(
     groob_awake: SeatSet,
     zerb_awake: SeatSet,
     copied_from: impl Fn(usize) -> Option<usize>,
 ) -> Vec<(usize, SeatSet)> {
+    // Rule (ONUA Rulebook — Leader): "If both Zerb and Groob are in the game
+    // and saw each other when they woke up, they point at each other (with
+    // their eyes closed) instead of putting out their thumbs." Duplicate Groobs
+    // without waking Zerb stay thumb-up Aliens; Doppelgänger skips
+    // `copied_from`.
     if groob_awake.is_empty() || zerb_awake.is_empty() {
         return Vec::new();
     }
@@ -177,6 +178,11 @@ impl Role for Groob {
         board: &BoardCards,
         mut cur: EffectiveAlignment,
     ) -> EffectiveAlignment {
+        // Rule (ONUA Rulebook — Groob & Zerb): "Groob only wins if Zerb dies
+        // and Groob stays alive... the village team wins as well, since at
+        // least one alien was killed. Any other aliens in the game lose... If
+        // only one of the two is in the game, she is on the alien team as
+        // normal."
         cur.team = if both_groob_and_zerb_in_play(board) {
             Team::Independent
         } else {
@@ -189,6 +195,9 @@ impl Role for Groob {
         if !both_groob_and_zerb_in_play(ctx.board) || ctx.is_dead(seat) {
             return None;
         }
+        // Rule (ONUA Doppelgänger — Groob/Zerb): "the real Groob and Zerb
+        // may win by eliminating her if she is the Doppelgänger of their
+        // target."
         ctx.active_holders(&ZERB)
             .intersects(ctx.dead_seats)
             .then_some(SpecialVictory::independent())

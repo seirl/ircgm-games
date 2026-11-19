@@ -112,6 +112,10 @@ impl Psychic {
         let (left, right) = roster.neighbors(seat);
 
         let targets: SeatSet = match mode {
+            // Rule (ONUA Rulebook — Psychic & BP1 Aura Seer): "Which cards
+            // may be viewed can be different for each game" — `BothNeighbors`
+            // is optional (`pass`), avoiding involuntary `#7-C` Aura Seer
+            // ("viewed or moved any card") exposure on pass or timeout.
             PsychicMode::BothNeighbors => {
                 let unshielded = SeatSet::from([left, right]) - view.shielded_seats();
                 if unshielded.is_empty() {

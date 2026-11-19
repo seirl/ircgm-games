@@ -16,6 +16,9 @@ impl Role for InnocentBystander {
     }
 
     fn special_victory(&self, _seat: usize, _ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+        // Rule (ONUSV Rulebook — Innocent Bystander): "He wins with the hero
+        // team even though he is not a hero." (`Team::Independent` keeps
+        // Flipper/Revealer/Traitor/Nostradamus non-Hero.)
         Some(SpecialVictory::with_team(Team::Village))
     }
 }

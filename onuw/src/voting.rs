@@ -50,7 +50,11 @@ pub fn resolve_and_announce_winners(
         tally[t] += 1;
     }
 
-    // Apply vote-triggered role conversions (`Cursed`, `Windy Wendy`) before evaluating alignments & protections:
+    // Rule (Bonus Roles BP4 — Windy Wendy; BP1 — Cursed): "This means that
+    // if Windy Wendy has the most players pointing at her, and at least one of
+    // those players is a villain, a villain has been caught." Convert
+    // simultaneously before the threat census; skipped under
+    // Artifact/Mark::Vampire.
     let mut vote_conversions: Vec<(usize, &'static dyn Role, Text)> = Vec::new();
     for seat in 0..n {
         if !board.has_role_override_artifact(seat) && board.mark(seat) != Mark::Vampire {
@@ -86,6 +90,9 @@ pub fn resolve_and_announce_winners(
         .filter(|(_, seats)| !seats.is_empty())
         .map(|(team, _)| *team)
         .collect();
+    // Rule (ONUV — Epic Battles): "An Epic Battle is a game that includes 3
+    // or more of the main factions" on player seats (if extra monster cards
+    // stay in the center, standard rules apply).
     let has_non_monster = (0..n).any(|i| !board.effective_team(i).is_monster());
     let is_epic_battle = present_monster_factions.len() >= 3
         || (present_monster_factions.len() == 2 && has_non_monster);
@@ -121,9 +128,10 @@ pub fn resolve_and_announce_winners(
         }
     }
 
-    // Standard ONUW: highest vote count >= 2 among non-immune seats dies.
-    // Epic Battle (>= 3 active factions, e.g. 2+ monster factions + Village): most votes (>= 1)
-    // AND 2nd-most votes (>= 1) die, unless 2+ players tied for most votes (in which case all tied for 1st die).
+    // Rule (ONUV — Epic Battles): "In an Epic Battle, a player can be killed
+    // with only 1 vote if they are the player with the most/second votes. If
+    // there is a tie for the most votes, then only the players with the most
+    // votes will be killed." (So a 1-1-1... circle tie kills all!)
     let killable_seats = roster.all_seats() - vote_immune;
     let max_killable_votes = killable_seats
         .into_iter()
@@ -219,6 +227,12 @@ pub fn resolve_and_announce_winners(
                         respects_protection,
                         announcement,
                     } = effect;
+                    // Rule (Daybreak — Bodyguard; ONUV — Cupid): "If the
+                    // Bodyguard points at the same player that a dying Hunter
+                    // points at, that player is protected and does not die"
+                    // (unlike vote-only `Prince`/`Sponge`), whereas for Lovers
+                    // "the other dies as well (even if one of them was
+                    // otherwise protected)".
                     let blocked = respects_protection && hunter_shielded.contains(kill_seat);
                     if !(dead | newly_killed).contains(kill_seat) {
                         if blocked {
@@ -405,6 +419,11 @@ pub fn resolve_and_announce_winners(
         }
     }
 
+    // Rule (ONUA App — Oracle Number): "If she guesses incorrectly,
+    // everyone's goal changes into killing the Oracle, and the Oracle needs to
+    // survive. ... any win conditions are overwritten." Check center +
+    // perpendicular slots too in case `Oracle [Hunted]` started in or moved to
+    // center.
     let is_hunted_card = |c: Card| {
         matches!(
             c.effective_role().special_victory(0, &vctx),
@@ -468,6 +487,10 @@ pub fn resolve_and_announce_winners(
         }
     }
 
+    // Rule (ONUA — Leader; ONUV — Epic Battles): Leader abduction states
+    // "the village team loses and the alien team wins", so `forced_team_winner`
+    // only preempts Village above while surviving monster factions here still
+    // co-win ("2 teams can win" when >= 1 rival monster threat dies).
     for &team in Team::MONSTER_TEAMS {
         if winning_teams.contains(&team) || team_block.blocks(team) {
             continue;
@@ -510,7 +533,10 @@ pub fn resolve_and_announce_winners(
         }
     }
 
-    // 4c. Win overrides (`Nostradamus`, `Mark::Traitor`, `DaggerOfTheTraitor`) followed by win-forfeit penalties:
+    // Rule (Bonus Roles BP3 — Nostradamus; ONUV — Instigator): "Nostradamus
+    // wins if he lives and the team he is on wins.", whereas a Traitor "only
+    // wins if someone else on their team dies." Snapshot `base_winners` first
+    // so earlier seats' personal `Traitor` edits don't skew `Nostradamus`.
     let base_winners = winners.clone();
     let mut forfeit_announcements = Vec::new();
     {

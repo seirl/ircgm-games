@@ -114,6 +114,10 @@ impl Role for Blob {
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+        // Rule (ONUA Rulebook — Blob): "The Blob wins as long as none of the
+        // players who are part of the Blob (including the Blob player) are
+        // killed. The Blob wins in addition to any other teams... always
+        // relative to the location of the Blob card at the end of the game."
         let n = ctx.roster.len();
         let shape = ctx
             .board

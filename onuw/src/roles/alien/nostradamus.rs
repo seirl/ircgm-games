@@ -83,6 +83,9 @@ impl Role for Nostradamus {
         board: &BoardCards,
         mut cur: EffectiveAlignment,
     ) -> EffectiveAlignment {
+        // Rule (Bonus Roles BP3 — Nostradamus): "The last card he looks at is
+        // the team he is on." Joins the viewed card's team as a non-monster
+        // follower (`threat_team = None`) without becoming that role.
         cur.threat_team = None;
         let face_id = board.player_card(seat).face_role().id();
         if let Some(adopted) = board
@@ -152,6 +155,11 @@ impl Role for Nostradamus {
             return;
         }
 
+        // Rule (Bonus Roles BP3 — Nostradamus): "The last card he looks at is
+        // the team he is on. ... Nostradamus wins if he lives and the team he
+        // is on wins." Multi-card independent teams (Tanner/Mad) check
+        // pre-Traitor `base_winners` across `seats_on_team`; solo card-bound
+        // independents require an active holder.
         let candidates = if team != Team::Independent {
             ctx.board.seats_on_team(team).without(holder)
         } else {
@@ -168,6 +176,9 @@ impl Role for Nostradamus {
         ctx: &mut WinnerFilterCtx<'_>,
         winners: &mut WinnerMap,
     ) {
+        // Rule (ONUV — Mark of the Vampire): "The player who receives this is
+        // now a Vampire, on the Vampire team, regardless of their role card"
+        // — overrides Nostradamus's "wins if he lives" clause.
         if ctx.dead_seats.contains(holder) && ctx.board.mark(holder) != Mark::Vampire {
             winners.remove(&holder);
         }

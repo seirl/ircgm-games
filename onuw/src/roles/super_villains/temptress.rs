@@ -47,6 +47,10 @@ impl Temptress {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
         let roster = ctx.roster;
         let view = ctx.view();
+        // Rule (ONUSV Rulebook — Temptress): "While awake, Temptress must
+        // give the additional villain card to any player who is not a villain,
+        // putting their card back in the center." (Excludes only fellow waking
+        // Villains so Mark::Fear-paralyzed Villains are not leaked.)
         let villains = ctx.waking_seats_with_faction(NightFaction::SuperVillain);
         let non_villains = roster.all_seats().without(seat) - villains;
         let valid_targets = non_villains - view.shielded_seats();

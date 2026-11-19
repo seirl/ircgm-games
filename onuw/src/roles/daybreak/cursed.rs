@@ -54,6 +54,11 @@ impl Role for Cursed {
         board: &BoardCards,
         votes: &[usize],
     ) -> Option<(&'static dyn Role, Text)> {
+        // Rule (Bonus Roles BP1 / ONUV — Cursed): "The Cursed is on the
+        // village team, unless at least one Werewolf or a Vampire votes for
+        // him, and then he becomes a Werewolf or a Vampire..." Evaluated
+        // pre-death against primary threats only (plurality + coin flip when
+        // both factions vote).
         let mut ww_votes = 0usize;
         let mut vamp_votes = 0usize;
         for (v, &target) in votes.iter().enumerate() {

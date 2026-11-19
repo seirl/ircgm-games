@@ -20,6 +20,8 @@ impl Role for AlphaWolf {
         )
         .aliases(&["aw", "alpha"])
         .night_faction(NightFaction::Werewolf)
+        // Rule (Daybreak — Alpha Wolf): "All roles that can view or move a
+        // center card may also view or move the Center Werewolf card."
         .extra_center_card("Center Wolf", "wolf", &["center_wolf", "cw"], const { &[&WEREWOLF] })
     }
 
@@ -36,6 +38,11 @@ impl Role for AlphaWolf {
 
 impl AlphaWolf {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        // Rule (Daybreak — Alpha Wolf): "The Alpha Wolf must exchange the
+        // Center Werewolf card with any other player's card (but not his own
+        // card or another Werewolf's card)". `known_pack_mates` excludes waking
+        // wolves & unfeared Dream Wolf (`#1` DG-Alpha Wolf sees only copied
+        // Alpha Wolf; Minion & feared Dream Wolf stay valid).
         let wolves = ctx.known_pack_mates(NightFaction::Werewolf);
         let non_wolves = ctx.roster.all_seats().without(seat) - wolves;
         let valid_targets = non_wolves - ctx.shielded_seats();

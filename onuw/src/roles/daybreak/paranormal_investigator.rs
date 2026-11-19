@@ -84,8 +84,11 @@ impl ParanormalInvestigator {
             let visible_role = seen_card.visible_role();
             let target_nick = ctx.nick(target);
 
-            // Daybreak rulebook: PI stops and transforms on monster threats and Independent roles,
-            // but keeps investigating past Village roles, evil minions, and Innocent Bystander.
+            // Rule (Daybreak — P.I.): "If he views a Werewolf or Tanner, he
+            // may not view any more cards, and he becomes a Werewolf or
+            // Tanner... If the P.I. sees the Doppelgänger that saw a Werewolf,
+            // he continues looking" (skips printed copiers & minions;
+            // transforms on non-Village incl. Innocent Bystander).
             if visible_role.team() != Team::Village && !visible_role.is_minion() {
                 ctx.say(irc_format!(
                     "😱 {} is {}! You STOP investigating and become {}!",

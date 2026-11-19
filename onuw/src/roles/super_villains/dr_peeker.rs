@@ -26,6 +26,10 @@ impl Role for DrPeeker {
         const {
             &[
                 VILLAIN_PACK_STEP,
+                // Rule (ONUSV Rulebook — Dr. Peeker): "Dr. Peeker wakes with
+                // the other villains. While awake, Dr. Peeker may look at one
+                // other player's card." (`PLAYER_FACES` orders #1-SV-C after
+                // #1-SV-B Temptress's swap and Syndicate Update.)
                 WakeStep::solo(&DR_PEEKER, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .copy_on_turn()
                     .reads(BoardAccess::PLAYER_FACES),

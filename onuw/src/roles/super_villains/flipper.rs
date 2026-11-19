@@ -75,8 +75,10 @@ impl Flipper {
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            // Super Villains rulebook: Flipper flips back any card NOT on the Hero (Village) team
-            // (including evil minions, Independent roles, and teamless Innocent Bystander).
+            // Rule (ONUSV Rulebook — Flipper): "If the card is not on the
+            // hero team, she must flip it back face down. This includes an
+            // Innocent Bystander, who wins with the hero team, but is not on
+            // the hero team."
             let Some((card, stayed_face_up)) =
                 board.reveal_player_unless(seat, target, |r| r.team() != Team::Village)
             else {

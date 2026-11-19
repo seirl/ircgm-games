@@ -25,6 +25,10 @@ impl Role for AuraSeer {
 
 impl AuraSeer {
     fn inspect(seat: usize, actor_label: &str, board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
+        // Rule (Bonus Roles BP1 — Aura Seer): "When the Aura Seer wakes up,
+        // all players who have (at that point in the night) viewed or moved any
+        // card stick out their thumbs." Tracks cards only (not Marks, Shields,
+        // or taps).
         let active = board.aura_actors_excluding(seat);
 
         let actor_nick = ctx.nick(seat);

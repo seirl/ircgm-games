@@ -40,6 +40,10 @@ impl Role for Count {
 
 impl Count {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        // Rule (ONUV — The Count): "The Count wakes up with the other
+        // Vampires, and also wakes up right after them and must place the Mark
+        // of Fear in front of any non-Vampire player (he may not place it on
+        // the player who was given the Mark of the Vampire)."
         let card_vamps = ctx.seats_with_faction(NightFaction::Vampire);
         let valid_targets: SeatSet = (ctx.roster.all_seats().without(seat) - card_vamps)
             .into_iter()

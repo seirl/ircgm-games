@@ -216,6 +216,10 @@ impl Alien {
             }));
         }
 
+        // Rule (ONUA App — Alien #1-A): Stare ("The Aliens will do nothing
+        // and will simply look at each other" — no Lone-Alien center peek) &
+        // Left/Right ("All Aliens will give their card to the Alien to their
+        // left/right", rotating strictly among unshielded waking Aliens).
         let directive = match rolled_event {
             AlienEvent::StandardRecon => AlienDirective::None,
             AlienEvent::PassLeft | AlienEvent::PassRight => {
@@ -388,6 +392,9 @@ impl Alien {
             return;
         }
         match action {
+            // Rule (ONUA App — Oracle Alien Exchange): "If there are multiple
+            // different Alien Roles in play, the Oracle is asked if she wants
+            // to force the Aliens to switch cards."
             AlienDirective::ForcedOracleExchange => {
                 let moved_set = board.rotate_unshielded_ring(active_seats, false);
                 if !moved_set.is_empty() {
@@ -512,6 +519,10 @@ impl Role for SyntheticAlien {
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+        // Rule (ONUA Rulebook — Synthetic Alien): "When the app refers to
+        // 'aliens' it includes the Synthetic Alien, even though he is on a
+        // different team... he only wins if he dies. If the Synthetic dies,
+        // everyone on the alien and village teams lose."
         ctx.is_dead(seat)
             .then_some(SpecialVictory::independent_sole_winner())
     }

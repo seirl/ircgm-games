@@ -82,8 +82,11 @@ impl Revealer {
         ctx: &mut ResolveCtx<'_>,
     ) {
         if let Answer::Ok(Some(target)) = ans {
-            // Daybreak rulebook / FAQ: Revealer flips back monster threats and Independent roles
-            // (including teamless Innocent Bystander), while leaving evil minions face-up.
+            // Rule (Daybreak — Revealer): "If a Werewolf or Tanner is
+            // showing, he must flip it over again face down. If the Revealer
+            // reveals a Doppelgänger or Paranormal Investigator (P.I.) card,
+            // he leaves it face-up." (Flips monsters & Independents; leaves
+            // Village, minions, and printed copiers face-up.)
             let Some((card, stayed_face_up)) = board.reveal_player_unless(seat, target, |r| {
                 r.team() != Team::Village && !r.is_minion()
             }) else {

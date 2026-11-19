@@ -156,6 +156,12 @@ impl BodySnatcher {
                     );
                     SnatchAction::Blocked("self shielded")
                 } else {
+                    // Rule (Bonus Roles BP3 — Body Snatcher): "The Body
+                    // Snatcher wakes up with the Aliens, and then wakes up
+                    // again by himself later. The second time he wakes up, he
+                    // must take a card from a non-Alien player..." Excludes
+                    // only Aliens seen awake at #1-A (never leaking feared
+                    // Aliens, blind swaps, or Slot 1's target).
                     let aliens = ctx.known_pack_mates(NightFaction::Alien);
                     let eligible =
                         (ctx.roster.all_seats() - aliens - ctx.shielded_seats()).without(seat);
@@ -285,6 +291,12 @@ impl BodySnatcher {
                     );
                 }
                 if let Some((given_card, stolen_card)) = board.swap_players(seat, seat, target) {
+                    // Rule (Bonus Roles BP3 — Body Snatcher): "The card he
+                    // stole is now an Alien, regardless of what team the role
+                    // was on before. (if the card moves, the player who has the
+                    // card at the end of the game is an Alien and is on the
+                    // alien team). The player who has the Body Snatcher card is
+                    // also an Alien."
                     board.transform_in_place(seat, &SNATCHED_ALIEN);
                     let target_nick = ctx.nick(target);
                     ctx.dm(

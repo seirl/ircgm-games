@@ -28,6 +28,11 @@ impl Role for ApprenticeTanner {
         let cudgel_holders: SeatSet = (0..ctx.roster.len())
             .filter(|&i| ctx.board.artifact(i) == Some(Artifact::CudgelOfTheTanner))
             .collect();
+        // Rule (Bonus Roles BP2 — Apprentice Tanner): "The Apprentice Tanner
+        // only wins if the Tanner dies. If there is no Tanner, the Apprentice
+        // Tanner only wins if he dies." `active_holders` promotes Apprentice
+        // Tanner whenever Tanner is in center or overridden by Mark::Vampire /
+        // an Artifact.
         let tanners = (ctx.active_holders(&TANNER) | cudgel_holders).without(seat);
         let won = if tanners.is_empty() {
             ctx.is_dead(seat)

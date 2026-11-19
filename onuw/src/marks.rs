@@ -137,6 +137,9 @@ impl Mark {
         let marks_in_play =
             roster.deck_has_marks() || board.marks().iter().any(|&m| m != Mark::Clarity);
 
+        // Rule (ONUV — Mark of Fear): "The player who receives the Mark of
+        // Fear may not do their night action. However, they may still do their
+        // Dusk action..." (snapshotted at `00`).
         let feared: SeatSet = roster
             .all_seats()
             .into_iter()
@@ -235,6 +238,9 @@ impl EndgameModifier for Mark {
         if *self != Mark::Love {
             return Vec::new();
         }
+        // Rule (ONUV — Cupid / Mark of Love): "If either player in love dies,
+        // the other dies as well (even if one of them was otherwise protected
+        // during the vote, such as the Master)."
         (0..ctx.roster.len())
             .filter(|&other| other != dead_seat && ctx.board.mark(other) == Mark::Love)
             .map(|other| DeathEffect::Kill {
@@ -261,6 +267,10 @@ impl EndgameModifier for Mark {
         winners: &mut WinnerMap,
     ) {
         if *self == Mark::Disease {
+            // Rule (ONUV — Diseased / Mark of Disease): "Any player who votes
+            // for the Diseased player (or the player with the Mark of Disease)
+            // cannot win, even if their team wins. However, any vote cast
+            // against this player still counts..."
             for voter in 0..ctx.roster.len() {
                 if ctx.votes[voter] == holder {
                     winners.remove(&voter);
@@ -285,6 +295,10 @@ pub(crate) fn apply_traitor_win_override(
     if team == Team::Independent {
         return;
     }
+    // Rule (ONUV — Instigator / Mark of the Traitor): "A player who has the
+    // Mark of the Traitor only wins if someone else on their team dies. If the
+    // player with the Mark of the Traitor is the only person on their team, the
+    // Mark of the Traitor has no effect."
     let teammates = ctx.board.seats_on_team(team).without(holder);
     if !teammates.is_empty() {
         let blocked_by_other = ctx.team_block == TeamBlock::AllTeams && team != Team::Mad;

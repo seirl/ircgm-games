@@ -27,6 +27,9 @@ impl Role for Drunk {
 
 impl Drunk {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        // Rule (Daybreak — Sentinel): "A shield token on the Drunk's card
+        // prevents the Drunk from exchanging his card with a card in the
+        // center."
         if ctx.is_shielded(seat) {
             ctx.say(
                 "🛡️ Drunk: Your own card has a Shield token — you cannot swap it tonight!".yellow(),

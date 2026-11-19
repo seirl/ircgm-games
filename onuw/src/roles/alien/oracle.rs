@@ -498,6 +498,9 @@ impl Oracle {
         }))
         .await?;
 
+        // Rule (ONUA Rulebook — Oracle): "If she does not respond for any
+        // reason (including if the card is in the center), the app chooses an
+        // answer for her."
         let center_questions: Vec<OracleQuestion> = (0..unheld_count)
             .map(|_| forced.unwrap_or_else(|| Self::roll_question(ctx.roster)))
             .collect();
@@ -618,6 +621,10 @@ impl Oracle {
                 };
                 if yes {
                     let new_role = converted_faction_role(fac);
+                    // Rule (ONUA App — Oracle): Public app-announced
+                    // conversions use `CardTransform::Public` so Drunk/Witch
+                    // swaps inherit the new team while Copycat/Mirror Man still
+                    // copy printed `Oracle`.
                     board.convert_role_publicly(
                         target_seats,
                         ORACLE.info().id,
@@ -962,6 +969,11 @@ impl Oracle {
                         ));
                     }
                 } else {
+                    // Rule (ONUA App — Oracle Number): "If she guesses
+                    // incorrectly, everyone's goal changes into killing the
+                    // Oracle, and the Oracle needs to survive" (wiping all
+                    // winners if `ORACLE_HUNTED` remains unslain in a
+                    // center/extra slot).
                     board.convert_role_publicly(
                         target_seats,
                         ORACLE.info().id,

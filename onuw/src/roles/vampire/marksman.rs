@@ -113,6 +113,9 @@ impl Marksman {
                 } else {
                     None
                 };
+                // Rule (ONUV — Marksman): "The Marksman wakes up and may view
+                // one player's card and/or another player's Mark (but not the
+                // same player if viewing both a Mark and a card)."
                 match (card_idx, mark_idx) {
                     (Some(c), Some(mk)) if c == mk => AskMatch::reject(
                         "Card target and Mark target must be DIFFERENT players!".yellow(),

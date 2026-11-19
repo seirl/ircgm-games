@@ -20,6 +20,12 @@ impl Role for Hunter {
         let target_seat = ctx.votes[dead_seat];
         let hunter_nick = ctx.roster.seats[dead_seat].user.nick();
         let target_nick = ctx.roster.seats[target_seat].user.nick();
+        // Rule (ONUW — Hunter): "If the Hunter dies, the player he is
+        // pointing at dies as well (regardless of how many votes his target
+        // receives)."
+        // Rule (Daybreak — Bodyguard): "If the Bodyguard points at the same
+        // player that a dying Hunter points at, that player is protected and
+        // does not die."
         Some(DeathEffect::Kill {
             seat: target_seat,
             respects_protection: true,

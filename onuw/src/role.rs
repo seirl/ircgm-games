@@ -789,6 +789,11 @@ impl NightWakers {
     }
 
     pub fn copy_center(&mut self, actor: usize, copied: &'static dyn Role) {
+        // Rule (ONUV — Copycat; ONUSV — Mirror Man): "If that role is
+        // called, the Copycat wakes up and does that role's action." (Includes
+        // center `Doppelgänger` at `#-7`/`#1`, while a center `Mirror Man`
+        // `#-8-A` stays an unviewed Village card and must not chain into a 2nd
+        // peek.)
         if !copied.is_center_copier() {
             self.waking_roles[actor] = copied;
         }
@@ -1558,8 +1563,11 @@ impl EndgameModifier for &'static dyn Role {
     }
 
     fn victory_claims(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Vec<SpecialVictory> {
-        // Respect `Role < Mark < Artifact` precedence: if a higher-priority modifier changed this
-        // seat's effective team away from the role's own team, the role's victory claims do not apply.
+        // Rule (ONUV — Mark of the Vampire): "The player who receives this is
+        // now a Vampire, on the Vampire team, regardless of their role card."
+        // `Role` stays in `seat_endgame_modifiers` for non-team powers
+        // (`Prince`/`Hunter`), so suppress its win claims when `Mark` changed
+        // team.
         let role_team = (**self)
             .adjust_alignment(
                 seat,

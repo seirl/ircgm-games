@@ -19,6 +19,10 @@ impl Role for Bodyguard {
 
     fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
         let target = ctx.votes[seat];
+        // Rule (Daybreak — Bodyguard): "Whoever the Bodyguard points to
+        // during voting cannot be killed. ... If the Bodyguard points at the
+        // same player that a dying Hunter points at, that player is protected
+        // and does not die."
         Some(VoteDefense::immune(
             target,
             true,

@@ -345,6 +345,10 @@ pub(crate) fn night_immediate_rank() -> usize {
 }
 
 pub(crate) fn step_exec_rank(step: &WakeStep, has_dusk: bool) -> usize {
+    // Rule (ONUV / Daybreak — Doppelgänger): "If playing with roles from One
+    // Night Ultimate Vampire, then the Doppelgänger will wake up at -7 because
+    // of the new dusk roles." Without Dusk/Mark roles (`#-6..#-1-B`), "the
+    // Sentinel wakes up first" (#0) and Doppelgänger wakes at #1.
     if step.copier == Some(CopierKind::Player) && !has_dusk {
         night_immediate_rank()
     } else {
@@ -381,6 +385,10 @@ pub(crate) fn wakes_after_center_copy(
         return false;
     };
     let copier_rank = raw_step_rank(copier_step);
+    // Rule (ONUV — Copycat; ONUSV — Mirror Man): "If that role is called,
+    // the Copycat wakes up and does that role's action." Center `Doppelgänger`
+    // (`-7`) ranks after `-8`/`-8-A`, while `Oracle` (`-9`) already ran and
+    // center `Mirror Man` (`-8-A`) is skipped (`!is_center_copier`).
     !copied.is_center_copier()
         && copied.steps().iter().any(|st| raw_step_rank(st) > copier_rank)
 }

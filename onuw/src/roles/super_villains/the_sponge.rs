@@ -18,6 +18,9 @@ impl Role for TheSponge {
     }
 
     fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
+        // Rule (Bonus Roles BP4 — The Sponge): "Players who point at the
+        // Sponge do not count." Like Prince, only vote tallies are ignored
+        // (`blocks_hunter_shot = false`), not Hunter death shots.
         Some(VoteDefense::immune(
             seat,
             false,

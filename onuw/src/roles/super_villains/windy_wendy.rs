@@ -40,6 +40,11 @@ impl Role for WindyWendy {
         board: &BoardCards,
         votes: &[usize],
     ) -> Option<(&'static dyn Role, Text)> {
+        // Rule (Bonus Roles BP4 — Windy Wendy): "Windy Wendy is on the hero
+        // team, unless at least one villain votes for her, and then she becomes
+        // a villain... if Windy Wendy has the most players pointing at her, and
+        // at least one of those players is a villain, a villain has been
+        // caught."
         let villain_voted = votes.iter().enumerate().any(|(v, &target)| {
             v != seat && target == seat && board.is_monster_threat_for(v, Team::SuperVillain)
         });

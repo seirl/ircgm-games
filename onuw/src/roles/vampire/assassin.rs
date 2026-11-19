@@ -112,6 +112,9 @@ impl Assassin {
             }
         };
         board.set_mark(target, Mark::Assassin);
+        // Rule (ONUV — Doppelgänger-Assassin): "The Apprentice Assassin
+        // doesn't know who the Doppelgänger-Assassin is, but wins if either
+        // the Assassin or the Doppelgänger-Assassin is killed."
         if ctx.copied_from(seat).is_none() {
             let mut state = board.get_key::<AssassinDuskState>();
             state.mentor_assassins.insert(seat);
@@ -150,6 +153,9 @@ impl Role for ApprenticeAssassin {
     fn steps(&self) -> &'static [WakeStep] {
         const {
             &[
+                // Rule (ONUV — Doppelgänger): "The Doppelgänger-Apprentice
+                // Assassin wakes up after the Apprentice Assassin during the
+                // Assassin's Dusk action."
                 WakeStep::solo(&APPRENTICE_ASSASSIN, |s, ctx| Box::pin(Self::prompt(s, ctx)))
                     .dusk()
                     .copy_on_turn()
@@ -176,6 +182,10 @@ impl Role for ApprenticeAssassin {
             return None;
         }
         let state = ctx.board.get_key::<AssassinDuskState>();
+        // Rule (ONUV — Apprentice Assassin): "If the Assassin is in the game,
+        // the Apprentice needs to get them killed to win. If the Assassin is
+        // not in play and is instead in the Center, the Apprentice must assume
+        // the role of the Assassin and place the Mark of the Assassin..."
         let won = if state.apprentice_placed_mark {
             ctx.dead_seats
                 .into_iter()

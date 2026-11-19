@@ -19,6 +19,11 @@ impl Role for DefenderEr {
 
     fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
         let target = ctx.votes[seat];
+        // Rule (Bonus Roles BP4 — Defender-er): "When everyone votes, the
+        // player that the Defender-er points to cannot be caught. If that
+        // [player] has the most players pointing at him, the player who is
+        // pointed at the most after that player (greater than one) is caught."
+        // (`blocks_hunter_shot = true`, like Bodyguard)
         Some(VoteDefense::immune(
             target,
             true,

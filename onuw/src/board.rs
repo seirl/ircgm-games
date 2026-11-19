@@ -786,9 +786,18 @@ impl BoardCards {
     /// omitting `Role` when suppressed by a role-replacing `Artifact`.
     pub fn seat_endgame_modifiers(&self, seat: usize) -> Vec<&dyn EndgameModifier> {
         let mut out: Vec<&dyn EndgameModifier> = Vec::with_capacity(3);
+        // Rule (ONUV Special Cases): "If the Prince (Bonus Pack 1) has the Mark
+        // of the Vampire, he is a Vampire and on the vampire team, but he
+        // cannot die." Keep `Role` under `Mark::Vampire` so non-team card
+        // powers (`Prince`, `Bodyguard`, `Hunter`, `Diseased`, `Master`) still
+        // fire.
         if !self.has_role_override_artifact(seat) {
             out.push(self.players[seat].effective_role_ref());
         }
+        // Rule (ONUV — Artifacts): "An Artifact token that gives a player a
+        // new role overrides both that player's card and his Mark (if the Mark
+        // gave him a new team, such as the Mark of the Vampire). However, Marks
+        // that do not change a player's role ... still apply".
         out.push(&self.marks[seat]);
         if let Some(art) = &self.artifacts[seat] {
             out.push(art);
@@ -1164,9 +1173,11 @@ impl<'a> BoardMut<'a> {
             || target_card.effective_role().is_player_copier()
             || rctx.wakers.copied_from(target).is_some();
         if target_was_player_copier {
-            // Copying another player-copier (`doppelganger*2`, or a `Copycat` / `Mirror Man` who
-            // viewed center `Doppelgänger`) leaves `actor`'s card as a sleeping Village player-copier
-            // regardless of seat resolution order, preventing copy chains and hiding center-copier choices.
+            // Rule (ONUW — Doppelgänger): "If the Doppelgänger card is in
+            // the center, and ends up in front of a player, that player is on
+            // the village team." Checking `face_role`, `effective_role`, and
+            // `copied_from` makes simultaneous 2x Doppelgänger / Copycat-DG
+            // copies order-independent.
             let player_copier = self.inner.players[actor].effective_role();
             rctx.wakers.set_role(actor, target_card.visible_role());
             let mut snap = Card::new(target_card.face_role());
@@ -1176,13 +1187,19 @@ impl<'a> BoardMut<'a> {
             return Some(snap);
         }
         if target_card.face_role().has_after_player_copier_step() {
-            // Pre-Doppelgänger roles with a dedicated Doppelgänger follow-up (`Oracle`):
-            // copy the printed face so `Doppelgänger-Oracle` wakes to answer her own question.
+            // Rule (ONUA — Doppelgänger): "The Doppelgänger-Oracle wakes up
+            // after the Oracle and answers another question." Copy printed
+            // `face` rather than Oracle's `#-9` conversion.
             let face = target_card.face_role();
             self.inner.players[actor].transform(face);
             rctx.wakers.copy_player(actor, target, face);
             return Some(Card::new(face));
         }
+        // Rule (ONUV Special Cases — Doppelgänger): "The
+        // Doppelgänger-Copycat does nothing and instead becomes the role that
+        // the Copycat views (but does not wake up at night when the Copycat
+        // uses his new center card night power, if any)."
+        // (`effective_role` != `visible_role`.)
         self.inner.players[actor].transform(target_card.effective_role());
         rctx.wakers.copy_player(actor, target, target_card.visible_role());
         Some(target_card)

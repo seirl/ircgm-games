@@ -129,11 +129,11 @@ impl Doppelganger {
             return;
         }
 
-        // Target already secretly adopted a center card before Doppelgänger woke (`Copycat` at #-8
-        // or `Mirror Man` at #-8-A). Peeking their physical card on the table reveals only the
-        // printed `Copycat` / `Mirror Man` face (`seen_face`), NOT the center role they secretly
-        // viewed (`endgame_role`): per ONUV rules, Doppelgänger does not wake again during Dusk/Night,
-        // and silently inherits that hidden center role for Voting.
+        // Rule (ONUV Special Cases — Doppelgänger): "Copycat: The
+        // Doppelgänger-Copycat does nothing and instead becomes the role that
+        // the Copycat views (but does not wake up at night when the Copycat
+        // uses his new center card night power, if any)." (Likewise for Super
+        // Villains' `Mirror Man` at #-8-A.)
         if copied_card.is_secret_copy() {
             let detail = if endgame_role.id() == seen_face.id() {
                 seen_face.styled_name()

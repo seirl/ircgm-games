@@ -47,6 +47,10 @@ impl Role for Renfield {
         board: &BoardCards,
         mut cur: EffectiveAlignment,
     ) -> EffectiveAlignment {
+        // Rule (ONUV — Renfield): "Renfield is on the Vampire team (though he
+        // is not a Vampire himself), and wins if no Vampires die (even if
+        // Renfield himself dies). If no players are Vampires (or have the Mark
+        // of the Vampire), Renfield is on the villager team."
         if !(0..board.player_count()).any(|i| board.is_monster_threat_for(i, Team::Vampire)) {
             cur.team = Team::Village;
         }
@@ -56,6 +60,11 @@ impl Role for Renfield {
 
 impl Renfield {
     fn inspect(seat: usize, actor_label: &str, board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
+        // Rule (ONUV — Renfield): "Renfield wakes up, sees who the Vampires
+        // are and who they are pointing at (who now has the Mark of the
+        // Vampire), and then places the Mark of the Bat in front of himself..."
+        // (snapshotting `Mark::Vampire` before `Mark::Bat` can overwrite
+        // `seat`).
         let card_vamps: SeatSet = ctx
             .roster
             .all_seats()

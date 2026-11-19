@@ -27,6 +27,11 @@ impl Role for TheMaster {
     }
 
     fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
+        // Rule (ONUV — The Master): "If at least one Vampire (regular
+        // Vampire, The Count, or the player with the Mark of the Vampire)
+        // points at The Master during the vote, The Master is saved from dying,
+        // even if he gets the most votes." (Excludes non-Vampire minion
+        // Renfield.)
         let supported = (0..ctx.roster.len()).any(|voter| {
             voter != seat
                 && ctx.votes[voter] == seat

@@ -17,6 +17,9 @@ impl Role for Prince {
     }
 
     fn vote_defense(&self, seat: usize, ctx: &DeathCtx<'_>) -> Option<VoteDefense> {
+        // Rule (Bonus Roles BP1 — Prince): "Votes for the Prince do not
+        // count." Only vote tallies are ignored (`blocks_hunter_shot = false`),
+        // so a dying Hunter pointing at the Prince still kills him.
         Some(VoteDefense::immune(
             seat,
             false,

@@ -26,6 +26,10 @@ impl Role for Cow {
 impl Cow {
     fn inspect(seat: usize, actor_label: &str, board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
         let (left, right) = ctx.roster.neighbors(seat);
+        // Rule (ONUA Rulebook — Cow): "The Cow sticks out her fist while the
+        // aliens are awake. If any alien is sitting next to the Cow, one alien
+        // must tap her on the fist, which tips her." Binary signal even when
+        // flanked by two Aliens; only unfeared waking Aliens can tap.
         let neighbor_alien = [left, right].into_iter().any(|n| {
             ctx.waking_role(n).night_faction() == Some(NightFaction::Alien)
                 && board.mark_at(n) != Mark::Fear

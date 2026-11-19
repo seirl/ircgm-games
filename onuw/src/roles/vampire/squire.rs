@@ -29,6 +29,11 @@ impl Role for Squire {
 
 impl Squire {
     async fn prompt(seat: usize, mut ctx: PromptCtx<'_>) -> Result<SeatEffect> {
+        // Rule (Bonus Roles BP2 — Squire): "The Squire wakes up and learns
+        // who the Werewolves are by having them stick out their thumbs. To make
+        // sure they haven't been switched with other roles, the Squire may view
+        // the actual cards of the Werewolves." Includes Dream Wolf and
+        // Mark::Fear Werewolves.
         let wolves = ctx.seats_with_faction(NightFaction::Werewolf).without(seat);
         if wolves.is_empty() {
             ctx.say(irc_format!(

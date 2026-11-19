@@ -27,6 +27,11 @@ impl Role for Evilometer {
 impl Evilometer {
     fn inspect(seat: usize, actor_label: &str, board: &mut BoardMut<'_>, ctx: &mut ResolveCtx<'_>) {
         let (left, right) = ctx.roster.neighbors(seat);
+        // Rule (ONUSV Rulebook — Evilometer): "Evilometer sticks out her fist
+        // while the villains are awake. If any villain is sitting next to the
+        // Evilometer, one villain must tap her anywhere on her fist." (Matches
+        // unfeared waking SuperVillain pack members only, not
+        // minions/converts.)
         let neighbor_villain = [left, right].into_iter().any(|n| {
             ctx.waking_role(n).night_faction() == Some(NightFaction::SuperVillain)
                 && board.mark_at(n) != Mark::Fear

@@ -40,9 +40,10 @@ impl Role for Leader {
     fn special_victories(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Vec<SpecialVictory> {
         let mut claims = Vec::new();
 
-        // ONUA rulebook: "the village team loses and the alien team wins if all players on the
-        // alien team (including Zerb and Groob, if either or both are in the game) point to the
-        // Leader, even if an alien is killed" — applies even when both Groob & Zerb are in play!
+        // Rule (ONUA Rulebook — Leader): "the village team loses and the
+        // alien team wins if all players on the alien team (including Zerb and
+        // Groob, if either or both are in the game) point to the Leader, even
+        // if an alien is killed."
         let alien_voters: SeatSet = ctx
             .roster
             .all_seats()
@@ -68,6 +69,9 @@ impl Role for Leader {
             claims.push(SpecialVictory::force_team(Team::Alien, banner.bold().yellow()));
         }
 
+        // Rule (ONUA Rulebook — Leader): "If both of them are in the game,
+        // the only way the Leader wins is if both Zerb and Groob are alive at
+        // the end of the game."
         if both_groob_and_zerb_in_play(ctx.board)
             && (ctx.active_holders(&GROOB) | ctx.active_holders(&ZERB)).is_disjoint(ctx.dead_seats)
         {

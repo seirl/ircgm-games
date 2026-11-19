@@ -69,6 +69,10 @@ impl Role for Mortician {
     }
 
     fn special_victory(&self, seat: usize, ctx: &VictoryCtx<'_>) -> Option<SpecialVictory> {
+        // Rule (ONUA Rulebook — Mortician): "he wins if at least one of his
+        // neighbors (the players directly adjacent to him) dies. The Mortician
+        // wins in addition to any other teams that might win." No self-survival
+        // check — co-dying with an adjacent neighbor still wins.
         let (left, right) = ctx.roster.neighbors(seat);
         (ctx.is_dead(left) || ctx.is_dead(right)).then_some(SpecialVictory::independent())
     }
@@ -258,6 +262,9 @@ impl Mortician {
                     }
                 }
             }
+            // Rule (ONUA Rulebook — Mortician): "The Mortician wakes up and
+            // may look at the cards of one, both, or none of his neighbors
+            // (based on what the app tells him to do)."
             MorticianMode::None => {
                 ctx.say(
                     "⚰️ Mortician: Mother Ship clearance DENIED — you may view NONE of your neighbors' cards tonight!",
