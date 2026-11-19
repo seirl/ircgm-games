@@ -214,7 +214,7 @@ async fn lobby_supports_browsing_scenarios_by_pack_and_enforces_scenario_player_
     let bot_task = tokio::spawn({
         let bot = bot.clone();
         let lobby = lobby.clone();
-        async move { run_lobby_bot(&bot, &lobby, &[], &cfg).await }
+        async move { run_lobby_bot(&bot, &lobby, &cfg).await }
     });
     srv.settle().await;
     let _ = srv.take_messages_to("#onuw");
@@ -241,7 +241,7 @@ async fn lobby_supports_browsing_scenarios_by_pack_and_enforces_scenario_player_
     );
 
     // 2. Open lobby directly on `rb_base_payback` (`4–7p`) and verify `!go` rejects 3 players!
-    srv.chat("Alice", "#onuw", "!onuw rb_base_payback");
+    srv.chat("Alice", "#onuw", "!start rb_base_payback");
     srv.settle().await;
     srv.chat("Bob", "#onuw", "!join");
     srv.chat("Carol", "#onuw", "!join");

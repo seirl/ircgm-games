@@ -1,81 +1,86 @@
-//! Game registry and per-game dispatch for `ircgm-games-bot`.
+//! Game registry and bot-local `GameLobby` trait for `ircgm-games-bot`.
 
 use std::future::Future;
-use std::pin::Pin;
 
 use ircgm::prelude::*;
-use ircgm_onuw::lobby::{handle_catalog_query as onuw_catalog_query, LobbyPhaseTracker};
-use ircgm_onuw::{
-    run_single_game_tracked as run_onuw_game, DeckSpec, GameConfig as OnuwGameConfig,
-    PlayOutcome as OnuwOutcome, ALL_ROLES,
-};
+use ircgm_onuw::{GameConfig as OnuwGameConfig, OnuwLaunch, OnuwLobby, OnuwRound, ALL_ROLES};
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum GameRunOutcome {
-    Completed { reveal: Option<Vec<Text>> },
-    NotEnoughPlayers,
+/// Bot-local three-phase lobby contract implemented for each registered game.
+pub trait GameLobby: Send {
+    type Launch: Send;
+    type Round: Send;
+
+    fn wait_for_start(
+        &mut self,
+        lobby: &Room,
+    ) -> impl Future<Output = Result<Self::Launch>> + Send;
+
+    fn recruit(
+        &mut self,
+        bot: &Bot,
+        lobby: &Room,
+        launch: Self::Launch,
+    ) -> impl Future<Output = Result<Option<Self::Round>>> + Send;
+
+    fn play_round(
+        &mut self,
+        bot: &Bot,
+        lobby: &Room,
+        round: Self::Round,
+    ) -> impl Future<Output = Result<()>> + Send;
 }
 
-pub type GameFuture<'a> = Pin<Box<dyn Future<Output = Result<GameRunOutcome>> + Send + 'a>>;
+impl GameLobby for OnuwLobby {
+    type Launch = OnuwLaunch;
+    type Round = OnuwRound;
+
+    fn wait_for_start(
+        &mut self,
+        lobby: &Room,
+    ) -> impl Future<Output = Result<Self::Launch>> + Send {
+        OnuwLobby::wait_for_start(self, lobby)
+    }
+
+    fn recruit(
+        &mut self,
+        bot: &Bot,
+        lobby: &Room,
+        launch: Self::Launch,
+    ) -> impl Future<Output = Result<Option<Self::Round>>> + Send {
+        OnuwLobby::recruit(self, bot, lobby, launch)
+    }
+
+    fn play_round(
+        &mut self,
+        bot: &Bot,
+        lobby: &Room,
+        round: Self::Round,
+    ) -> impl Future<Output = Result<()>> + Send {
+        OnuwLobby::play_round(self, bot, lobby, round)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GameKind {
+    Onuw,
+}
 
 pub struct GameEntry {
     pub slug: &'static str,
     pub aliases: &'static [&'static str],
     pub summary: &'static str,
-    pub help_hint: Option<&'static str>,
-    pub validate_args: fn(&str) -> std::result::Result<(), String>,
-    pub handle_query: fn(&Room, &ChatMessage) -> Result<bool>,
-    pub run:
-        for<'a> fn(&'a Bot, &'a Room, User, &'a str, bool, &'a LobbyPhaseTracker) -> GameFuture<'a>,
+    pub kind: GameKind,
 }
 
-fn validate_onuw_args(raw: &str) -> std::result::Result<(), String> {
-    let trimmed = raw.trim();
-    if DeckSpec::parse(trimmed).is_some() {
-        Ok(())
-    } else {
-        Err(format!(
-            "Unknown pack or scenario '{trimmed}' — try !scenarios!"
-        ))
-    }
-}
-
-fn run_onuw<'a>(
-    bot: &'a Bot,
-    lobby: &'a Room,
-    starter: User,
-    raw_args: &'a str,
-    fast: bool,
-    phase_tracker: &'a LobbyPhaseTracker,
-) -> GameFuture<'a> {
-    Box::pin(async move {
-        let spec = DeckSpec::parse(raw_args.trim()).unwrap_or_default();
-        let cfg = if fast {
-            OnuwGameConfig::fast_mode()
-        } else {
-            OnuwGameConfig::default()
-        };
-        run_onuw_game(bot, lobby, starter, spec, &cfg, Some(phase_tracker))
-            .await
-            .map(|o| match o {
-                OnuwOutcome::Completed(reveal) => GameRunOutcome::Completed {
-                    reveal: Some(reveal.into_lines()),
-                },
-                OnuwOutcome::NotEnoughPlayers => GameRunOutcome::NotEnoughPlayers,
-            })
-    })
+pub fn default_onuw_lobby() -> OnuwLobby {
+    OnuwLobby::new(OnuwGameConfig::default())
 }
 
 pub static REGISTRY: &[GameEntry] = &[GameEntry {
     slug: "onuw",
     aliases: &["werewolf"],
     summary: "One Night Ultimate Werewolf",
-    help_hint: Some(
-        "Start with !onuw [pack|scenario] · !reveal post-game · browse with !scenarios, !roles, !role <name>, !marks, !artifacts",
-    ),
-    validate_args: validate_onuw_args,
-    handle_query: onuw_catalog_query,
-    run: run_onuw,
+    kind: GameKind::Onuw,
 }];
 
 pub fn find_entry(name: &str) -> Option<&'static GameEntry> {
@@ -187,143 +192,28 @@ pub fn usage_games_section() -> String {
     lines.join("\n")
 }
 
-pub(crate) fn send_games_catalog(lobby: &Room, enabled: &EnabledGames) -> Result<()> {
-    lobby.say(irc_format!(
-        "{} Enabled games: {}",
-        "🎮".bold(),
+pub(crate) fn send_games_status(
+    reply_to: &ChatMessage,
+    active: Option<&'static GameEntry>,
+    in_progress: bool,
+    enabled: &EnabledGames,
+) -> Result<()> {
+    let active_label: Text = match active {
+        Some(entry) if in_progress => irc_format!(
+            "{} ({}) {}",
+            entry.summary.bold(),
+            entry.slug.bold().cyan(),
+            "— game in progress".yellow(),
+        ),
+        Some(entry) => irc_format!("{} ({})", entry.summary.bold(), entry.slug.bold().cyan()),
+        None => "none (idle)".grey(),
+    };
+    reply_to.reply(irc_format!(
+        "🎮 Active game: {active_label} · Enabled: {} · Admins switch with {} (or {}).",
         enabled.slug_list().bold().cyan(),
-    ))?;
-    for entry in enabled.entries() {
-        if let Some(hint) = entry.help_hint {
-            lobby.say(irc_format!(
-                "  {} — {} ({})",
-                entry.slug.bold().cyan(),
-                entry.summary,
-                hint,
-            ))?;
-        } else {
-            lobby.say(irc_format!("  {} — {}", entry.slug.bold().cyan(), entry.summary))?;
-        }
-    }
-    if enabled.slugs().len() == 1 {
-        let only = enabled.slugs()[0];
-        let cmd = format!("!{only}");
-        lobby.say(irc_format!(
-            "Start a game with {} (or {} to cancel).",
-            cmd.bold().cyan(),
-            "!abort".bold(),
-        ))?;
-    } else {
-        lobby.say(irc_format!(
-            "Start a game with {}, {}, or {} (or {} to cancel).",
-            "!play <game>".bold(),
-            "!<game>".bold(),
-            "!random".bold(),
-            "!abort".bold(),
-        ))?;
-    }
-    Ok(())
-}
-
-pub(crate) fn handle_idle_query(
-    lobby: &Room,
-    msg: &ChatMessage,
-    enabled: &EnabledGames,
-) -> Result<bool> {
-    for entry in enabled.entries() {
-        if (entry.handle_query)(lobby, msg)? {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-pub(crate) struct LaunchRequest {
-    pub(crate) entry: &'static GameEntry,
-    pub(crate) args: String,
-    pub(crate) was_random: bool,
-}
-
-fn build_launch_request(
-    entry: &'static GameEntry,
-    rest: &str,
-    enabled: &EnabledGames,
-) -> std::result::Result<LaunchRequest, String> {
-    if !enabled.is_enabled(entry.slug) {
-        return Err(format!(
-            "{} is not enabled in this lobby — enabled games: {}.",
-            entry.slug,
-            enabled.slug_list()
-        ));
-    }
-    (entry.validate_args)(rest)?;
-    Ok(LaunchRequest {
-        entry,
-        args: rest.to_owned(),
-        was_random: false,
-    })
-}
-
-pub(crate) fn parse_launch_command(
-    msg: &ChatMessage,
-    enabled: &EnabledGames,
-) -> std::result::Result<Option<LaunchRequest>, String> {
-    if let Some(raw_args) = msg.cmd_args("!play").or_else(|| msg.cmd_args("!start")) {
-        let trimmed = raw_args.trim();
-        if trimmed.is_empty() {
-            return Err(format!(
-                "Usage: !play <game> or !random — enabled: {}.",
-                enabled.slug_list()
-            ));
-        }
-        let mut parts = trimmed.splitn(2, char::is_whitespace);
-        let first = parts.next().unwrap_or("");
-        let rest = parts.next().unwrap_or("").trim();
-
-        let Some(entry) = find_entry(first) else {
-            return Err(format!(
-                "Unknown game '{first}' — enabled: {}.",
-                enabled.slug_list()
-            ));
-        };
-        return build_launch_request(entry, rest, enabled).map(Some);
-    }
-
-    if msg.is_cmd("!random") {
-        let slugs = enabled.slugs();
-        let picked = slugs[fastrand::usize(..slugs.len())];
-        let entry = find_entry(picked).expect("enabled slug must exist in REGISTRY");
-        return Ok(Some(LaunchRequest {
-            entry,
-            args: String::new(),
-            was_random: true,
-        }));
-    }
-
-    // Shorthand `!<game> [args]` (e.g. `!onuw base`).
-    let trimmed = msg.text.trim();
-    if let Some(after_bang) = trimmed.strip_prefix('!') {
-        let mut parts = after_bang.splitn(2, char::is_whitespace);
-        let word = parts.next().unwrap_or("");
-        let rest = parts.next().unwrap_or("").trim();
-        if let Some(entry) = find_entry(word) {
-            return build_launch_request(entry, rest, enabled).map(Some);
-        }
-    }
-
-    Ok(None)
-}
-
-pub(crate) fn is_launch_attempt(msg: &ChatMessage) -> bool {
-    if msg.is_cmd("!play") || msg.is_cmd("!start") || msg.is_cmd("!random") {
-        return true;
-    }
-    msg.text
-        .trim()
-        .strip_prefix('!')
-        .and_then(|s| s.split_whitespace().next())
-        .and_then(find_entry)
-        .is_some()
+        "!game <name>".bold(),
+        "!game none".bold(),
+    ))
 }
 
 #[cfg(test)]

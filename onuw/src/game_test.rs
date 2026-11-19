@@ -21,17 +21,17 @@ async fn full_lobby_custom_deck_to_voting_chronicle_and_abort_cleanup() {
     let bot_task = tokio::spawn({
         let bot = bot.clone();
         let lobby = lobby.clone();
-        async move { run_lobby_bot(&bot, &lobby, &["adminacct".into()], &cfg).await }
+        async move { run_lobby_bot(&bot, &lobby, &cfg).await }
     });
     srv.settle().await;
     let _ = srv.take_messages_to("#onuw");
 
-    // 1. Start a game, verify open-lobby `!help` and host `!onuw vampire` hint, then customize deck:
-    srv.chat("Alice", "#onuw", "!onuw");
+    // 1. Start a game, verify open-lobby `!help` and host `!start vampire` hint, then customize deck:
+    srv.chat("Alice", "#onuw", "!start");
     srv.settle().await;
     let _ = srv.take_messages_to("#onuw");
     srv.chat("Bob", "#onuw", "!help");
-    srv.chat("Alice", "#onuw", "!onuw vampire");
+    srv.chat("Alice", "#onuw", "!start vampire");
     srv.settle().await;
     let open_lobby_out = srv.take_messages_to("#onuw").join("\n");
     assert!(open_lobby_out.contains("Open Lobby"));
@@ -107,7 +107,7 @@ async fn full_lobby_custom_deck_to_voting_chronicle_and_abort_cleanup() {
 
     // 2. Start a second game with active Night prompt, verify `!reveal` is rejected mid-game,
     //    then `!abort` mid-Night and verify `+m` is cleaned up!
-    srv.chat("Alice", "#onuw", "!onuw base");
+    srv.chat("Alice", "#onuw", "!start base");
     srv.settle().await;
     srv.chat("Bob", "#onuw", "!reveal");
     srv.settle().await;
@@ -191,12 +191,12 @@ async fn night_announces_canonical_order_and_anyone_can_call_order_command_durin
     let bot_task = tokio::spawn({
         let bot = bot.clone();
         let lobby = lobby.clone();
-        async move { run_lobby_bot(&bot, &lobby, &[], &cfg).await }
+        async move { run_lobby_bot(&bot, &lobby, &cfg).await }
     });
     srv.settle().await;
     let _ = srv.take_messages_to("#onuw");
 
-    srv.chat("Alice", "#onuw", "!onuw");
+    srv.chat("Alice", "#onuw", "!start");
     srv.settle().await;
     srv.chat("Bob", "#onuw", "!join");
     srv.chat("Carol", "#onuw", "!join");
@@ -292,7 +292,7 @@ async fn marks_and_artifacts_catalog_and_lookup_work_in_lobby_and_active_game() 
     let bot_task = tokio::spawn({
         let bot = bot.clone();
         let lobby = lobby.clone();
-        async move { run_lobby_bot(&bot, &lobby, &[], &cfg).await }
+        async move { run_lobby_bot(&bot, &lobby, &cfg).await }
     });
     srv.settle().await;
     let greeting = Text::parse(&srv.take_messages_to("#onuw").join("\n")).plain();
@@ -321,7 +321,7 @@ async fn marks_and_artifacts_catalog_and_lookup_work_in_lobby_and_active_game() 
     assert!(!idle_out.contains('`'));
 
     // Open recruitment lobby + active game (channel & DM):
-    srv.chat("Alice", "#onuw", "!onuw");
+    srv.chat("Alice", "#onuw", "!start");
     srv.settle().await;
     let _ = srv.take_messages_to("#onuw");
 

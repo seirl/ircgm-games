@@ -1,11 +1,9 @@
-//! Game-agnostic lobby supervisor and admin command loops.
+//! Game-lobby switcher supervisor (`!game`, `!stop`) and admin `!quit` loop.
 
 use ircgm::prelude::*;
-use ircgm_onuw::lobby::{send_lobby_help as send_onuw_lobby_help, LobbyPhaseTracker};
 
 use crate::games::{
-    handle_idle_query, is_launch_attempt, parse_launch_command, send_games_catalog, EnabledGames,
-    GameRunOutcome,
+    default_onuw_lobby, find_entry, send_games_status, EnabledGames, GameEntry, GameKind, GameLobby,
 };
 
 fn is_admin_msg(msg: &ChatMessage, admins: &[String]) -> bool {
@@ -15,36 +13,319 @@ fn is_admin_msg(msg: &ChatMessage, admins: &[String]) -> bool {
     admins.iter().any(|a| a.eq_ignore_ascii_case(acct))
 }
 
-fn handle_admin_fast_command(msg: &ChatMessage, admins: &[String], fast: &mut bool) -> Result<bool> {
-    let Some(raw) = msg.cmd_args("!fast") else {
-        return Ok(false);
-    };
-    if !is_admin_msg(msg, admins) {
-        return Ok(true);
-    }
-    let arg = raw.trim().to_ascii_lowercase();
-    let next = match arg.as_str() {
-        "" => !*fast,
-        "on" | "true" | "1" | "yes" => true,
-        "off" | "false" | "0" | "no" => false,
-        _ => {
-            msg.reply("Usage: !fast [on|off]".yellow())?;
-            return Ok(true);
-        }
-    };
-    *fast = next;
-    if next {
-        msg.reply("⚡ Fast mode enabled for upcoming games.".green())?;
-    } else {
-        msg.reply("🐢 Fast mode disabled for upcoming games.".cyan())?;
-    }
-    Ok(true)
+enum Control {
+    Shutdown,
+    Switch(Option<&'static GameEntry>, Box<ChatMessage>),
+    Stop(Box<ChatMessage>),
 }
 
-enum StopReason {
+#[derive(Clone, Copy)]
+enum SupervisorMode {
+    BotIdle,
+    GameIdle(&'static GameEntry),
+    Recruiting(&'static GameEntry),
+    Playing(&'static GameEntry),
+}
+
+impl SupervisorMode {
+    fn active_entry(self) -> Option<&'static GameEntry> {
+        match self {
+            Self::BotIdle => None,
+            Self::GameIdle(e) | Self::Recruiting(e) | Self::Playing(e) => Some(e),
+        }
+    }
+}
+
+enum SessionExit {
     Shutdown,
-    Admin(Box<ChatMessage>),
-    Aborted(Box<ChatMessage>),
+    Switch(Option<&'static GameEntry>),
+}
+
+/// Evaluates supervisor meta-commands (`!games`, `!game`, `!stop`, and idle `!help`) according
+/// to the current phase.
+fn handle_supervisor_msg(
+    msg: &ChatMessage,
+    lobby: &Room,
+    admins: &[String],
+    enabled: &EnabledGames,
+    mode: SupervisorMode,
+) -> Option<Control> {
+    if !(msg.is_in(lobby) || msg.is_dm()) {
+        return None;
+    }
+
+    let active = mode.active_entry();
+    let in_progress = matches!(mode, SupervisorMode::Playing(_));
+
+    if msg.is_cmd("!games") || (active.is_none() && msg.is_cmd("!help")) {
+        let _ = send_games_status(msg, active, in_progress, enabled);
+        return None;
+    }
+
+    if msg.is_cmd("!stop") {
+        if !is_admin_msg(msg, admins) {
+            return None;
+        }
+        return match mode {
+            SupervisorMode::BotIdle | SupervisorMode::GameIdle(_) => {
+                let _ = msg.reply("No game is running.".yellow());
+                None
+            }
+            SupervisorMode::Recruiting(_) | SupervisorMode::Playing(_) => {
+                Some(Control::Stop(Box::new(msg.clone())))
+            }
+        };
+    }
+
+    let raw = msg.cmd_args("!game")?;
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        let _ = send_games_status(msg, active, in_progress, enabled);
+        return None;
+    }
+
+    if !is_admin_msg(msg, admins) {
+        return None;
+    }
+
+    if let SupervisorMode::Playing(entry) = mode {
+        let _ = msg.reply(irc_format!(
+            "⏳ A game of {} is in progress — finish it or run {} first!",
+            entry.slug.bold().cyan(),
+            "!stop".bold(),
+        ));
+        return None;
+    }
+
+    let first = trimmed.split_whitespace().next().unwrap_or("");
+    if matches!(
+        first.to_ascii_lowercase().as_str(),
+        "none" | "off" | "idle" | "stop"
+    ) {
+        if active.is_none() {
+            let _ = msg.reply("Bot is already idle.".yellow());
+            return None;
+        }
+        return Some(Control::Switch(None, Box::new(msg.clone())));
+    }
+
+    let Some(entry) = find_entry(first) else {
+        let _ = msg.reply(
+            format_args!(
+                "Unknown game '{first}' — enabled: {}.",
+                enabled.slug_list()
+            )
+            .yellow(),
+        );
+        return None;
+    };
+
+    if !enabled.is_enabled(entry.slug) {
+        let _ = msg.reply(
+            format_args!(
+                "{} is not enabled in this lobby — enabled games: {}.",
+                entry.slug,
+                enabled.slug_list()
+            )
+            .yellow(),
+        );
+        return None;
+    }
+
+    if active.is_some_and(|cur| cur.slug == entry.slug) {
+        let _ = msg.reply(format_args!("Already running {}!", entry.slug).yellow());
+        return None;
+    }
+
+    Some(Control::Switch(Some(entry), Box::new(msg.clone())))
+}
+
+fn supervisor_listener(
+    bot: &Bot,
+    lobby: &Room,
+    admins: &[String],
+    enabled: &EnabledGames,
+    mode: SupervisorMode,
+) -> impl std::future::Future<Output = Control> + Send + 'static {
+    let inbox = bot.inbox();
+    let admin_list = admins.to_vec();
+    let lobby = lobby.clone();
+    let enabled = enabled.clone();
+    async move {
+        inbox
+            .on_map(move |msg| handle_supervisor_msg(msg, &lobby, &admin_list, &enabled, mode))
+            .await
+    }
+}
+
+fn announce_switch(
+    lobby: &Room,
+    from: &'static GameEntry,
+    to: Option<&'static GameEntry>,
+    trigger: &ChatMessage,
+) -> Result<()> {
+    match to {
+        Some(next_entry) => {
+            tracing::info!(
+                from = from.slug,
+                to = next_entry.slug,
+                admin = %trigger.nick,
+                lobby = %lobby.name(),
+                "switching game lobby"
+            );
+            if trigger.is_dm() {
+                trigger.reply(irc_format!(
+                    "🔄 Switched {} from {} to {}.",
+                    lobby.name(),
+                    from.slug.bold().cyan(),
+                    next_entry.slug.bold().cyan(),
+                ))?;
+            }
+            lobby.say(irc_format!(
+                "🔄 Switching lobby from {} to {}...",
+                from.slug.bold().cyan(),
+                next_entry.slug.bold().cyan(),
+            ))?;
+        }
+        None => {
+            tracing::info!(
+                from = from.slug,
+                admin = %trigger.nick,
+                lobby = %lobby.name(),
+                "returning lobby to idle"
+            );
+            if trigger.is_dm() {
+                trigger.reply(
+                    format_args!(
+                        "🛑 Closed {} lobby in {} — bot is now idle.",
+                        from.slug,
+                        lobby.name(),
+                    )
+                    .yellow(),
+                )?;
+            }
+            lobby.say(
+                format_args!("🛑 Closed {} lobby — bot is now idle.", from.slug).yellow(),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn announce_admin_stop(
+    lobby: &Room,
+    entry: &'static GameEntry,
+    trigger: &ChatMessage,
+    kind: &str,
+) -> Result<()> {
+    tracing::info!(
+        game = entry.slug,
+        kind,
+        admin = %trigger.nick,
+        lobby = %lobby.name(),
+        "admin stopped game"
+    );
+    trigger.reply(format_args!("🛑 Stopped {} {kind}.", entry.slug).yellow())?;
+    if trigger.is_dm() {
+        lobby.say(format_args!("🛑 {} {kind} was stopped by an admin.", entry.slug).yellow())?;
+    }
+    Ok(())
+}
+
+async fn run_game_session<G: GameLobby>(
+    bot: &Bot,
+    lobby: &Room,
+    admins: &[String],
+    enabled: &EnabledGames,
+    entry: &'static GameEntry,
+    mut game: G,
+) -> Result<SessionExit> {
+    loop {
+        // Phase 1: game lobby idle — waiting for `!start`.
+        // `!game <name|none>` switches/closes; `!stop` reports no game is running.
+        let launch = match game
+            .wait_for_start(lobby)
+            .until(async {
+                bot.shutdown_requested().await;
+                Control::Shutdown
+            })
+            .or_until(supervisor_listener(
+                bot,
+                lobby,
+                admins,
+                enabled,
+                SupervisorMode::GameIdle(entry),
+            ))
+            .await
+        {
+            Outcome::Completed(res) => res?,
+            Outcome::Stopped(Control::Shutdown) => return Ok(SessionExit::Shutdown),
+            Outcome::Stopped(Control::Switch(next, trigger)) => {
+                announce_switch(lobby, entry, next, &trigger)?;
+                return Ok(SessionExit::Switch(next));
+            }
+            Outcome::Stopped(Control::Stop(_)) => unreachable!("!stop does not cancel GameIdle"),
+        };
+
+        // Phase 2: open recruitment (`!join` / `!play` / `!go`).
+        // `!game <name|none>` switches/closes; admin `!stop` cancels recruitment and stays in lobby.
+        let round = match game
+            .recruit(bot, lobby, launch)
+            .until(async {
+                bot.shutdown_requested().await;
+                Control::Shutdown
+            })
+            .or_until(supervisor_listener(
+                bot,
+                lobby,
+                admins,
+                enabled,
+                SupervisorMode::Recruiting(entry),
+            ))
+            .await
+        {
+            Outcome::Completed(res) => match res? {
+                Some(round) => round,
+                None => continue,
+            },
+            Outcome::Stopped(Control::Shutdown) => return Ok(SessionExit::Shutdown),
+            Outcome::Stopped(Control::Switch(next, trigger)) => {
+                announce_switch(lobby, entry, next, &trigger)?;
+                return Ok(SessionExit::Switch(next));
+            }
+            Outcome::Stopped(Control::Stop(trigger)) => {
+                announce_admin_stop(lobby, entry, &trigger, "lobby")?;
+                continue;
+            }
+        };
+
+        // Phase 3: active dealt round.
+        // `!game <name|none>` is rejected; admin `!stop` aborts the round and returns to Phase 1.
+        match game
+            .play_round(bot, lobby, round)
+            .until(async {
+                bot.shutdown_requested().await;
+                Control::Shutdown
+            })
+            .or_until(supervisor_listener(
+                bot,
+                lobby,
+                admins,
+                enabled,
+                SupervisorMode::Playing(entry),
+            ))
+            .await
+        {
+            Outcome::Completed(res) => res?,
+            Outcome::Stopped(Control::Shutdown) => return Ok(SessionExit::Shutdown),
+            Outcome::Stopped(Control::Stop(trigger)) => {
+                announce_admin_stop(lobby, entry, &trigger, "game")?;
+            }
+            Outcome::Stopped(Control::Switch(..)) => {
+                unreachable!("!game switch is rejected during Playing")
+            }
+        }
+    }
 }
 
 pub async fn run_lobby(
@@ -53,229 +334,59 @@ pub async fn run_lobby(
     admins: &[String],
     enabled: &EnabledGames,
 ) -> Result<()> {
-    let mut fast = false;
-    let mut pending_reveal: Option<Vec<Text>> = None;
-    let single_onuw = enabled.slugs() == ["onuw"];
+    lobby.say(irc_format!(
+        "🎮 {} Enabled games: {}. Admins can start a game lobby with {} (or type {} to list).",
+        "Bot ready (idle)!".bold().green(),
+        enabled.slug_list().bold().cyan(),
+        "!game <name>".bold(),
+        "!games".bold(),
+    ))?;
 
-    if single_onuw {
-        send_onuw_lobby_help(lobby)?;
-    } else {
-        lobby.say(irc_format!(
-            "{} {} Enabled games: {}. Type {}, {}, or {}.",
-            "🎮".bold(),
-            "Bot ready!".bold().green(),
-            enabled.slug_list().bold().cyan(),
-            "!play <game>".bold(),
-            "!random".bold(),
-            "!games".bold(),
-        ))?;
-    }
+    let mut active: Option<&'static GameEntry> = None;
 
     loop {
-        let Some((starter, launch)) = ({
-            let mut inbox = lobby.inbox().lossy();
-            loop {
-                let idle_msg = match inbox.next_chat().until(bot.shutdown_requested()).await {
+        let Some(entry) = active else {
+            let mut inbox = bot.inbox().lossy();
+            let next = loop {
+                let msg = match inbox.next_chat().until(bot.shutdown_requested()).await {
                     Outcome::Completed(res) => res?,
                     Outcome::Stopped(()) => break None,
                 };
-
-                if idle_msg.is_cmd("!help") && single_onuw {
-                    send_onuw_lobby_help(lobby)?;
-                    continue;
-                }
-                if idle_msg.is_cmd("!games") || idle_msg.is_cmd("!help") {
-                    send_games_catalog(lobby, enabled)?;
-                    continue;
-                }
-                if idle_msg.is_cmd("!reveal") {
-                    match pending_reveal.take() {
-                        Some(lines) => {
-                            for line in lines {
-                                lobby.say(line)?;
-                            }
-                        }
-                        None => {
-                            idle_msg.reply("Nothing left to reveal from the last game!".yellow())?;
-                        }
+                if let Some(Control::Switch(Some(entry), trigger)) =
+                    handle_supervisor_msg(&msg, lobby, admins, enabled, SupervisorMode::BotIdle)
+                {
+                    tracing::info!(
+                        game = entry.slug,
+                        admin = %trigger.nick,
+                        lobby = %lobby.name(),
+                        "loading game lobby"
+                    );
+                    if trigger.is_dm() {
+                        trigger.reply(irc_format!(
+                            "🎮 Loaded {} lobby in {}.",
+                            entry.slug.bold().cyan(),
+                            lobby.name(),
+                        ))?;
                     }
-                    continue;
+                    break Some(entry);
                 }
-                if handle_admin_fast_command(&idle_msg, admins, &mut fast)? {
-                    continue;
-                }
-                if handle_idle_query(lobby, &idle_msg, enabled)? {
-                    continue;
-                }
-
-                match parse_launch_command(&idle_msg, enabled) {
-                    Ok(None) => continue,
-                    Ok(Some(req)) => {
-                        if req.was_random {
-                            lobby.say(irc_format!(
-                                "{} {} rolled {}!",
-                                "🎲".bold(),
-                                idle_msg.sender.nick().bold(),
-                                req.entry.slug.bold().cyan(),
-                            ))?;
-                        }
-                        pending_reveal = None;
-                        break Some((idle_msg.sender.clone(), req));
-                    }
-                    Err(err_text) => {
-                        idle_msg.reply(err_text.yellow())?;
-                        continue;
-                    }
-                }
+            };
+            match next {
+                Some(entry) => active = Some(entry),
+                None => break,
             }
-        }) else {
-            break;
+            continue;
         };
 
-        let slug = launch.entry.slug;
-        tracing::info!(
-            game = slug,
-            starter = %starter.nick(),
-            lobby = %lobby.name(),
-            fast,
-            "starting game"
-        );
+        let exit = match entry.kind {
+            GameKind::Onuw => {
+                run_game_session(bot, lobby, admins, enabled, entry, default_onuw_lobby()).await?
+            }
+        };
 
-        let admin_list = admins.to_vec();
-        let lobby_for_admin = lobby.clone();
-        let admin_stop = bot.inbox().on_map(move |m| {
-            (is_admin_msg(m, &admin_list)
-                && m.is_cmd("!stop")
-                && (m.is_dm() || m.is_in(&lobby_for_admin)))
-            .then(|| StopReason::Admin(Box::new(m.clone())))
-        });
-
-        let abort_scope = InboxScope::new().room(lobby).dm_from(&starter);
-        let starter_for_abort = starter.clone();
-        let lobby_for_abort = lobby.clone();
-        let abort_stop = bot.inbox_scope(abort_scope).on_map(move |m| {
-            if !(m.is_cmd("!abort") || m.is_cmd("!stop")) {
-                return None;
-            }
-            let is_starter = m.sender == starter_for_abort;
-            let starter_gone =
-                !starter_for_abort.is_online() || !lobby_for_abort.has_user(&starter_for_abort);
-            if is_starter || (starter_gone && m.is_in(&lobby_for_abort)) {
-                Some(StopReason::Aborted(Box::new(m.clone())))
-            } else {
-                None
-            }
-        });
-
-        let phase_tracker = LobbyPhaseTracker::new();
-        let phase_for_busy = phase_tracker.clone();
-        let starter_for_busy = starter.clone();
-        let lobby_for_busy = lobby.clone();
-        let enabled_for_busy = enabled.clone();
-        let busy_responder = lobby.inbox().on_map(move |msg| {
-            if msg.is_cmd("!games") {
-                let _ = send_games_catalog(&lobby_for_busy, &enabled_for_busy);
-            } else if msg.is_cmd("!reveal") {
-                let _ = msg.reply(
-                    "⏳ Finish the current game first — !reveal is available after the round ends!"
-                        .yellow(),
-                );
-            } else if is_launch_attempt(msg) {
-                if phase_for_busy.is_recruiting() {
-                    return None;
-                }
-                let abort_hint = if starter_for_busy.is_online()
-                    && lobby_for_busy.has_user(&starter_for_busy)
-                {
-                    format!("{} can type !abort", starter_for_busy.nick())
-                } else {
-                    "type !abort".to_owned()
-                };
-                let _ = lobby_for_busy.say(
-                    format_args!("⏳ {slug} is already in progress ({abort_hint} to cancel)!")
-                        .yellow(),
-                );
-            }
-            None::<StopReason>
-        });
-
-        let outcome =
-            (launch.entry.run)(bot, lobby, starter, &launch.args, fast, &phase_tracker)
-                .until(async {
-                    bot.shutdown_requested().await;
-                    StopReason::Shutdown
-                })
-                .or_until(admin_stop)
-                .or_until(abort_stop)
-                .or_until(busy_responder)
-                .await;
-
-        match outcome {
-            Outcome::Completed(Ok(GameRunOutcome::Completed { reveal })) => {
-                tracing::info!(game = slug, "game completed");
-                let has_reveal = reveal.is_some();
-                pending_reveal = reveal;
-                if single_onuw && has_reveal {
-                    lobby.say(irc_format!(
-                        "🏁 {} Discuss what happened, then type {} for the full reveal — or {} for another round!",
-                        "Round complete!".bold().green(),
-                        "!reveal".bold().yellow(),
-                        "!onuw [pack|scenario]".bold().cyan(),
-                    ))?;
-                } else if has_reveal {
-                    lobby.say(irc_format!(
-                        "🏁 {} finished — lobby is open! Discuss what happened and type {} for the full reveal, or {}, {}, {}.",
-                        slug.bold().cyan(),
-                        "!reveal".bold().yellow(),
-                        "!play <game>".bold(),
-                        "!random".bold(),
-                        "!games".bold(),
-                    ))?;
-                } else {
-                    lobby.say(irc_format!(
-                        "🏁 {} finished — lobby is open! Type {}, {}, or {}.",
-                        slug.bold().cyan(),
-                        "!play <game>".bold(),
-                        "!random".bold(),
-                        "!games".bold(),
-                    ))?;
-                }
-            }
-            Outcome::Completed(Ok(GameRunOutcome::NotEnoughPlayers)) => {
-                tracing::info!(game = slug, "game ended: not enough players");
-            }
-            Outcome::Completed(Err(err)) => {
-                let lost_lobby = matches!(
-                    &err,
-                    Error::BotLeftRoom { channel, .. } if lobby.casemap().str_eq(channel, lobby.name())
-                );
-                if err.is_fatal() || lost_lobby {
-                    return Err(err);
-                }
-                tracing::warn!(game = slug, error = %err, "game ended early");
-                lobby.say(
-                    format_args!("⚠️ {slug} ended early: {err} — lobby is open again!").yellow(),
-                )?;
-            }
-            Outcome::Stopped(StopReason::Shutdown) => break,
-            Outcome::Stopped(StopReason::Admin(admin_msg)) => {
-                tracing::info!(game = slug, admin = %admin_msg.nick, "game stopped by admin");
-                admin_msg.reply(format_args!("🛑 Stopped {slug}.").yellow())?;
-                if admin_msg.is_dm() {
-                    lobby.say(format_args!("🛑 {slug} was stopped by an admin.").yellow())?;
-                }
-            }
-            Outcome::Stopped(StopReason::Aborted(abort_msg)) => {
-                tracing::info!(game = slug, by = %abort_msg.nick, "game aborted");
-                if abort_msg.is_dm() {
-                    abort_msg.reply(format_args!("🛑 Aborted {slug}.").yellow())?;
-                }
-                lobby.say(irc_format!(
-                    "🛑 {} {}",
-                    abort_msg.sender.nick().bold(),
-                    format!("aborted {slug} — lobby is open!").yellow(),
-                ))?;
-            }
+        match exit {
+            SessionExit::Shutdown => break,
+            SessionExit::Switch(next) => active = next,
         }
     }
 

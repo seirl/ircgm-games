@@ -1,20 +1,14 @@
-//! Persistent lobby supervisor (`run_lobby_bot`), pre-game recruitment (`recruit_players`),
-//! and `!roles` / `!marks` / `!artifacts` / `!scenarios` catalog commands.
+//! Stateful three-phase lobby (`OnuwLobby`), standalone loop (`run_lobby_bot`), pre-game
+//! recruitment (`recruit_players`), and `!roles` / `!marks` / `!artifacts` / `!scenarios` catalog
+//! commands.
 
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-
-use futures::FutureExt as _;
 use ircgm::prelude::*;
 use tokio::time::Instant;
 
 use crate::artifacts::{find_artifact, Artifact};
-use crate::voting::GameReveal;
 use crate::day::is_active_in_room;
 use crate::deck::{parse_role_spec_tokens, DeckBase, DeckSpec};
-use crate::game::{run_single_game_tracked, GameConfig, PlayOutcome, MAX_PLAYERS, MIN_PLAYERS};
+use crate::game::{run_dealt_game, GameConfig, MAX_PLAYERS, MIN_PLAYERS};
 use crate::marks::{find_mark, Mark};
 use crate::role::{GameSet, Role};
 use crate::roles::{find_role, roles_in_game, ALL_ROLES};
@@ -22,47 +16,7 @@ use crate::scenarios::{
     all_scenarios, find_scenario, parse_player_count_filter, scenario_count, scenarios_in_pack,
     Difficulty, Scenario, ScenarioPack,
 };
-
-/// Shared flag tracking whether an ONUW session is currently in its open pre-game recruitment lobby
-/// (as opposed to Dusk/Night, Day, or Voting).
-#[derive(Clone, Debug, Default)]
-pub struct LobbyPhaseTracker(Arc<AtomicBool>);
-
-impl LobbyPhaseTracker {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn is_recruiting(&self) -> bool {
-        self.0.load(Ordering::Acquire)
-    }
-
-    pub(crate) fn enter_recruitment(&self) -> RecruitmentGuard<'_> {
-        self.0.store(true, Ordering::Release);
-        RecruitmentGuard(self)
-    }
-}
-
-pub(crate) struct RecruitmentGuard<'a>(&'a LobbyPhaseTracker);
-
-impl Drop for RecruitmentGuard<'_> {
-    fn drop(&mut self) {
-        self.0 .0.store(false, Ordering::Release);
-    }
-}
-
-pub fn is_admin_msg(msg: &ChatMessage, admins: &[String]) -> bool {
-    let Some(acct) = msg.account.as_deref() else {
-        return false;
-    };
-    admins.iter().any(|a| a.eq_ignore_ascii_case(acct))
-}
-
-enum StopReason {
-    Shutdown,
-    Admin(Box<ChatMessage>),
-    Aborted(Box<ChatMessage>),
-}
+use crate::voting::GameReveal;
 
 // ============================================================================
 // Catalog & Help Formatters (`!help`, `!scenarios`, `!roles`, `!marks`, `!artifacts`)
@@ -73,7 +27,7 @@ pub fn send_lobby_help(lobby: &Room) -> Result<()> {
     lobby.say(irc_format!(
         "🐺 {} — {}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
         "One Night Ultimate Werewolf".bold().yellow(),
-        "!onuw [pack|scenario]".bold().green(),
+        "!start [pack|scenario]".bold().green(),
         sep.clone(),
         "!scenarios [pack|Np]".bold().cyan(),
         sep.clone(),
@@ -259,7 +213,7 @@ pub fn send_scenarios_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) 
             title.bold().cyan(),
             "!scenario <name>".bold(),
             sep,
-            "!onuw <name>".bold().green(),
+            "!start <name>".bold().green(),
             "!preset <name>".bold().cyan(),
         ))?;
 
@@ -301,7 +255,7 @@ pub fn send_scenarios_catalog(reply_to: &ChatMessage, raw_filter: Option<&str>) 
             format!("Scenarios for {n}p ({} total)", matched.len()).bold().cyan(),
             "!scenario <name>".bold(),
             sep,
-            "!onuw <name>".bold().green(),
+            "!start <name>".bold().green(),
             "!preset <name>".bold().cyan(),
         ))?;
 
@@ -582,22 +536,7 @@ pub fn handle_catalog_query(room: &Room, msg: &ChatMessage) -> Result<bool> {
 }
 
 fn extract_launch_attempt_arg(msg: &ChatMessage) -> Option<&str> {
-    if let Some(arg) = msg.cmd_args("!onuw").or_else(|| msg.cmd_args("!werewolf")) {
-        return Some(arg.trim());
-    }
-    if let Some(arg) = msg.cmd_args("!play").or_else(|| msg.cmd_args("!start")) {
-        let trimmed = arg.trim();
-        let mut parts = trimmed.splitn(2, char::is_whitespace);
-        let first = parts.next().unwrap_or("");
-        if first.eq_ignore_ascii_case("onuw") || first.eq_ignore_ascii_case("werewolf") {
-            return Some(parts.next().unwrap_or("").trim());
-        }
-        return Some(trimmed);
-    }
-    if msg.is_cmd("!random") {
-        return Some("");
-    }
-    None
+    msg.cmd_args("!start").map(str::trim)
 }
 
 // ============================================================================
@@ -607,18 +546,8 @@ fn extract_launch_attempt_arg(msg: &ChatMessage) -> Option<&str> {
 pub async fn recruit_players(
     room: &Room,
     host: User,
-    deck_spec: DeckSpec,
-    config: &GameConfig,
-) -> Result<Option<(Vec<User>, DeckSpec)>> {
-    recruit_players_tracked(room, host, deck_spec, config, None).await
-}
-
-pub async fn recruit_players_tracked(
-    room: &Room,
-    host: User,
     mut deck_spec: DeckSpec,
     config: &GameConfig,
-    phase_tracker: Option<&LobbyPhaseTracker>,
 ) -> Result<Option<(Vec<User>, DeckSpec)>> {
     let mut inbox = room.inbox();
     let mut players: Vec<User> = vec![host.clone()];
@@ -668,7 +597,6 @@ pub async fn recruit_players_tracked(
         "!abort".bold().orange(),
     ))?;
 
-    let recruitment_guard = phase_tracker.map(LobbyPhaseTracker::enter_recruitment);
     let deadline = Instant::now() + config.lobby_duration;
     let recruit_loop = async {
         loop {
@@ -680,7 +608,7 @@ pub async fn recruit_players_tracked(
                 Event::Chat(msg) => {
                     let is_host = players.first() == Some(&msg.sender);
 
-                    if msg.is_cmd("!join") || msg.is_cmd("!in") {
+                    if msg.is_cmd("!join") || msg.is_cmd("!in") || msg.is_cmd("!play") {
                         let (_, cur_max) = deck_spec.player_range();
                         if players.len() >= cur_max {
                             msg.reply(
@@ -729,6 +657,11 @@ pub async fn recruit_players_tracked(
                         ))?;
                     } else if msg.is_cmd("!help") {
                         send_open_lobby_help(&msg, &players[0])?;
+                    } else if msg.is_cmd("!reveal") {
+                        msg.reply(
+                            "⏳ Finish the current game first — !reveal is available after voting ends!"
+                                .yellow(),
+                        )?;
                     } else if handle_catalog_query(room, &msg)? {
                         continue;
                     } else if let Some(launch_arg) = extract_launch_attempt_arg(&msg) {
@@ -940,7 +873,6 @@ pub async fn recruit_players_tracked(
     };
 
     recruit_loop.run_until_deadline(deadline).await?;
-    drop(recruitment_guard);
 
     players.retain(|u| is_active_in_room(room, u));
     let (min_req, max_req) = deck_spec.player_range();
@@ -967,107 +899,196 @@ pub async fn recruit_players_tracked(
 }
 
 // ============================================================================
-// Persistent Multi-Game Lobby Supervisor (`run_lobby_bot`)
+// Stateful Three-Phase Lobby (`OnuwLobby`) & Standalone Loop (`run_lobby_bot`)
 // ============================================================================
 
-pub async fn run_lobby_bot(
+/// A validated `!start [pack|scenario]` request ready to open pre-game recruitment.
+#[derive(Debug)]
+pub struct OnuwLaunch {
+    pub starter: User,
+    pub deck_spec: DeckSpec,
+}
+
+/// A recruited One Night Ultimate Werewolf round ready to be dealt and played.
+#[derive(Debug)]
+pub struct OnuwRound {
+    pub host: User,
+    pub players: Vec<User>,
+    pub deck_spec: DeckSpec,
+}
+
+/// Stateful ONUW channel lobby exposing explicit idle (`wait_for_start`), recruitment
+/// (`recruit`), and gameplay (`play_round`) phases so callers (such as a multi-game supervisor)
+/// own the outer loop and admin cancellation boundaries.
+#[derive(Debug)]
+pub struct OnuwLobby {
+    config: GameConfig,
+    pending_reveal: Option<GameReveal>,
+    announced_help: bool,
+}
+
+fn abort_stop_listener(
     bot: &Bot,
     lobby: &Room,
-    admins: &[String],
-    config: &GameConfig,
-) -> Result<()> {
-    send_lobby_help(lobby)?;
-    let mut pending_reveal: Option<GameReveal> = None;
-
-    loop {
-        let Some((starter, initial_spec)) = ({
-            let mut inbox = lobby.inbox().lossy();
-            loop {
-                let idle_msg = match inbox.next_chat().until(bot.shutdown_requested()).await {
-                    Outcome::Completed(res) => res?,
-                    Outcome::Stopped(()) => break None,
-                };
-
-                if idle_msg.is_cmd("!help") {
-                    send_lobby_help(lobby)?;
-                    continue;
+    host: &User,
+) -> impl std::future::Future<Output = ChatMessage> + Send + 'static {
+    let scope = InboxScope::new().room(lobby).dm_from(host);
+    let inbox = bot.inbox_scope(scope);
+    let host = host.clone();
+    let lobby = lobby.clone();
+    async move {
+        inbox
+            .on_map(move |m| {
+                if !m.is_cmd("!abort") {
+                    return None;
                 }
-                if idle_msg.is_cmd("!reveal") {
-                    match pending_reveal.take() {
-                        Some(reveal) => reveal.announce(lobby)?,
-                        None => {
-                            idle_msg.reply("Nothing left to reveal from the last game!".yellow())?
-                        }
-                    }
-                    continue;
-                }
-                if handle_catalog_query(lobby, &idle_msg)? {
-                    continue;
-                }
+                let is_host = m.sender == host;
+                let host_gone = !is_active_in_room(&lobby, &host);
+                (is_host || (host_gone && m.is_in(&lobby))).then(|| m.clone())
+            })
+            .await
+    }
+}
 
-                let Some(raw_args) = idle_msg
-                    .cmd_args("!onuw")
-                    .or_else(|| idle_msg.cmd_args("!werewolf"))
-                    .or_else(|| idle_msg.cmd_args("!play"))
-                    .or_else(|| idle_msg.cmd_args("!start"))
-                else {
-                    continue;
-                };
+fn handle_round_error(lobby: &Room, err: Error) -> Result<()> {
+    let lost_lobby = matches!(
+        &err,
+        Error::BotLeftRoom { channel, .. } if lobby.casemap().str_eq(channel, lobby.name())
+    );
+    if err.is_fatal() || lost_lobby {
+        return Err(err);
+    }
+    tracing::warn!(error = %err, "ONUW game ended early");
+    lobby.say(
+        format_args!("⚠️ ONUW game ended early: {err} — lobby is open again!").yellow(),
+    )?;
+    Ok(())
+}
 
-                let trimmed = raw_args.trim();
-                let Some(spec) = DeckSpec::parse(trimmed) else {
-                    idle_msg.reply(
-                        format_args!(
-                            "Unknown pack or scenario '{trimmed}' — try !scenarios!"
-                        )
-                        .yellow(),
-                    )?;
-                    continue;
-                };
+fn handle_abort(lobby: &Room, abort_msg: &ChatMessage) -> Result<()> {
+    if abort_msg.is_dm() {
+        abort_msg.reply("🛑 Aborted ONUW game.".yellow())?;
+    }
+    lobby.say(irc_format!(
+        "🛑 {} {}",
+        abort_msg.sender.nick().bold(),
+        "aborted the ONUW game — lobby is open!".yellow(),
+    ))?;
+    Ok(())
+}
 
-                pending_reveal = None;
-                break Some((idle_msg.sender.clone(), spec));
+impl OnuwLobby {
+    pub fn new(config: GameConfig) -> Self {
+        Self {
+            config,
+            pending_reveal: None,
+            announced_help: false,
+        }
+    }
+
+    /// Phase 1: handles idle lobby commands (`!help`, `!reveal`, catalog lookups) until a player
+    /// starts a round with `!start [pack|scenario]`.
+    pub async fn wait_for_start(&mut self, lobby: &Room) -> Result<OnuwLaunch> {
+        if !self.announced_help {
+            send_lobby_help(lobby)?;
+            self.announced_help = true;
+        }
+
+        let mut inbox = lobby.inbox().lossy();
+        loop {
+            let idle_msg = inbox.next_chat().await?;
+            if idle_msg.is_cmd("!help") {
+                send_lobby_help(lobby)?;
+                continue;
             }
-        }) else {
-            break;
+            if idle_msg.is_cmd("!reveal") {
+                match self.pending_reveal.take() {
+                    Some(reveal) => reveal.announce(lobby)?,
+                    None => {
+                        idle_msg.reply("Nothing left to reveal from the last game!".yellow())?
+                    }
+                }
+                continue;
+            }
+            if handle_catalog_query(lobby, &idle_msg)? {
+                continue;
+            }
+
+            let Some(raw_args) = idle_msg.cmd_args("!start") else {
+                continue;
+            };
+            let trimmed = raw_args.trim();
+            let Some(deck_spec) = DeckSpec::parse(trimmed) else {
+                idle_msg.reply(
+                    format_args!("Unknown pack or scenario '{trimmed}' — try !scenarios!").yellow(),
+                )?;
+                continue;
+            };
+
+            return Ok(OnuwLaunch {
+                starter: idle_msg.sender.clone(),
+                deck_spec,
+            });
+        }
+    }
+
+    /// Phase 2: runs open pre-game recruitment (`!join`/`!preset`/`!add`/`!go`, host `!abort`).
+    /// Returns `Ok(Some(round))` when ready to deal, or `Ok(None)` if cancelled/emptied/timed out
+    /// without enough players.
+    pub async fn recruit(
+        &mut self,
+        bot: &Bot,
+        lobby: &Room,
+        launch: OnuwLaunch,
+    ) -> Result<Option<OnuwRound>> {
+        let outcome = recruit_players(lobby, launch.starter.clone(), launch.deck_spec, &self.config)
+            .until(abort_stop_listener(bot, lobby, &launch.starter))
+            .await;
+
+        match outcome {
+            Outcome::Completed(Ok(Some((players, deck_spec)))) => {
+                let host = players[0].clone();
+                Ok(Some(OnuwRound {
+                    host,
+                    players,
+                    deck_spec,
+                }))
+            }
+            Outcome::Completed(Ok(None)) => Ok(None),
+            Outcome::Completed(Err(err)) => {
+                handle_round_error(lobby, err)?;
+                Ok(None)
+            }
+            Outcome::Stopped(abort_msg) => {
+                handle_abort(lobby, &abort_msg)?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// Phase 3: deals roles and runs a full Dusk/Night/Day/Voting round to completion (or host
+    /// `!abort`). Stores the post-game [`GameReveal`] for the next `!reveal`.
+    pub async fn play_round(
+        &mut self,
+        bot: &Bot,
+        lobby: &Room,
+        round: OnuwRound,
+    ) -> Result<()> {
+        self.pending_reveal = None;
+
+        let (roster, initial_board) = match round.deck_spec.deal(&round.players) {
+            Ok(dealt) => dealt,
+            Err(_) => {
+                return handle_round_error(lobby, Error::InvalidInput("invalid ONUW deck size"));
+            }
         };
 
-        let admin_list = admins.to_vec();
-        let lobby_for_admin = lobby.clone();
-        let admin_stop = bot.inbox().on_map(move |m| {
-            (is_admin_msg(m, &admin_list)
-                && m.is_cmd("!stop")
-                && (m.is_dm() || m.is_in(&lobby_for_admin)))
-            .then(|| StopReason::Admin(Box::new(m.clone())))
-        });
-
-        let abort_scope = InboxScope::new().room(lobby).dm_from(&starter);
-        let starter_for_abort = starter.clone();
-        let lobby_for_abort = lobby.clone();
-        let abort_stop = bot.inbox_scope(abort_scope).on_map(move |m| {
-            if !(m.is_cmd("!abort") || m.is_cmd("!stop")) {
-                return None;
-            }
-            let is_starter = m.sender == starter_for_abort;
-            let starter_gone = !is_active_in_room(&lobby_for_abort, &starter_for_abort);
-            if is_starter || (starter_gone && m.is_in(&lobby_for_abort)) {
-                Some(StopReason::Aborted(Box::new(m.clone())))
-            } else {
-                None
-            }
-        });
-
-        let phase_tracker = LobbyPhaseTracker::new();
-        let phase_for_busy = phase_tracker.clone();
-        let starter_for_busy = starter.clone();
+        let host_for_busy = round.host.clone();
         let lobby_for_busy = lobby.clone();
         let busy_responder = lobby.inbox().on_map(move |msg| {
             if extract_launch_attempt_arg(msg).is_some() {
-                if phase_for_busy.is_recruiting() {
-                    return None;
-                }
-                let abort_hint = if is_active_in_room(&lobby_for_busy, &starter_for_busy) {
-                    format!("{} can type !abort", starter_for_busy.nick())
+                let abort_hint = if is_active_in_room(&lobby_for_busy, &host_for_busy) {
+                    format!("{} can type !abort", host_for_busy.nick())
                 } else {
                     "type !abort".to_owned()
                 };
@@ -1081,66 +1102,68 @@ pub async fn run_lobby_bot(
                         .yellow(),
                 );
             }
-            None::<StopReason>
+            None::<ChatMessage>
         });
 
-        let outcome = run_single_game_tracked(
+        let outcome = run_dealt_game(
             bot,
             lobby,
-            starter,
-            initial_spec,
-            config,
-            Some(&phase_tracker),
+            &roster,
+            initial_board,
+            &round.deck_spec.mode_label(),
+            &self.config,
         )
-        .until(bot.shutdown_requested().map(|()| StopReason::Shutdown))
-        .or_until(admin_stop)
-        .or_until(abort_stop)
+        .until(abort_stop_listener(bot, lobby, &round.host))
         .or_until(busy_responder)
         .await;
 
         match outcome {
-            Outcome::Completed(Ok(PlayOutcome::Completed(reveal))) => {
-                pending_reveal = Some(reveal);
+            Outcome::Completed(Ok(summary)) => {
+                self.pending_reveal = Some(summary.reveal);
                 lobby.say(irc_format!(
                     "🏁 {} Discuss what happened, then type {} for the full reveal — or {} for another round!",
                     "Round complete!".bold().green(),
                     "!reveal".bold().yellow(),
-                    "!onuw [pack|scenario]".bold().cyan(),
+                    "!start [pack|scenario]".bold().cyan(),
                 ))?;
             }
-            Outcome::Completed(Ok(PlayOutcome::NotEnoughPlayers)) => {}
-            Outcome::Completed(Err(err)) => {
-                let lost_lobby = matches!(
-                    &err,
-                    Error::BotLeftRoom { channel, .. } if lobby.casemap().str_eq(channel, lobby.name())
-                );
-                if err.is_fatal() || lost_lobby {
-                    return Err(err);
-                }
-                tracing::warn!(error = %err, "ONUW game ended early");
-                lobby.say(
-                    format_args!("⚠️ ONUW game ended early: {err} — lobby is open again!").yellow(),
-                )?;
-            }
-            Outcome::Stopped(StopReason::Shutdown) => break,
-            Outcome::Stopped(StopReason::Admin(admin_msg)) => {
-                admin_msg.reply("🛑 Stopped ONUW game.".yellow())?;
-                if admin_msg.is_dm() {
-                    lobby.say("🛑 ONUW game was stopped by an admin.".yellow())?;
-                }
-            }
-            Outcome::Stopped(StopReason::Aborted(abort_msg)) => {
-                if abort_msg.is_dm() {
-                    abort_msg.reply("🛑 Aborted ONUW game.".yellow())?;
-                }
-                lobby.say(irc_format!(
-                    "🛑 {} {}",
-                    abort_msg.sender.nick().bold(),
-                    "aborted the ONUW game — lobby is open!".yellow(),
-                ))?;
-            }
+            Outcome::Completed(Err(err)) => handle_round_error(lobby, err)?,
+            Outcome::Stopped(abort_msg) => handle_abort(lobby, &abort_msg)?,
+        }
+
+        Ok(())
+    }
+}
+
+pub async fn run_lobby_bot(bot: &Bot, lobby: &Room, config: &GameConfig) -> Result<()> {
+    let mut state = OnuwLobby::new(config.clone());
+    loop {
+        let launch = match state
+            .wait_for_start(lobby)
+            .until(bot.shutdown_requested())
+            .await
+        {
+            Outcome::Completed(res) => res?,
+            Outcome::Stopped(()) => break,
+        };
+        let Some(round) = (match state
+            .recruit(bot, lobby, launch)
+            .until(bot.shutdown_requested())
+            .await
+        {
+            Outcome::Completed(res) => res?,
+            Outcome::Stopped(()) => break,
+        }) else {
+            continue;
+        };
+        match state
+            .play_round(bot, lobby, round)
+            .until(bot.shutdown_requested())
+            .await
+        {
+            Outcome::Completed(res) => res?,
+            Outcome::Stopped(()) => break,
         }
     }
-
     Ok(())
 }

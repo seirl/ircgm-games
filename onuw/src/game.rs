@@ -11,8 +11,8 @@ use crate::voting::{resolve_and_announce_winners, GameReveal};
 use crate::day::{run_day_phase, run_voting_phase};
 use crate::deck::DeckSpec;
 use crate::lobby::{
-    recruit_players_tracked, send_active_game_help, send_artifacts_catalog, send_marks_catalog,
-    send_single_artifact_info, send_single_mark_info, send_single_role_info, LobbyPhaseTracker,
+    recruit_players, send_active_game_help, send_artifacts_catalog, send_marks_catalog,
+    send_single_artifact_info, send_single_mark_info, send_single_role_info,
 };
 use crate::marks::find_mark;
 use crate::night::{format_role_order, run_night_phase, NightTimings};
@@ -44,20 +44,6 @@ impl Default for GameConfig {
 }
 
 impl GameConfig {
-    pub fn fast_mode() -> Self {
-        Self {
-            lobby_duration: Duration::from_secs(30),
-            night_timings: NightTimings {
-                tier_budget: Duration::from_secs(15),
-                copycat_pick_budget: Duration::from_secs(10),
-                warn_remaining: Some(Duration::from_secs(5)),
-            },
-            day_duration_override: Some(Duration::from_secs(90)),
-            vote_timeout: Duration::from_secs(25),
-            vote_warn_remaining: Some(Duration::from_secs(5)),
-        }
-    }
-
     pub fn for_tests() -> Self {
         Self {
             lobby_duration: Duration::from_secs(15),
@@ -99,19 +85,7 @@ pub async fn run_single_game(
     initial_spec: DeckSpec,
     config: &GameConfig,
 ) -> Result<PlayOutcome> {
-    run_single_game_tracked(bot, room, host, initial_spec, config, None).await
-}
-
-pub async fn run_single_game_tracked(
-    bot: &Bot,
-    room: &Room,
-    host: User,
-    initial_spec: DeckSpec,
-    config: &GameConfig,
-    phase_tracker: Option<&LobbyPhaseTracker>,
-) -> Result<PlayOutcome> {
-    let Some((players, deck_spec)) =
-        recruit_players_tracked(room, host, initial_spec, config, phase_tracker).await?
+    let Some((players, deck_spec)) = recruit_players(room, host, initial_spec, config).await?
     else {
         return Ok(PlayOutcome::NotEnoughPlayers);
     };

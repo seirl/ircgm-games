@@ -42,7 +42,7 @@ Options:
   -n, --nick <NICK>            Bot nickname (default: ircgm-<random4>)
       --password <PASS>        Optional server PASS (on Libera.Chat: <account>:<password> for NickServ)
       --tls / --no-tls         Force TLS on or off (auto-enabled for ircs:// and ports 6697/7000/7070)
-      --admin <ACCOUNT>        Services account allowed to run `!fast`, `!stop`, and `!quit` (repeatable)
+      --admin <ACCOUNT>        Services account allowed to run `!game <name>`, `!stop`, and `!quit` (repeatable)
   -v, --verbose                Enable debug-level tracing output
   -h, --help                   Show this help message
 
@@ -50,13 +50,10 @@ Available games:
 {available}
 
 Lobby commands:
-  !play <game> [args]          Start an enabled game (`!<game>` shorthand also works)
-  !random                      Start a random enabled game
-  !reveal                      Reveal hidden roles and action log from the last finished game
-  !games / !help               List enabled games and commands
-  !abort                       Cancel the active game
-  !fast [on|off]               (Admin) Toggle fast-timer mode for upcoming games
-  !stop / !quit                (Admin) Stop the active game / shut down the bot"
+  !game / !games               Show the active game lobby and enabled games
+  !game <name|none>            (Admin) Start or switch the channel's active game lobby (or return to idle)
+  !stop                        (Admin) Stop the active recruitment lobby or game in progress
+  !quit                        (Admin) Shut down the bot"
     )
 }
 
