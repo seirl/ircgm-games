@@ -1246,3 +1246,85 @@ async fn canonical_deck_role_order_formats_all_phases_and_announces_at_night_sta
         format!("📋 Role order — Dusk: {expected_dusk} · Night: {expected_night}"),
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn four_faction_epic_battle_village_wins_when_two_monster_factions_lose_a_threat() {
+    use crate::roles::alien::alien::{AlienEvent, ForcedAlienEvent, ALIEN};
+    use crate::roles::vampire::vampire::VAMPIRE;
+
+    // 4-faction Epic Battle: Village (Alice) + Werewolf (Carol) + Vampire (Dave + bitten Bob) + Alien (Eve).
+    // Case 1: Carol (Werewolf, 2 votes) and Dave (Vampire, 1 vote) die while Eve (Alien) survives:
+    //   - Village wins (>= 2 distinct monster factions killed), AND Alien co-wins (survived + rival died)!
+    let mut h1 = OnuwTestHarness::new(
+        &[
+            ("Alice", &VILLAGER),
+            ("Bob", &VILLAGER),
+            ("Carol", &WEREWOLF),
+            ("Dave", &VAMPIRE),
+            ("Eve", &ALIEN),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h1.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
+    let n1 = h1.spawn_night();
+    h1.reply_dm("Dave", "Bob").await; // Vampire bites Bob (Vampire team = Dave + Bob)
+    h1.reply_dm("Carol", "pass").await; // Lone Wolf passes
+    let rep1 = h1.finish_night(n1).await;
+
+    let dawn1 = h1
+        .resolve_voting(
+            rep1,
+            &[
+                ("Alice", Some("Carol")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Dave")),
+                ("Dave", Some("Carol")),
+                ("Eve", Some("Carol")),
+            ],
+        )
+        .await;
+    // Carol has 4 votes (1st), Dave has 1 vote (2nd) -> both die!
+    assert_eq!(
+        dawn1.dead_nicks(&h1.roster),
+        std::collections::HashSet::from(["Carol".to_owned(), "Dave".to_owned()])
+    );
+    assert_eq!(dawn1.winner_nicks(&h1.roster), vec!["Alice", "Eve"]);
+
+    // Case 2: Only 1 monster faction dies (Carol Werewolf, 3 votes) plus Alice (Villager, 2 votes):
+    //   - Village loses (only 1 monster faction killed), while surviving Vampires (Bob, Dave) and Alien (Eve) co-win!
+    let mut h2 = OnuwTestHarness::new(
+        &[
+            ("Alice", &VILLAGER),
+            ("Bob", &VILLAGER),
+            ("Carol", &WEREWOLF),
+            ("Dave", &VAMPIRE),
+            ("Eve", &ALIEN),
+        ],
+        [&VILLAGER, &VILLAGER, &VILLAGER],
+    )
+    .await;
+    h2.set_key(ForcedAlienEvent(Some(AlienEvent::StandardRecon)));
+    let n2 = h2.spawn_night();
+    h2.reply_dm("Dave", "Bob").await;
+    h2.reply_dm("Carol", "pass").await;
+    let rep2 = h2.finish_night(n2).await;
+
+    let dawn2 = h2
+        .resolve_voting(
+            rep2,
+            &[
+                ("Alice", Some("Carol")),
+                ("Bob", Some("Carol")),
+                ("Carol", Some("Alice")),
+                ("Dave", Some("Alice")),
+                ("Eve", Some("Carol")),
+            ],
+        )
+        .await;
+    assert_eq!(
+        dawn2.dead_nicks(&h2.roster),
+        std::collections::HashSet::from(["Alice".to_owned(), "Carol".to_owned()])
+    );
+    assert_eq!(dawn2.winner_nicks(&h2.roster), vec!["Bob", "Dave", "Eve"]);
+}

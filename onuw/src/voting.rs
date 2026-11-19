@@ -474,11 +474,16 @@ pub fn resolve_and_announce_winners(
     if let Some(forced) = forced_team_winner {
         winning_teams.insert(forced);
     } else {
+        // Rule (ONUA — Epic Battles): "Villager Team: At least 1 player from
+        // two different teams must be killed." In 4+-faction games, Village
+        // needs >= 2 distinct monster factions killed (not all 3 or 4).
         let village_wins = if !present_monster_factions.is_empty() {
+            let killed_monster_factions = present_monster_factions
+                .iter()
+                .filter(|&&f| threats_of(f).intersects(dead))
+                .count();
             !team_block.blocks(Team::Village)
-                && present_monster_factions
-                    .iter()
-                    .all(|&f| threats_of(f).intersects(dead))
+                && killed_monster_factions >= present_monster_factions.len().min(2)
         } else {
             !team_block.blocks(Team::Village) && dead.is_empty()
         };
